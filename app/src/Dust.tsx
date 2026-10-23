@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-// Flowing particle-dust hourglass / wave. White-grey only.
+// Flowing particle-dust hourglass / wave. Mint #7DF5D8 glow (particles only).
 export default function Dust({ height = 300 }: { height?: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
@@ -22,8 +22,9 @@ export default function Dust({ height = 300 }: { height?: number }) {
         const yy = y
         const edge = Math.abs(p.v)
         const a = 0.18 + 0.8 * Math.pow(edge, 3) * (0.4 + p.r)
-        ctx.fillStyle = `rgba(236,234,229,${Math.min(a, 0.9)})`
+        ctx.fillStyle = `rgba(125,245,216,${Math.min(a, 0.9)})`
         const sz = p.r > 0.97 ? 1.6 : 0.8
+        ctx.shadowBlur = p.r > 0.9 ? 6 : 0; ctx.shadowColor = 'rgba(125,245,216,0.8)'
         ctx.fillRect(x, yy, sz, sz)
       }
       raf = requestAnimationFrame(draw)
