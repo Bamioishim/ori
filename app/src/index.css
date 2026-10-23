@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
-  --bg:#0B0B0B; --surface:#141414; --grey:#D9D9D9; --white:#F5F4F1;
+  --bg:#000000; --surface:#0E0E0E; --grey:#D9D9D9; --white:#F5F4F1;
   --accent:#ECEAE5; /* TEMPORARY accent — single variable, swap when a colour is chosen */
   --line:rgba(217,217,217,.14); --dim:rgba(217,217,217,.5);
   color-scheme:dark;
@@ -101,7 +101,7 @@ section{padding:30px 0}
 .receipt{margin-top:24px;border-top:1px solid var(--grey);padding-top:20px}
 .money-r{font-size:34px;font-weight:300;letter-spacing:-.03em;margin-bottom:12px;font-variant-numeric:tabular-nums}.money-r .dim{font-size:15px;letter-spacing:0}
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:41}
-.sheet{position:fixed;left:50%;bottom:0;width:100%;max-width:480px;margin-left:-240px;z-index:42;background:#111;border-top:1px solid rgba(217,217,217,.22);padding:18px 20px 30px;height:360px;display:flex;flex-direction:column}
+.sheet{position:fixed;left:50%;bottom:0;width:100%;max-width:480px;margin-left:-240px;z-index:42;background:#0E0E0E;border-top:1px solid rgba(217,217,217,.22);padding:18px 20px 30px;height:360px;display:flex;flex-direction:column}
 @media (max-width:480px){.sheet{left:0;margin-left:0}}
 .sheet-head{display:flex;justify-content:space-between}
 .msgs{flex:1;display:flex;flex-direction:column;gap:8px;overflow:hidden;justify-content:flex-end;padding-bottom:10px}

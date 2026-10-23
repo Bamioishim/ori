@@ -346,7 +346,7 @@ export default function App() {
   const tabs: Screen[] = ['home', 'pay', 'swap', 'earn', 'privacy']
   return <div className="app">
     <div className="grain" />
-    <header><span className="logo">{APP_NAME}<sup>®</sup></span>
+    <header><span className="logo">{APP_NAME}</span>
       <button className={'mic ' + mic} onClick={toggleMic} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
         <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button></header>
