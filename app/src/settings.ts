@@ -5,7 +5,7 @@ export type Settings = {
   voice: boolean; wake: boolean; rate: number; fmt: Fmt; reduce: boolean
   scam: boolean; daily: number; perPay: number; holdAbove: number; trusted: string[]
 }
-export const DEFAULTS: Settings = { voice: true, wake: true, rate: 1.05, fmt: 'full', reduce: false, scam: true, daily: 500, perPay: 250, holdAbove: 20, trusted: ['@tolu', '@ade'] }
+export const DEFAULTS: Settings = { voice: true, wake: true, rate: 1.02, fmt: 'full', reduce: false, scam: true, daily: 500, perPay: 250, holdAbove: 20, trusted: ['@tolu', '@ade'] }
 const KEY = 'ori-settings'
 export function loadSettings(): Settings { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') } } catch { return DEFAULTS } }
 export function useSettings(): [Settings, (p: Partial<Settings>) => void] {

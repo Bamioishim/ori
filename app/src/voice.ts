@@ -26,8 +26,38 @@ export function startListening(cb: Cb) {
   try { rec.start(); cb.onState('listening') } catch { cb.onState('unsupported') }
   return () => { on = false; try { rec.stop() } catch { } cb.onState('off') }
 }
-export function speak(text: string, rate = 1.05) {
-  try { if (!('speechSynthesis' in window)) return; const u = new SpeechSynthesisUtterance(text); u.rate = rate; u.pitch = 1.25; speechSynthesis.cancel(); speechSynthesis.speak(u) } catch { }
+// Ori's voice: a small character — tiny but clear (bright voice, moderate pitch lift, not chipmunk).
+const PREFERRED = ['Google UK English Female', 'Samantha', 'Microsoft Aria Online (Natural)', 'Microsoft Jenny Online (Natural)', 'Microsoft Aria', 'Microsoft Jenny', 'Karen', 'Moira', 'Tessa', 'Serena', 'Victoria', 'Microsoft Zira', 'Google US English']
+let voice: SpeechSynthesisVoice | null = null
+function pickVoice() {
+  try {
+    const vs = speechSynthesis.getVoices(); if (!vs.length) return
+    const en = vs.filter(v => /^en/i.test(v.lang))
+    for (const n of PREFERRED) { const v = en.find(v => v.name.toLowerCase().includes(n.toLowerCase())); if (v) { voice = v; return } }
+    voice = en.find(v => /female|woman|girl|child/i.test(v.name)) || en[0] || vs[0]
+  } catch { }
+}
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) { pickVoice(); speechSynthesis.addEventListener?.('voiceschanged', pickVoice) }
+let actx: AudioContext | null = null
+function blip() {
+  try {
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext; if (!AC) return
+    actx = actx || new AC(); const c = actx!, t = c.currentTime
+    const o = c.createOscillator(), g = c.createGain()
+    o.type = 'sine'; o.frequency.setValueAtTime(880, t); o.frequency.exponentialRampToValueAtTime(1320, t + 0.08)
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.08, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12)
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.14)
+  } catch { }
+}
+export function speak(text: string, rate = 1.02) {
+  try {
+    if (!('speechSynthesis' in window)) return
+    if (!voice) pickVoice()
+    const u = new SpeechSynthesisUtterance(text)
+    if (voice) { u.voice = voice; u.lang = voice.lang }
+    u.rate = rate; u.pitch = 1.4; u.volume = 1
+    speechSynthesis.cancel(); blip(); setTimeout(() => speechSynthesis.speak(u), 90)
+  } catch { }
 }
 // scripted mock "AI" parser → structured action. Never executes; the UI asks the human to confirm.
 export type Action = { kind: 'pay'; to: string; amt: string } | { kind: 'swap' } | { kind: 'hide' } | { kind: 'show' } | { kind: 'balance' } | { kind: 'unknown' }
