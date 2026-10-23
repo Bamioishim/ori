@@ -8,15 +8,17 @@ export type OriApi = {
   listen: () => void
   run: (from: DOMRect) => Promise<void>
   block: (r: DOMRect | null) => void
-  rest: (bottomY: number | null) => void
+  rest: (bottomY: number | null, left?: number) => void
+  mood: (m: 'happy' | 'worried' | 'think' | null) => void
 }
+export type Expr = 'none' | 'yawn' | 'sleep' | 'happy' | 'worried' | 'think'
 const S = 56 // rendered size
 const M = '#7DF5D8', W = '#F2F1EC'
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
 
 // Ori sprite: orb bot (concept 2) + Courier's cross-body bag & speed lines
-export function OriSprite({ pose, face = 1, moving = false }: { pose: Pose; face?: number; moving?: boolean }) {
+export function OriSprite({ pose, face = 1, moving = false, look = { x: 0, y: 0 }, expr = 'none', big = false }: { pose: Pose; face?: number; moving?: boolean; look?: { x: number; y: number }; expr?: Expr; big?: boolean }) {
   const legs = pose === 'sit'
     ? <path d="M46 92 l-10 8 M74 92 l10 8" stroke={W} strokeWidth="4" strokeLinecap="round" />
     : pose === 'float'
@@ -31,7 +33,8 @@ export function OriSprite({ pose, face = 1, moving = false }: { pose: Pose; face
       : pose === 'block'
         ? <path d="M30 62 l-20 -10 M90 62 l20 -10" stroke={W} strokeWidth="3.6" strokeLinecap="round" />
         : <path d="M31 66 q-6 8 -4 14 M89 66 q6 8 4 14" stroke={W} strokeWidth="3" fill="none" strokeLinecap="round" />
-  const eyeX = pose === 'listen' ? 66 : pose === 'peek' ? 70 : 60
+  const eyeX = (pose === 'listen' ? 66 : pose === 'peek' ? 70 : 60) + (expr === 'think' ? -5 : look.x * face), eyeY = 59 + (expr === 'think' ? -3 : look.y)
+  const er = big ? 7 : 6
   return <svg viewBox="-14 -8 148 136" width={S * 1.23} height={S * 1.13} style={{ transform: `scaleX(${face})`, overflow: 'visible' }}>
     <defs>
       <radialGradient id="ori-orb" cx="38%" cy="30%" r="72%"><stop offset="0" stopColor="#ECEBE7" /><stop offset=".6" stopColor="#9A9A98" /><stop offset="1" stopColor="#363636" /></radialGradient>
@@ -45,11 +48,19 @@ export function OriSprite({ pose, face = 1, moving = false }: { pose: Pose; face
       : <><path d="M60 30 v-12" stroke={W} strokeWidth="2.4" /><circle cx="60" cy="15" r="3.4" fill="#8a8a8a" /></>}
     <circle cx="60" cy="62" r="32" fill="url(#ori-orb)" />
     <rect x="38" y="48" width="44" height="22" rx="11" fill="#0B0B0B" />
-    {pose === 'idle' || pose === 'sit'
-      ? <><circle cx={eyeX} cy="59" r="6" fill={M} filter="url(#ori-gl)" className="blink" /></>
-      : pose === 'block'
-        ? <path d="M54 54 l12 10 M66 54 l-12 10" stroke={M} strokeWidth="3.2" strokeLinecap="round" filter="url(#ori-gl)" />
-        : <><circle cx={eyeX} cy="59" r={pose === 'listen' ? 7 : 6} fill={M} filter="url(#ori-gl)" /><circle cx={eyeX + 2} cy="57" r="1.8" fill="#fff" /></>}
+    {expr === 'sleep'
+      ? <path d="M52 60 q8 5 16 0" stroke={M} strokeWidth="3" fill="none" strokeLinecap="round" filter="url(#ori-gl)" />
+      : expr === 'happy'
+        ? <path d={`M${eyeX - 7} 62 q7 -9 14 0`} stroke={M} strokeWidth="3.4" fill="none" strokeLinecap="round" filter="url(#ori-gl)" />
+        : expr === 'yawn'
+          ? <ellipse cx={eyeX} cy="59" rx="6" ry="1.6" fill={M} filter="url(#ori-gl)" />
+          : pose === 'block'
+            ? <path d="M54 54 l12 10 M66 54 l-12 10" stroke={M} strokeWidth="3.2" strokeLinecap="round" filter="url(#ori-gl)" />
+            : <><circle cx={eyeX} cy={eyeY} r={expr === 'worried' ? 4.6 : pose === 'listen' ? 7 : er} fill={M} filter="url(#ori-gl)" className={pose === 'idle' || pose === 'sit' ? 'blink' : undefined} /><circle cx={eyeX + 2} cy={eyeY - 2} r="1.8" fill="#fff" /></>}
+    {expr === 'worried' && <path d={`M${eyeX - 8} 51 l14 -3`} stroke={M} strokeWidth="2.2" strokeLinecap="round" opacity=".85" />}
+    {expr === 'yawn' && <ellipse cx="60" cy="80" rx="5" ry="6" fill="#0B0B0B" />}
+    {expr === 'sleep' && <g className="zz" fill={W} fontFamily="ui-monospace,monospace" fontWeight="700"><text x="88" y="30" fontSize="13">z</text><text x="100" y="16" fontSize="10" opacity=".7">z</text></g>}
+    {expr === 'think' && <g fill={W} opacity=".8"><circle cx="92" cy="34" r="2.4" /><circle cx="99" cy="25" r="3.2" /><circle cx="108" cy="14" r="4.2" /></g>}
     {/* courier cross-body bag */}
     <path d="M38 40 Q62 74 84 84" stroke="#4a4a4a" strokeWidth="3" fill="none" />
     <rect x="76" y="78" width="20" height="15" rx="3" fill="#2e2e2e" stroke={W} strokeWidth="1.4" />
@@ -59,8 +70,9 @@ export function OriSprite({ pose, face = 1, moving = false }: { pose: Pose; face
   </svg>
 }
 
-type Props = { hidden: boolean; reduced: boolean; screen: string; onTap: () => void }
-const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, onTap }, ref) {
+type Props = { hidden: boolean; reduced: boolean; screen: string; onTap: () => void; balance?: number | null; chat?: boolean }
+const HOVER = ['Hi there.', 'Need something? Click me.', 'I’m watching your back.', 'Double-click me. Go on.', 'Ask me about prices.']
+const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, onTap, balance = null }, ref) {
   const vw = () => innerWidth >= 1024 ? innerWidth : Math.min(innerWidth, innerWidth >= 768 ? 760 : 480), off = () => (innerWidth - vw()) / 2
   const x = useMotionValue(off() + vw() - 80), y = useMotionValue(innerHeight - 170)
   const [pose, setPose] = useState<Pose>('idle')
@@ -70,6 +82,13 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
   const busy = useRef<string | null>(null) // 'run' | 'block' | 'rest' | 'drag' | 'listen'
   const hop = useRef<HTMLDivElement>(null)
   const bTimer = useRef<number>(0)
+  const [look, setLook] = useState({ x: 0, y: 0 })
+  const [expr, setExprS] = useState<Expr>('none')
+  const exprRef = useRef<Expr>('none'); const eTimer = useRef(0)
+  const setExpr = (e: Expr, ms = 0) => { clearTimeout(eTimer.current); exprRef.current = e; setExprS(e); if (ms) eTimer.current = window.setTimeout(() => { exprRef.current = 'none'; setExprS('none') }, ms) }
+  const [hover, setHover] = useState(false)
+  const lastAct = useRef(Date.now()); const lastMove = useRef(Date.now())
+  const tapT = useRef(0)
 
   const moveTo = useCallback(async (tx: number, ty: number, how: 'walk' | 'float' | 'dash' = 'walk') => {
     const minX = off() - 8, maxX = off() + vw() - S + 8
@@ -136,6 +155,42 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
   // cover eyes when balance hidden
   useEffect(() => { if (!busy.current) setPose(hidden ? 'cover' : 'idle'); if (hidden) say('Not looking.', 1600) }, [hidden, say])
 
+  // eye follows the cursor
+  useEffect(() => {
+    let raf = 0
+    const f = (e: PointerEvent) => { lastMove.current = lastAct.current = Date.now(); cancelAnimationFrame(raf); raf = requestAnimationFrame(() => {
+      const dx = e.clientX - (x.get() + S / 2), dy = e.clientY - (y.get() + S / 2), d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 260)
+      setLook({ x: dx / d * 6 * k, y: dy / d * 3.5 * k }) }) }
+    const act = () => { lastAct.current = Date.now() }
+    addEventListener('pointermove', f); addEventListener('keydown', act); addEventListener('scroll', act, { passive: true }); addEventListener('pointerdown', act)
+    return () => { removeEventListener('pointermove', f); removeEventListener('keydown', act); removeEventListener('scroll', act); removeEventListener('pointerdown', act); cancelAnimationFrame(raf) }
+  }, [x, y])
+  // idle life: look around, yawn, nap, wake on activity
+  useEffect(() => {
+    let yawned = false
+    const i = setInterval(() => {
+      const idle = Date.now() - lastAct.current
+      if (busy.current === 'nap') { if (idle < 1000) { busy.current = null; setExpr('happy', 1200); setPose('idle'); say('Oh! I’m up. I’m up.', 2000); if (hop.current && !reduced) animate(hop.current, { y: [0, -18, 0] }, { duration: .6 }) } return }
+      if (busy.current) return
+      if (idle > 45000) { busy.current = 'nap'; setPose('sit'); setExpr('sleep'); say('Taking a quick nap. Move to wake me.', 2600); return }
+      if (idle > 22000 && !yawned) { yawned = true; setExpr('yawn', 1800); return }
+      if (idle < 2000) yawned = false
+      if (Date.now() - lastMove.current > 3500 && Math.random() < 0.18 && exprRef.current === 'none') { setLook({ x: rand(-6, 6), y: rand(-3, 3) }); setTimeout(() => setLook({ x: rand(-6, 6), y: rand(-2, 2) }), 900) }
+    }, 1000)
+    return () => clearInterval(i)
+  }, [reduced, say])
+  // peek at the balance when it changes
+  const prevBal = useRef<number | null>(null)
+  useEffect(() => {
+    const prev = prevBal.current; prevBal.current = balance
+    if (prev == null || balance == null || Math.abs(balance - prev) < 0.005 || busy.current) return
+    const t = document.querySelector('.total, .money')?.getBoundingClientRect()
+    busy.current = 'peekbal'
+    ;(async () => { if (t && t.top > 40 && t.top < innerHeight - 120) await moveTo(t.right - 10, t.top - S + 8, 'float'); setPose('peek'); setExpr(balance > prev ? 'happy' : 'worried', 2200); await sleep(2200); if (busy.current === 'peekbal') { busy.current = null; setPose('idle') } })()
+  }, [balance])
+  const spin = () => { if (!hop.current) return; setExpr('happy', 1400); say(['Wheee.', 'Again?', 'Ta-da.'][Math.floor(Math.random() * 3)], 1400); if (!reduced) animate(hop.current, { rotate: [0, 360], y: [0, -34, 0] }, { duration: .8, ease: [0.3, 0, 0.2, 1] }) }
+  const tap = () => { lastAct.current = Date.now(); if (busy.current === 'nap') return; if (tapT.current) { clearTimeout(tapT.current); tapT.current = 0; spin(); return } tapT.current = window.setTimeout(() => { tapT.current = 0; onTap() }, 260) }
+
   useImperativeHandle(ref, () => ({
     say,
     hop: () => { if (reduced || !hop.current) return; animate(hop.current, { y: [0, -26, 0, -8, 0] }, { duration: .9, ease: 'easeOut' }) },
@@ -152,9 +207,15 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
       busy.current = 'block'; moveTo(r.left + r.width / 2 - S / 2, r.top - S + 6, 'dash').then(() => setPose('block'))
       say('Stop. That address is flagged as a drainer.', 4200)
     },
-    rest: (top: number | null) => {
+    rest: (top: number | null, left?: number) => {
       if (top == null) { if (busy.current === 'rest') { busy.current = null; setPose('idle') } return }
-      busy.current = 'rest'; moveTo(off() + vw() - S - 18, top - S + 4, 'float').then(() => setPose('sit'))
+      busy.current = 'rest'; moveTo(left ?? off() + vw() - S - 18, top - S + 4, 'float').then(() => setPose('sit'))
+    },
+    mood: (m) => {
+      if (m === 'happy') { setExpr('happy', 2400); if (!reduced && hop.current) animate(hop.current, { y: [0, -30, 0, -10, 0], rotate: [0, -8, 8, 0] }, { duration: 1 }) }
+      else if (m === 'worried') { setExpr('worried', 3600); if (!reduced && hop.current) animate(hop.current, { x: [0, -4, 4, -3, 3, 0] }, { duration: .5 }) }
+      else if (m === 'think') setExpr('think', 6000)
+      else setExpr('none')
     },
   }), [say, moveTo, reduced, face])
 
@@ -164,9 +225,10 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     <motion.div className="ori" style={{ x, y }} drag dragMomentum={false}
       onDragStart={() => { busy.current = 'drag'; setPose('float') }}
       onDragEnd={() => { busy.current = null; setPose('idle') }}
-      onTap={onTap} aria-label="Ori, your Meridian agent. Tap to talk." role="button">
+      onTap={tap} onHoverStart={() => { setHover(true); if (!busy.current && !bubble && Math.random() < 0.6) say(HOVER[Math.floor(Math.random() * HOVER.length)], 1800) }} onHoverEnd={() => setHover(false)}
+      whileHover={reduced ? undefined : { scale: 1.08 }} aria-label="Ori, your ORI agent. Click to talk, double-click to spin." role="button">
       <div ref={hop}><motion.div animate={reduced || moving ? {} : { y: pose === 'float' ? [0, -4, 0] : [0, -1.5, 0] }} transition={{ repeat: Infinity, duration: pose === 'float' ? 1.8 : 2.6 }}>
-        <OriSprite pose={pose} face={face} moving={moving && pose !== 'float'} /></motion.div></div>
+        <OriSprite pose={pose} face={face} moving={moving && pose !== 'float'} look={look} expr={expr} big={hover} /></motion.div></div>
     </motion.div>
     <AnimatePresence>{bubble && <motion.div className="bubble" style={{ x: bx, y: by }} initial={{ opacity: 0, scale: .92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .95 }}>
       <span className="mono xs dim">ORI</span>{bubble}</motion.div>}</AnimatePresence>

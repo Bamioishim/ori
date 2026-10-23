@@ -2,6 +2,9 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { motion, AnimatePresence } from 'motion/react'
 import { APP_NAME } from './config'
+import { addSpent, limitCheck, logBlocked, setFmt, spentToday, usd, useSettings, type Settings } from './settings'
+import { SettingsScreen, SecurityScreen, HelpScreen } from './Screens'
+import { answer, DEFAULT_CHIPS, type Act, type Reply } from './brain'
 import { chains, assets, total, protocols } from './mock'
 import Dust from './Dust'
 import Intro, { useIntro } from './Intro'
@@ -9,11 +12,10 @@ import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, goplus, kindOf, quote, readPortfolio, short, tokens, type Holding, type Quote, type Risk } from './live'
-import { handleHeard, parse, speak, speechSupported, startListening } from './voice'
+import { handleHeard, speak, speechSupported, startListening } from './voice'
 
-type Screen = 'home' | 'pay' | 'swap' | 'earn' | 'privacy'
+type Screen = 'home' | 'pay' | 'swap' | 'earn' | 'privacy' | 'settings' | 'security' | 'help'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
-const usd = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 function Example() { return <span className="example">EXAMPLE DATA</span> }
 function Label({ children }: { children: React.ReactNode }) { return <div className="label">{children}</div> }
@@ -181,36 +183,46 @@ const fmtT = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: 
 
 export type Draft = { to: string; amt: string; k: number }
 const FLAGGED = /drain|scam|claim-airdrop/i // local demo heuristic for handles; real addresses go to GoPlus
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string }) {
+function ConfirmBtn({ label, need, blocked, limit, status, busyLabel, onGo, onLimit, btn }: { label: string; need: boolean; blocked: string | null; limit: string | null; status: string; busyLabel: string; onGo: (r: DOMRect) => void; onLimit: (r: DOMRect, why: string) => void; btn?: React.RefObject<HTMLButtonElement | null> }) {
+  const own = useRef<HTMLButtonElement>(null); const cta = btn || own
+  const [hold, setHold] = useState(false); const timer = useRef(0)
+  const go = () => { const r = cta.current!.getBoundingClientRect(); if (limit) { onLimit(r, limit); return } onGo(r) }
+  const start = () => { if (blocked || status !== 'idle') return; if (limit) { go(); return } if (!need) return; setHold(true); timer.current = window.setTimeout(() => { setHold(false); go() }, 750) }
+  const cancel = () => { clearTimeout(timer.current); setHold(false) }
+  return <button ref={cta} className={'cta hold sa2' + (hold ? ' holding' : '') + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'}
+    onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onClick={() => { if (!need && !limit && !blocked && status === 'idle') go() }}>
+    <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : (need ? 'Hold to ' : 'Tap to ') + label}</button>
+}
+
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
-  const [hold, setHold] = useState(false)
   const cta = useRef<HTMLButtonElement>(null)
-  const timer = useRef(0)
   useEffect(() => { setTo(draft.to); setAmt(draft.amt) }, [draft.k])
   const [risk, setRisk] = useState<Risk | null>(null)
   useEffect(() => { setChecked(false); setRisk(null); let dead = false
+    if (!cfg.scam) { setChecked(true); return }
     const t = setTimeout(async () => { const r = await goplus(to.trim()); if (dead) return; setRisk(r); setChecked(true); if (r.state === 'error') onEvent('Couldn’t reach GoPlus. Treat this address with care.') }, 500)
-    return () => { dead = true; clearTimeout(t) } }, [to])
-  const local = FLAGGED.test(to)
+    return () => { dead = true; clearTimeout(t) } }, [to, cfg.scam])
+  const local = cfg.scam && FLAGGED.test(to)
   const flagged = local || risk?.state === 'flagged'
   const why = risk?.state === 'flagged' ? `GoPlus flags this address: ${risk.flags.join(', ')}.` : 'That handle matches a known drainer pattern.'
-  useEffect(() => { onRisk(checked && flagged && cta.current ? cta.current.getBoundingClientRect() : null, why) }, [checked, flagged])
+  useEffect(() => { if (checked && flagged) logBlocked(`Payment to ${to}`, why); onRisk(checked && flagged && cta.current ? cta.current.getBoundingClientRect() : null, why) }, [checked, flagged])
   const n0 = +amt || 0
   const solTo = kindOf(to.trim()) === 'sol'
   const q = useQuote(n0 > 0 ? { from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(n0 * 1e6)), recipient: solTo ? to.trim() : PREVIEW.sol, refundTo, outDecimals: 6 } : null, `${n0}|${solTo ? to : ''}|${refundTo}`)
   useEffect(() => () => onRisk(null), [])
-  const st = (ok: string) => !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : ok
-  const start = () => { if (!checked || flagged || status !== 'idle') return; setHold(true); timer.current = window.setTimeout(() => { setHold(false); onConfirm(cta.current!.getBoundingClientRect()) }, 750) }
-  const cancel = () => { clearTimeout(timer.current); setHold(false) }
+  const trusted = cfg.trusted.includes(to.trim())
+  const st = (ok: string) => !cfg.scam ? 'CHECK OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : ok
   const n = n0
+  const limit = n > 0 ? limitCheck(cfg, n) : null
   return <div className="split pay-split">
     <section className="pad-top sa">
-      <Label>PAY · TO @HANDLE OR ADDRESS</Label>
+      <Label>PAY · TO @HANDLE OR ADDRESS {trusted && <span className="live-tag">TRUSTED</span>}</Label>
       <input className="field" value={to} onChange={e => setTo(e.target.value)} disabled={status !== 'idle'} />
       <div className="amount"><span>$</span><input value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" disabled={status !== 'idle'} /></div>
-      <div className="mono dim xs">They receive USDC on Solana · their choice of chain</div>
+      <div className="mono dim xs">They receive USDC on Solana · their choice of chain{limit ? <><br /><span className="limitnote">{limit}</span></> : n > cfg.holdAbove ? ` · hold required above ${usd(cfg.holdAbove)}` : ''}</div>
     </section>
     <div className="sbw">
     <section className="sb">
@@ -225,23 +237,23 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: D
       <QuoteMeta q={q} extra={solTo ? null : 'Quote uses a preview Solana recipient; handle → address lookup is still mocked.'} />
     </section>
     <section className="sb">
-      <Label>SCAM CHECK</Label>
-      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{!checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source}</span></span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{!checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
+      <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
+      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{!cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source}</span></span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{!cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
       <div className="row"><span className="grow">Token contract</span><span className="mono xs">{checked ? 'USDC · CANONICAL' : 'CHECKING…'}</span></div>
       <div className="row"><span className="grow">Drainer / approval risk</span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{st('NO APPROVAL NEEDED')}</span></div>
+      <div className="row"><span className="grow">Spending limits</span><span className={'mono xs' + (limit ? ' bad' : '')}>{limit ? 'OVER CAP' : `${usd(Math.max(0, cfg.daily - spentToday()))} LEFT TODAY`}</span></div>
     </section></div>
     {status === 'sent'
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>RECEIPT <Example /></Label>
+        <Label>RECEIPT <span className="example">SIMULATED</span></Label>
         <div className="money-r">{usd(n)} <span className="dim">sent to {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → Solana USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · simulated</span></div>
         <div className="row"><span className="grow">Quoted fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
         <div className="row"><span className="grow">Delivered by</span><span className="num">Ori</span></div>
       </motion.div>
-      : <button ref={cta} className={'cta hold sa2' + (hold ? ' holding' : '')} disabled={!checked || flagged || status !== 'idle'}
-        onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel}>
-        <span className="fill" />{flagged && checked ? 'Blocked — flagged address' : status === 'running' ? <Dots size={7} label="Ori is delivering" /> : status === 'done' ? <Check size={26} /> : `Hold to pay ${usd(n)}`}</button>}
+      : <ConfirmBtn btn={cta} label={`pay ${usd(n)}`} need={n > cfg.holdAbove} blocked={!checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
+        onGo={r => checked && onConfirm(r, n, to)} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
@@ -253,9 +265,10 @@ function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: 
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : 'Enter an amount for a live quote.'}</div>
   return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · ETA ~{q.q.eta}s · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
-function Swap({ refundEvm }: { refundEvm: string }) {
-  const [flip, setFlip] = useState(false)
-  const [amt, setAmt] = useState('1')
+function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
+  const [flip, setFlip] = useState(preset.flip)
+  const [amt, setAmt] = useState(preset.amt)
+  useEffect(() => { setFlip(preset.flip); setAmt(preset.amt) }, [preset.k])
   const [px, setPx] = useState<{ sol: number; usdc: number } | null>(null)
   useEffect(() => { tokens().then(ts => setPx({ sol: ts.find(t => t.assetId === ASSET.SOL)!.price, usdc: ts.find(t => t.assetId === ASSET.baseUSDC)!.price })).catch(() => { }) }, [])
   const n = +amt || 0
@@ -263,19 +276,24 @@ function Swap({ refundEvm }: { refundEvm: string }) {
   const to = flip ? { s: 'SOL', c: 'Solana', id: ASSET.SOL, d: 9, p: px?.sol } : { s: 'USDC', c: 'Base', id: ASSET.baseUSDC, d: 6, p: px?.usdc }
   const q = useQuote(n > 0 ? { from: from.id, to: to.id, amount: BigInt(Math.round(n * 10 ** from.d)), recipient: to.c === 'Base' ? refundEvm : PREVIEW.sol, refundTo: from.c === 'Base' ? refundEvm : PREVIEW.sol, outDecimals: to.d } : null, `${n}|${flip}`)
   const out = q.q ? q.q.amountOut : null
+  const fmtOut = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: to.d === 9 ? 4 : 2 })
+  const usdv = q.q ? q.q.amountInUsd : n * (from.p || 0)
+  const limit = usdv > 0 ? limitCheck(cfg, usdv) : null
+  const [sent, setSent] = useState<{ q: Quote; n: number; from: string; to: string } | null>(null)
+  const busy = status !== 'idle'
   return <div className="split swap-split">
     <section className="pad-top sa">
       <Label>SWAP · ONE TAP {px && <span className="live-tag">LIVE PRICES</span>}</Label>
       <div className="swapbox">
         <span className="mono xs dim">SEND</span>
-        <div className="swaprow"><input className="big2 amtin" value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><span>{from.s}<br /><span className="mono xs dim">{from.c}</span></span></div>
+        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><span>{from.s}<br /><span className="mono xs dim">{from.c}</span></span></div>
         <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}</span>
-        <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} onClick={() => setFlip(!flip)}>⇅</motion.button>
+        <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label="Flip direction">⇅</motion.button>
       </div>
       <div className="swapbox">
         <span className="mono xs dim">RECEIVE</span>
-        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? out.toLocaleString('en-US', { maximumFractionDigits: to.d === 9 ? 4 : 2 }) : '—'}</span><span>{to.s}<br /><span className="mono xs dim">{to.c}</span></span></div>
-        <span className="mono xs dim">{q.q ? usd(q.q.amountOutUsd) : ' '}</span>
+        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? fmtOut(out) : '—'}</span><span>{to.s}<br /><span className="mono xs dim">{to.c}</span></span></div>
+        <span className="mono xs dim">{q.q ? usd(q.q.amountOutUsd) : ' '}{limit && <span className="limitnote"> · {limit}</span>}</span>
       </div>
     </section>
     <section className="sb">
@@ -283,9 +301,20 @@ function Swap({ refundEvm }: { refundEvm: string }) {
       <div className="row"><span className="grow">Rate</span><span className="num">{q.q && n ? `1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}` : '—'}</span></div>
       <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? `~${q.q.eta}s` : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
-      <QuoteMeta q={q} extra={null} />
+      <div className="row"><span className="grow">Minimum received</span><span className="num">{q.q ? fmtOut(q.q.minOut) + ' ' + to.s : '—'}</span></div>
+      <QuoteMeta q={q} extra="Confirming runs a simulation with these live numbers. Nothing is signed or sent." />
     </section>
-    <button className="cta sa2" disabled title="Execution disabled in prototype">Swap · disabled in preview</button>
+    {status === 'sent' && sent
+      ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
+        <Label>SWAP RECEIPT <span className="example">SIMULATED</span></Label>
+        <div className="money-r">{sent.n} {sent.from} <span className="dim">→ {fmtOut(sent.q.amountOut)} {sent.to}</span></div>
+        <div className="row"><span className="grow">Value in</span><span className="num">{usd(sent.q.amountInUsd)}</span></div>
+        <div className="row"><span className="grow">Quoted fee</span><span className="num">{usd(sent.q.fee)}</span></div>
+        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · simulated · ~{sent.q.eta}s</span></div>
+        <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)} · dry run</span></div>
+      </motion.div>
+      : <ConfirmBtn label={`swap ${n || ''} ${from.s} → ${to.s}`} need={usdv > cfg.holdAbove} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"
+        onGo={r => { if (!q.q) return; setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
   </div>
 }
 
@@ -349,6 +378,8 @@ const activity = [
   { t: 'Received', who: '@kemi', amt: 200, note: 'USDT · Solana', when: 'Sun' },
 ]
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
+type Msg = { who: 'me' | 'ori'; t: string; chips?: string[]; pending?: Act }
+const MORE: Screen[] = ['earn', 'privacy', 'settings', 'security', 'help']
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
@@ -367,14 +398,21 @@ export default function App() {
   const [stage, skipIntro] = useIntro()
   const wide = useWide()
   const [menu, setMenu] = useState(new URLSearchParams(location.search).get('menu') === '1')
-  const [msgs, setMsgs] = useState<{ who: 'me' | 'ori'; t: string }[]>([{ who: 'ori', t: 'Hi, I’m Ori. Ask me to pay, swap or hide your balance. I always show you a card to confirm first.' }])
+  const [msgs, setMsgs] = useState<Msg[]>([{ who: 'ori', t: 'Hi, I’m Ori. Ask me about your balance, prices, safety, or tell me to pay or swap. I always show you a card to confirm first.', chips: DEFAULT_CHIPS }])
+  const [thinking, setThinking] = useState(false)
+  const [cfg, setCfg] = useSettings()
+  setFmt(cfg.fmt)
+  const [swapSt, setSwapSt] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
+  const [swapPre, setSwapPre] = useState({ amt: '1', flip: false, k: 0 })
+  const msgsEnd = useRef<HTMLDivElement>(null)
+  useEffect(() => { msgsEnd.current?.scrollIntoView({ block: 'end' }) }, [msgs.length, thinking, chat])
   const [input, setInput] = useState('')
   const [mic, setMic] = useState<'off' | 'listening' | 'unsupported' | 'denied'>('off')
   const [heard, setHeard] = useState<string | null>(null)
   const ori = useRef<OriApi>(null)
   const stopMic = useRef<() => void>(() => { })
-  const reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
-  useEffect(() => { if (reduced) return; const l = new Lenis({ lerp: 0.12 }); let r = 0; const f = (t: number) => { l.raf(t); r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => { cancelAnimationFrame(r); l.destroy() } }, [])
+  const reduced = cfg.reduce || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+  useEffect(() => { if (reduced) return; const l = new Lenis({ lerp: 0.12 }); let r = 0; const f = (t: number) => { l.raf(t); r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => { cancelAnimationFrame(r); l.destroy() } }, [reduced])
   useEffect(() => { document.title = APP_NAME }, [])
   const refresh = async () => {
     if (!addrs.length) { setLive({ loading: false, holdings: [], errors: [], at: null }); return }
@@ -393,44 +431,61 @@ export default function App() {
   // example incoming payment → balance up → Ori hops (example mode only)
   useEffect(() => { if (mode !== 'example') return; const t = setTimeout(() => { setExtra(12); ori.current?.hop(); ori.current?.say('+$12.00 from @ade. Nice. (example)', 2800) }, 5200); return () => clearTimeout(t) }, [])
   // sheet open → Ori returns to rest on the sheet's edge
-  useEffect(() => { ori.current?.rest(chat ? innerHeight - 360 : null) }, [chat])
+  useEffect(() => { if (!chat) { ori.current?.rest(null); return } if (wide) { const h = Math.min(560, innerHeight - 120); ori.current?.rest(innerHeight - 24 - h, innerWidth - 24 - 420 + 24) } else ori.current?.rest(innerHeight - 420) }, [chat, wide])
 
-  const oriSay = (t: string, voice = false) => { setMsgs(m => [...m, { who: 'ori', t }]); ori.current?.say(t); if (voice) speak(t) }
-  const command = (text: string, src = 'chat') => {
-    setMsgs(m => [...m, { who: 'me', t: text }])
-    const a = parse(text); const v = src !== 'chat'
-    if (a.kind === 'pay') {
-      setStatus('idle'); setDraft({ to: a.to, amt: a.amt, k: Date.now() }); setScreen('pay'); setChat(false); scrollTo(0, 0)
-      setTimeout(() => oriSay(`Card’s ready: $${a.amt} to ${a.to}. Check it, then hold to pay.`, v), 450)
-    } else if (a.kind === 'swap') { setScreen('swap'); setChat(false); oriSay('Swap is open. Pick what to send.', v) }
-    else if (a.kind === 'hide') { setHidden(true); oriSay('Hidden.', v) }
-    else if (a.kind === 'show') { setHidden(false); oriSay('Back on.', v) }
-    else if (a.kind === 'balance') oriSay(hidden ? 'It’s hidden. Say “show balance”.' : mode === 'live' ? `${usd(live.holdings.reduce((a, h) => a + h.usd, 0))} across your watched addresses, live.` : `You have ${usd(total + extra)} across 4 chains (example).`, v)
-    else oriSay('I can pay, swap, or hide your balance. Try “send $20 to tolu”.', v)
+  const talk = (t: string, voice: boolean) => { if (voice && cfg.voice) speak(t, cfg.rate) }
+  const oriSay = (t: string, voice = false, chips?: string[]) => { setMsgs(m => [...m, { who: 'ori', t, chips }]); ori.current?.say(t); talk(t, voice || chat) }
+  const rows = mode === 'live' ? live.holdings.map(h => ({ sym: h.sym, chain: h.chain, amt: h.amt, usd: h.usd })) : assets.map((a, i) => ({ sym: a.sym, chain: a.chain, amt: a.amt, usd: a.usd + (i === 0 ? extra : 0) }))
+  const goTo = (k: Screen) => { setScreen(k); setMenu(false); if (k === 'pay' && status === 'sent') setStatus('idle'); if (k === 'swap' && swapSt === 'sent') setSwapSt('idle'); scrollTo(0, 0) }
+  const doAct = (a: Act) => {
+    if (a.k === 'pay') { setStatus('idle'); setDraft({ to: a.to, amt: a.amt, k: Date.now() }); goTo('pay'); setChat(false) }
+    else if (a.k === 'swap') { setSwapSt('idle'); setSwapPre({ amt: a.amt, flip: a.flip, k: Date.now() }); goTo('swap'); setChat(false) }
+    else if (a.k === 'go') { goTo(a.screen as Screen); setChat(false) }
+    else if (a.k === 'mode') setMode(a.m)
+    else if (a.k === 'hide') setHidden(a.v)
+    else if (a.k === 'set') setCfg(a.patch)
+    else if (a.k === 'trust') { if (!cfg.trusted.includes(a.who)) setCfg({ trusted: [...cfg.trusted, a.who] }) }
   }
-  const wake = (src: string) => { ori.current?.listen(); setHeard(src === 'simulated' ? '“Hey Ori” · simulated' : '“Hey Ori”'); oriSay('Hey! What do you need?', true) }
+  const command = async (text: string, src = 'chat') => {
+    setMsgs(m => [...m.map(x => ({ ...x, pending: undefined })), { who: 'me', t: text }]); setThinking(true); ori.current?.mood('think')
+    let r: Reply
+    try { r = await answer(text, { mode, hidden, rows, settings: cfg, spent: spentToday() }) } catch { r = { text: 'Something went wrong on my side. Try again?' } }
+    setThinking(false); const v = src !== 'chat'
+    if (r.mood) ori.current?.mood(r.mood)
+    if (r.act && r.confirm) { setMsgs(m => [...m, { who: 'ori', t: r.text, chips: r.chips, pending: r.act }]); ori.current?.say(r.text); talk(r.text, v || chat); return }
+    oriSay(r.text, v, r.chips)
+    if (r.act) setTimeout(() => doAct(r.act!), r.act.k === 'pay' || r.act.k === 'swap' || r.act.k === 'go' ? 600 : 0)
+  }
+  const resolve = (i: number, ok: boolean) => { const m = msgs[i]; if (!m?.pending) return; setMsgs(ms => ms.map((x, j) => j === i ? { ...x, pending: undefined } : x)); if (ok) { doAct(m.pending); oriSay(m.pending.k === 'set' ? `Done: ${m.pending.label}.` : m.pending.k === 'trust' ? `${m.pending.who} is now trusted.` : m.pending.k === 'mode' ? `Switched to ${m.pending.m} mode.` : 'Done.'); ori.current?.mood('happy') } else oriSay('Okay, left it as it was.') }
+  const ask = (q?: string) => { setChat(true); if (q) command(q) }
+  const wake = (src: string) => { if (!cfg.wake) return; ori.current?.listen(); setHeard(src === 'simulated' ? '“Hey Ori” · simulated' : '“Hey Ori”'); oriSay('Hey! What do you need?', true) }
   // single entry for speech results (real mic and the demo simulation both call this)
   const heardCb = { onWake: wake, onCommand: (t: string, src: string) => { setHeard(`“${t}”${src === 'simulated' ? ' · simulated' : ''}`); command(t, src) }, onState: (s: string) => setMic(s as any) }
   useEffect(() => { (window as any).__ori = { hear: (t: string) => handleHeard(t, heardCb, 'simulated') } })
-  const toggleMic = () => { if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } stopMic.current = startListening(heardCb) }
-  const confirm = async (r: DOMRect) => { setStatus('running'); await ori.current?.run(r); setStatus('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 560); setStatus('sent'); setTimeout(() => setBurst(null), 420); setExtra(e => e - (+draft.amt || 0)); oriSay('Delivered. Receipt’s on the card.') }
+  const toggleMic = () => { if (!cfg.wake) { oriSay('The “Hey Ori” wake word is off. Turn it on in Settings, or click me to type.'); return } if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } stopMic.current = startListening(heardCb) }
+  const celebrate = async (r: DOMRect, set: (v: 'idle' | 'running' | 'done' | 'sent') => void) => { set('running'); await ori.current?.run(r); set('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 560); set('sent'); setTimeout(() => setBurst(null), 420); ori.current?.mood('happy') }
+  const confirm = async (r: DOMRect, amt: number, to: string) => { await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`Delivered ${usd(amt)} to ${to}. Simulated, nothing was signed. Receipt’s on the card.`) }
+  const confirmSwap = async (r: DOMRect, v: number, detail: string) => { await celebrate(r, setSwapSt); addSpent(v); oriSay(`Swapped ${detail}, simulated at the live quote. Nothing was signed.`) }
+  const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Security.`, false, ['Open security', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
+
 
   return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
-    {wide && <Dust full />}
+    {wide && <Dust full reduce={reduced} />}
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}</div>
       <div className="side-nav">
         {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
           {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
-          <button className={'side-item' + (screen === k ? ' on' : '') + (i > 4 ? ' soon' : '')} onClick={() => { if (i > 4) return; setScreen(k as Screen); if (k === 'pay' && status === 'sent') setStatus('idle'); scrollTo(0, 0) }} title={i > 4 ? 'Coming soon' : undefined}>
+          <button className={'side-item' + (screen === k ? ' on' : '') + ''} onClick={() => goTo(k as Screen)}>
             <span className="mono xs dim">{String(i + 1).padStart(2, '0')}</span>{label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
       </div>
-      <button className={'mic ' + mic} onClick={toggleMic} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
-        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>
-      <p className="mono xs dim side-foot">Preview · example data · nothing is signed</p>
+      <button className="side-ask" onClick={() => ask()}><span className="dot" />Ask Ori anything<span className="mono xs dim">CLICK</span></button>
+      <p className="mono xs dim side-foot">Preview · {mode === 'live' ? 'live watch-only' : 'example data'} · nothing is signed</p>
     </aside>}
+    {wide && <button className={'mic top-mic ' + mic} onClick={toggleMic} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
+        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
+        <span className="mono xs">{!cfg.wake ? 'WAKE OFF' : mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>}
     {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}
       <button className={'mic ' + mic} onClick={toggleMic} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
@@ -439,18 +494,21 @@ export default function App() {
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
         {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
-        {screen === 'pay' && <Pay draft={draft} status={status} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) ori.current?.say('Stop. ' + why, 4000) }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
-        {screen === 'swap' && <Swap refundEvm={refundEvm} />}
+        {screen === 'pay' && <Pay draft={draft} status={status} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
+        {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} speechOk={speechSupported()} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
+        {screen === 'security' && <SecurityScreen s={cfg} set={setCfg} />}
+        {screen === 'help' && <HelpScreen ask={ask} />}
         {screen === 'earn' && <Earn />}
         {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
     </AnimatePresence>
-    {!wide && <nav>{(['home', 'pay', 'swap'] as Screen[]).map((t, i) => <button key={t} onClick={() => { setScreen(t); setMenu(false); if (t === 'pay' && status === 'sent') setStatus('idle'); scrollTo(0, 0) }} className={screen === t && !menu ? 'on' : ''}>
+    {!wide && <nav>{(['home', 'pay', 'swap'] as Screen[]).map((t, i) => <button key={t} onClick={() => goTo(t)} className={screen === t && !menu ? 'on' : ''}>
       <span className="mono xs">{String(i + 1).padStart(2, '0')}</span>{t}
       {screen === t && !menu && <motion.i layoutId="nav" transition={spring} />}</button>)}
-      <button className={menu || screen === 'earn' || screen === 'privacy' ? 'on' : ''} onClick={() => setMenu(!menu)} aria-label="Menu">
+      <button className={menu || MORE.includes(screen) ? 'on' : ''} onClick={() => setMenu(!menu)} aria-label="Menu">
         <span className="burger" aria-hidden><motion.b animate={menu ? { rotate: 45, y: 3 } : { rotate: 0, y: 0 }} transition={spring} /><motion.b animate={menu ? { rotate: -45, y: -3 } : { rotate: 0, y: 0 }} transition={spring} /></span>More
-        {(menu || screen === 'earn' || screen === 'privacy') && <motion.i layoutId="nav" transition={spring} />}</button></nav>}
+        {(menu || MORE.includes(screen)) && <motion.i layoutId="nav" transition={spring} />}</button></nav>}
     <AnimatePresence>{menu && <>
       <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenu(false)} />
       <motion.div className="drawer" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={spring}>
@@ -458,19 +516,23 @@ export default function App() {
         <p className="mono xs dim">MORE</p>
         {([['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
-            onClick={() => { if (k === 'earn' || k === 'privacy') { setScreen(k); scrollTo(0, 0) } setMenu(false) }}>
+            onClick={() => goTo(k)}>
             <span className="mono xs dim">{String(i + 4).padStart(2, '0')}</span><span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
       </motion.div></>}</AnimatePresence>
     <AnimatePresence>{chat && <>
       <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChat(false)} />
       <motion.div className="sheet" initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={spring}>
-        <div className="sheet-head"><Label>ORI · YOUR AGENT · MOCK AI</Label><button className="mono xs dim" onClick={() => setChat(false)}>CLOSE</button></div>
-        <div className="msgs">{msgs.slice(-4).map((m, i) => <div key={i} className={'msg ' + (m.who === 'me' ? 'me' : 'bot')}>{m.t}</div>)}</div>
-        <div className="chips">{['send $20 to tolu', 'hide my balance', 'swap'].map(c => <button key={c} className="mono xs" onClick={() => command(c)}>{c}</button>)}</div>
-        <form onSubmit={e => { e.preventDefault(); if (input.trim()) { command(input); setInput('') } }} className="ask">
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori…" /><button className="mono xs">SEND</button></form>
+        <div className="sheet-head"><Label>ORI · LOCAL ASSISTANT · NO AI MODEL</Label><button className="mono xs dim" onClick={() => setChat(false)}>CLOSE</button></div>
+        <div className="msgs" data-lenis-prevent>{msgs.slice(-14).map((m, k) => { const i = msgs.length - Math.min(14, msgs.length) + k; return <motion.div key={i} className={'msgw ' + (m.who === 'me' ? 'me' : 'bot')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
+          <div className={'msg ' + (m.who === 'me' ? 'me' : 'bot')}>{m.t}</div>
+          {m.pending && <div className="confirm-row"><button className="ghost" onClick={() => resolve(i, false)}>Cancel</button><button className="ghost ok" onClick={() => resolve(i, true)}>Confirm</button></div>}
+          {m.who === 'ori' && m.chips && i === msgs.length - 1 && !thinking && <div className="chips">{m.chips.map(c => <button key={c} className="mono xs" onClick={() => command(c)}>{c}</button>)}</div>}
+        </motion.div> })}
+          {thinking && <div className="msg bot thinking"><Dots size={5} label="Ori is thinking" /></div>}<div ref={msgsEnd} /></div>
+        <form onSubmit={e => { e.preventDefault(); if (input.trim() && !thinking) { command(input); setInput('') } }} className="ask">
+          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" autoFocus={wide} /><button className="mono xs" disabled={thinking}>SEND</button></form>
       </motion.div></>}</AnimatePresence>
-    <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => setChat(true)} /></div>
+    <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => setChat(c => !c)} balance={hidden ? null : rows.reduce((a, r) => a + r.usd, 0)} chat={chat && wide} /></div>
     <AnimatePresence>{burst && <motion.div className="burst" initial={{ clipPath: `circle(0px at ${burst.x}px ${burst.y}px)` }} animate={{ clipPath: `circle(150vmax at ${burst.x}px ${burst.y}px)` }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : 0.55, ease: [0.65, 0, 0.35, 1] }} />}</AnimatePresence>
     <Intro stage={stage} skip={skipIntro} />
   </div></LayoutGroup>

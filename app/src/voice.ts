@@ -26,8 +26,8 @@ export function startListening(cb: Cb) {
   try { rec.start(); cb.onState('listening') } catch { cb.onState('unsupported') }
   return () => { on = false; try { rec.stop() } catch { } cb.onState('off') }
 }
-export function speak(text: string) {
-  try { if (!('speechSynthesis' in window)) return; const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; u.pitch = 1.25; speechSynthesis.cancel(); speechSynthesis.speak(u) } catch { }
+export function speak(text: string, rate = 1.05) {
+  try { if (!('speechSynthesis' in window)) return; const u = new SpeechSynthesisUtterance(text); u.rate = rate; u.pitch = 1.25; speechSynthesis.cancel(); speechSynthesis.speak(u) } catch { }
 }
 // scripted mock "AI" parser → structured action. Never executes; the UI asks the human to confirm.
 export type Action = { kind: 'pay'; to: string; amt: string } | { kind: 'swap' } | { kind: 'hide' } | { kind: 'show' } | { kind: 'balance' } | { kind: 'unknown' }

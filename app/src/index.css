@@ -230,3 +230,48 @@ nav{z-index:44}
   .app>main>section{max-width:860px;margin-left:auto;margin-right:auto}
 }
 @media (min-width:1600px){.d-hero .total .money{font-size:136px}.app{padding-left:320px}}
+/* ---- settings / security / help, chat, Ori extras ---- */
+.ghost{border:1px solid var(--line);padding:9px 13px;cursor:pointer;font-size:14px;white-space:nowrap;transition:border-color .2s}.ghost:hover{border-color:var(--grey)}
+.ghost.danger{border-color:rgba(255,107,107,.6);color:#ff8a8a}.ghost.ok{border-color:rgba(125,245,216,.6);color:var(--white)}
+.rowbtns{display:flex;gap:8px}
+.row.col{flex-direction:column;align-items:stretch;gap:10px}
+.row input[type=range]{width:100%;accent-color:#7DF5D8}
+.seg{margin-bottom:0;flex:none}.seg button{white-space:nowrap}
+.numin{display:inline-flex;align-items:center;border:1px solid var(--line);flex:none}
+.numin button{width:30px;height:32px;cursor:pointer;color:var(--grey)}.numin button:hover{color:var(--white)}
+.numin .mono{display:flex;align-items:center;padding:0 4px;border-left:1px solid var(--line);border-right:1px solid var(--line);height:32px}
+.numin input{width:52px;font:inherit;text-align:right;color:var(--white)}
+.meter{height:2px;background:var(--line);margin:-4px 0 6px}.meter i{display:block;height:100%;background:#7DF5D8;transition:width .4s}
+.verdict{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1px solid var(--line);margin-top:4px}
+.verdict.clean{border-color:rgba(125,245,216,.5)}.verdict.flagged{border-color:rgba(255,107,107,.7)}.verdict.flagged b{color:#ff8a8a}
+.how{display:grid;grid-template-columns:1fr;gap:14px;margin:6px 0 20px}
+.howc{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--line)}.howc b{font-weight:500;font-size:16px}.howc p{font-size:14px;line-height:1.5}
+.faq{border-bottom:1px solid var(--line)}.faqq{display:flex;width:100%;text-align:left;padding:16px 0;cursor:pointer;font-size:15px;gap:12px;align-items:center}
+.faqq .plus{font-size:20px;color:var(--grey);display:inline-block}.faqa{overflow:hidden}.faqa p{padding:0 0 16px;font-size:14px;line-height:1.55}
+.helpchips{margin-top:18px}
+.limitnote{color:#ff8a8a}
+.cta.over{background:transparent;color:#ff8a8a;border:1px solid rgba(255,107,107,.6)}
+.amtin{font:inherit;width:60%;min-width:0;color:var(--white);background:transparent}
+.msgs{overflow-y:auto;justify-content:flex-start}
+.msgs>:first-child{margin-top:auto}
+.msgw{display:flex;flex-direction:column;gap:6px}.msgw.me{align-items:flex-end}
+.msgw .chips{margin:2px 0 0}.msg.thinking{align-self:flex-start;padding:10px 14px}
+.confirm-row{display:flex;gap:8px}.confirm-row .ghost{padding:6px 12px;font-size:13px}
+.sheet{height:420px}
+.zz text{animation:zz 2.4s ease-in-out infinite}.zz text:last-child{animation-delay:.6s}
+@keyframes zz{0%,100%{opacity:.2;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}}
+.side-ask{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);margin-bottom:16px;cursor:pointer;font-size:14px;text-align:left;transition:border-color .2s}
+.side-ask:hover{border-color:var(--grey)}.side-ask .mono{margin-left:auto}
+.side-ask .dot{width:7px;height:7px;border-radius:50%;background:#7DF5D8;box-shadow:0 0 10px rgba(125,245,216,.6)}
+@media (min-width:1024px){
+  .top-mic{position:fixed;top:26px;right:40px;z-index:45;padding:8px 14px;background:rgba(0,0,0,.6);backdrop-filter:blur(10px)}
+  .top-mic svg{width:15px;height:15px}
+  .intro-on .top-mic,.intro-on .side-ask{opacity:0}.top-mic,.side-ask{transition:opacity .7s ease .15s}
+  .landing .top-mic,.landing .side-ask{opacity:1}
+  .sheet{left:auto;right:24px;bottom:24px;margin:0;width:420px;max-width:none;height:min(560px,calc(100vh - 120px));border:1px solid rgba(217,217,217,.22);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .pg{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+  .pg>section{border:1px solid var(--line);background:rgba(10,10,10,.72);backdrop-filter:blur(6px);padding:30px 32px;max-width:none!important;margin:0!important}
+  .pg>section.pad-top{grid-column:1 / -1}
+  .pg .how{grid-template-columns:repeat(4,1fr)}
+  .pg .cta{max-width:320px}
+}

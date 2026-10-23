@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 // Flowing particle-dust hourglass / wave. Mint #7DF5D8 glow (particles only).
-export default function Dust({ height = 300, full = false }: { height?: number; full?: boolean }) {
+export default function Dust({ height = 300, full = false, reduce: rp = false }: { height?: number; full?: boolean; reduce?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const c = ref.current!; const ctx = c.getContext('2d')!
@@ -8,7 +8,7 @@ export default function Dust({ height = 300, full = false }: { height?: number; 
     let W = 0, H = full ? innerHeight : height
     const N = full ? 4200 : 2600
     const P = Array.from({ length: N }, () => ({ u: Math.random(), v: Math.random() * 2 - 1, s: Math.random(), r: Math.random() }))
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduce = rp || matchMedia('(prefers-reduced-motion: reduce)').matches
     let t = 0, raf = 0, last = performance.now()
     const draw = (now = performance.now()) => {
       const dt = Math.min((now - last) / 1000, 0.05); last = now
@@ -32,6 +32,6 @@ export default function Dust({ height = 300, full = false }: { height?: number; 
       if (!reduce) raf = requestAnimationFrame(draw)
     }
     draw(); return () => cancelAnimationFrame(raf)
-  }, [height, full])
+  }, [height, full, rp])
   return <canvas ref={ref} className={'dust' + (full ? ' bgdust' : '')} style={full ? undefined : { height }} aria-hidden />
 }
