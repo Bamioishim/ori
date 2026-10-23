@@ -42,7 +42,7 @@ function ori(p){const lean=p=='act'?-6:0, eyeX=p=='listen'?66:60;
 // 3 Needle: compass sprite
 function needle(p){const rot=p=='listen'?-14:p=='act'?28:0;
  const body=`<g transform="rotate(${rot} 60 64)"><path d="M60 14 L84 64 L60 114 L36 64Z" fill="${W}"/><path d="M60 14 L36 64 L60 114Z" fill="#9b9b9b"/>
- <path d="M60 4 V124" stroke="${M}" stroke-width="2.4" filter="url(#gl)"/>
+ <path d="M60 4 V124" stroke="${M}" stroke-width="2.4"/>
  <circle cx="60" cy="64" r="7" fill="#0B0B0B"/><circle cx="60" cy="64" r="3" fill="${M}" filter="url(#gl)"/>
  ${p=='idle'?`<path d="M49 50 h5 M66 50 h5" stroke="#0B0B0B" stroke-width="2.4" stroke-linecap="round"/>`:`<circle cx="52" cy="50" r="2.8" fill="#0B0B0B"/><circle cx="68" cy="50" r="2.8" fill="#0B0B0B"/>`}</g>`;
  const extra=p=='listen'?`<g fill="none" stroke="${M}" stroke-width="1.4" opacity=".7"><circle cx="60" cy="64" r="48" stroke-dasharray="2 5"/><circle cx="60" cy="64" r="56" stroke-dasharray="1 7" opacity=".5"/></g>`
@@ -52,7 +52,7 @@ function needle(p){const rot=p=='listen'?-14:p=='act'?28:0;
 function courier(p){const tilt=p=='act'?10:0;
  const legs=p=='act'?`<path d="M52 98 l-12 12 M68 98 l14 6" stroke="${W}" stroke-width="3.2" stroke-linecap="round"/>`:`<path d="M52 100 v12 M68 100 v12" stroke="${W}" stroke-width="3.2" stroke-linecap="round"/>`;
  const eyes=p=='listen'?`<circle cx="54" cy="58" r="3.4" fill="${M}" filter="url(#gl)"/><circle cx="68" cy="58" r="3.4" fill="${M}" filter="url(#gl)"/>`
-   :p=='idle'?`<path d="M50 59 h7 M64 59 h7" stroke="${M}" stroke-width="2.6" stroke-linecap="round" filter="url(#gl)"/>`:`<circle cx="58" cy="58" r="3" fill="${M}" filter="url(#gl)"/><circle cx="71" cy="58" r="3" fill="${M}" filter="url(#gl)"/>`;
+   :p=='idle'?`<path d="M50 59 h7 M64 59 h7" stroke="${M}" stroke-width="2.6" stroke-linecap="round"/>`:`<circle cx="58" cy="58" r="3" fill="${M}" filter="url(#gl)"/><circle cx="71" cy="58" r="3" fill="${M}" filter="url(#gl)"/>`;
  const bag=`<path d="M36 74 Q60 80 80 86" stroke="#555" stroke-width="2.4"/><rect x="72" y="80" width="18" height="14" rx="3" fill="#3a3a3a" stroke="${W}" stroke-width="1.2"/>`;
  const extra=p=='act'?`${coin(96,40,10)}${coin(108,62,7)}<path d="M8 70 h18 M14 82 h14 M10 94 h16" stroke="#555" stroke-width="2" stroke-linecap="round"/>`:p=='listen'?waves(92,48):'';
  return `<g transform="rotate(${tilt} 60 80)">${legs}<path d="M60 22 C84 22 92 44 90 66 L94 102 H26 L30 66 C28 44 36 22 60 22Z" fill="#2b2b2b" stroke="${W}" stroke-width="1.6"/>
