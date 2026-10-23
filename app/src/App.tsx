@@ -295,6 +295,7 @@ export default function App() {
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
   const [status, setStatus] = useState<'idle' | 'running' | 'sent'>('idle')
   const [chat, setChat] = useState(false)
+  const [menu, setMenu] = useState(new URLSearchParams(location.search).get('menu') === '1')
   const [msgs, setMsgs] = useState<{ who: 'me' | 'ori'; t: string }[]>([{ who: 'ori', t: 'Hi, I’m Ori. Ask me to pay, swap or hide your balance. I always show you a card to confirm first.' }])
   const [input, setInput] = useState('')
   const [mic, setMic] = useState<'off' | 'listening' | 'unsupported' | 'denied'>('off')
@@ -360,9 +361,22 @@ export default function App() {
         {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
     </AnimatePresence>
-    <nav>{tabs.map((t, i) => <button key={t} onClick={() => { setScreen(t); if (t === 'pay' && status === 'sent') setStatus('idle'); scrollTo(0, 0) }} className={screen === t ? 'on' : ''}>
+    <nav>{(['home', 'pay', 'swap'] as Screen[]).map((t, i) => <button key={t} onClick={() => { setScreen(t); setMenu(false); if (t === 'pay' && status === 'sent') setStatus('idle'); scrollTo(0, 0) }} className={screen === t && !menu ? 'on' : ''}>
       <span className="mono xs">{String(i + 1).padStart(2, '0')}</span>{t}
-      {screen === t && <motion.i layoutId="nav" transition={spring} />}</button>)}</nav>
+      {screen === t && !menu && <motion.i layoutId="nav" transition={spring} />}</button>)}
+      <button className={menu || screen === 'earn' || screen === 'privacy' ? 'on' : ''} onClick={() => setMenu(!menu)} aria-label="Menu">
+        <span className="burger" aria-hidden><motion.b animate={menu ? { rotate: 45, y: 3 } : { rotate: 0, y: 0 }} transition={spring} /><motion.b animate={menu ? { rotate: -45, y: -3 } : { rotate: 0, y: 0 }} transition={spring} /></span>More
+        {(menu || screen === 'earn' || screen === 'privacy') && <motion.i layoutId="nav" transition={spring} />}</button></nav>
+    <AnimatePresence>{menu && <>
+      <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenu(false)} />
+      <motion.div className="drawer" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={spring}>
+        <div className="grab" />
+        <p className="mono xs dim">MORE</p>
+        {([['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
+          <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
+            onClick={() => { if (k === 'earn' || k === 'privacy') { setScreen(k); scrollTo(0, 0) } setMenu(false) }}>
+            <span className="mono xs dim">{String(i + 4).padStart(2, '0')}</span><span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
+      </motion.div></>}</AnimatePresence>
     <AnimatePresence>{chat && <>
       <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChat(false)} />
       <motion.div className="sheet" initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={spring}>

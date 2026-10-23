@@ -41,7 +41,7 @@ section{padding:26px 0;border-bottom:1px solid var(--line)}.pad-top{padding-top:
 .tg span{width:16px;height:16px;border-radius:50%;background:var(--dim)}.tg.on{justify-content:flex-end;border-color:var(--accent)}.tg.on span{background:var(--accent)}
 input[type=range]{width:100%;accent-color:var(--accent);margin-top:10px}
 .leak{border:1px dashed var(--line);padding:14px;line-height:1.8;color:var(--grey)}
-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;display:grid;grid-template-columns:repeat(5,1fr);background:rgba(11,11,11,.86);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:10px 8px 26px;z-index:40}
+nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;display:grid;grid-template-columns:repeat(4,1fr);background:rgba(0,0,0,.88);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:10px 8px 26px;z-index:40}
 nav button{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;text-transform:capitalize;color:var(--dim);padding:6px 0;cursor:pointer}
 nav button.on{color:var(--white)}nav i{position:absolute;top:-11px;left:22%;right:22%;height:1px;background:var(--accent)}
 
@@ -127,3 +127,13 @@ section{padding:30px 0}
 .amtin{width:60%;font-family:inherit;background:none;border:0;color:inherit}
 .cta:disabled{opacity:.45}
 .total .money.l7{font-size:46px}.total .money.l9{font-size:36px}
+
+nav{z-index:44}
+.burger{display:flex;flex-direction:column;justify-content:center;gap:4px;height:14px}.burger b{display:block;width:16px;height:1px;background:currentColor}
+.drawer{position:fixed;left:50%;bottom:0;width:100%;max-width:480px;z-index:43;background:#0B0B0B;border-top:1px solid rgba(217,217,217,.18);border-radius:18px 18px 0 0;padding:12px 20px 112px}
+@media (max-width:480px){.drawer{left:0;margin-left:0}}
+.drawer{left:max(0px,calc(50% - 240px));margin-left:0}
+.grab{width:36px;height:3px;border-radius:2px;background:rgba(217,217,217,.25);margin:0 auto 16px}
+.drow{display:flex;align-items:center;gap:16px;width:100%;padding:16px 0;border-bottom:1px solid var(--line);text-align:left;color:var(--white);cursor:pointer}
+.dl{flex:1;display:flex;flex-direction:column;gap:3px;font-size:18px;letter-spacing:-.01em}.dl small{font-size:12px;color:var(--dim)}
+.arr{color:var(--dim)}.drow:hover .arr{color:var(--white)}
