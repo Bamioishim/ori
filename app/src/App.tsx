@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { motion, AnimatePresence } from 'motion/react'
 import { APP_NAME } from './config'
@@ -70,7 +70,7 @@ function Watch({ addrs, setAddrs, live, refresh }: { addrs: string[]; setAddrs: 
     {live.errors.map(e => <div className="mono xs err" key={e}>{e}</div>)}
   </section>
 }
-function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh }: { hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
+function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go }: { wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
   const [range, setRange] = useState('1W')
   const [sel, setSel] = useState<string | null>(null)
   const isLive = mode === 'live'
@@ -80,6 +80,7 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
+  if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go! }} />
   return <>
     <section className="hero">
       <Dust height={250} />
@@ -115,6 +116,55 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
       </div>)}
     </section>}
   </>
+}
+
+function HomeDesk(p: any) {
+  const { hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go } = p
+  const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
+  return <div className="dash">
+    <section className="d-card d-hero">
+      <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
+      <Label>TOTAL BALANCE {isLive ? <span className="live-tag">LIVE · READ-ONLY</span> : <Example />}</Label>
+      <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
+      <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
+        : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">click to hide</span></>}</div>
+      {!isLive && <div className="d-chart"><Spark range={range} />
+        <div className="ranges">{['1D', '1W', '1M', '1Y'].map(r => <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}{range === r && <motion.i layoutId="rg" transition={spring} />}</button>)}</div></div>}
+    </section>
+    <section className="d-card d-quick">
+      <Label>QUICK PAY</Label>
+      <input className="field" value={to} onChange={e => setTo(e.target.value)} aria-label="Recipient" />
+      <div className="amount sm"><span>$</span><input value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" aria-label="Amount" /></div>
+      <button className="cta" onClick={() => go('pay', to, amt)}>Review payment</button>
+      <div className="d-swapq">
+        <div><Label>QUICK SWAP</Label><div className="mono xs dim">SOL ⇄ USDC · NEAR Intents · live quotes</div></div>
+        <button className="ghost" onClick={() => go('swap')}>Open swap →</button>
+      </div>
+    </section>
+    {isLive && <section className="d-card d-watch"><Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} /></section>}
+    {!empty && <section className="d-card d-chains">
+      <div className="sechead"><Label>BY CHAIN</Label><span className="label">{chainRows.length} CHAINS</span></div>
+      <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th></tr></thead><tbody>
+        {chainRows.map((c: any) => <tr key={c.name} className={sel === c.name ? 'sel' : ''} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)}>
+          <td><span className="dot" /> {c.name}</td><td className="sharec"><i style={{ width: (c.usd / (sum || 1) * 100) + '%' }} /></td>
+          <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className={'rt' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></td></tr>)}
+      </tbody></table>
+    </section>}
+    {!empty && <section className="d-card d-assets">
+      <div className="sechead"><Label>ASSETS</Label><span className="label">SPEND ORDER</span></div>
+      <table className="tbl"><thead><tr><th>Asset</th><th>Chain</th><th>Role</th><th className="rt">Amount</th><th className="rt">24h</th><th className="rt">Value</th></tr></thead><tbody>
+        {rows.map((a: any, i: number) => <tr key={i}><td><span className="tcell"><Glyph s={a.sym} /><b>{a.sym}</b></span></td><td className="dim">{a.chain}</td><td className="dim">{a.role}</td>
+          <td className={'rt mono' + (hide ? ' blurred' : '')}>{a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+          <td className={'rt mono' + (a.d24 !== null && a.d24 < 0 ? ' neg' : '')}>{a.d24 === null ? '—' : (a.d24 > 0 ? '+' : '') + a.d24.toFixed(1) + '%'}</td>
+          <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td></tr>)}
+      </tbody></table>
+    </section>}
+    <section className="d-card d-act">
+      <div className="sechead"><Label>RECENT ACTIVITY <Example /></Label></div>
+      {activity.map((a, i) => <div className="row" key={i}><span className="grow">{a.t} <span className="dim">· {a.who}</span><br /><span className="mono xs dim">{a.note} · {a.when}</span></span>
+        <span className={'num' + (hide ? ' blurred' : '')}>{a.amt ? (a.amt > 0 ? '+' : '−') + usd(Math.abs(a.amt)) : '—'}</span></div>)}
+    </section>
+  </div>
 }
 
 function useQuote(args: Parameters<typeof quote>[0] | null, dep: string) {
@@ -155,14 +205,15 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: D
   const start = () => { if (!checked || flagged || status !== 'idle') return; setHold(true); timer.current = window.setTimeout(() => { setHold(false); onConfirm(cta.current!.getBoundingClientRect()) }, 750) }
   const cancel = () => { clearTimeout(timer.current); setHold(false) }
   const n = n0
-  return <>
-    <section className="pad-top">
+  return <div className="split pay-split">
+    <section className="pad-top sa">
       <Label>PAY · TO @HANDLE OR ADDRESS</Label>
       <input className="field" value={to} onChange={e => setTo(e.target.value)} disabled={status !== 'idle'} />
       <div className="amount"><span>$</span><input value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" disabled={status !== 'idle'} /></div>
       <div className="mono dim xs">They receive USDC on Solana · their choice of chain</div>
     </section>
-    <section>
+    <div className="sbw">
+    <section className="sb">
       <Label>BEST ROUTE · NEAR INTENTS <LiveTag q={q} /></Label>
       <div className="route">
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
@@ -173,14 +224,14 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: D
       </div>
       <QuoteMeta q={q} extra={solTo ? null : 'Quote uses a preview Solana recipient; handle → address lookup is still mocked.'} />
     </section>
-    <section>
+    <section className="sb">
       <Label>SCAM CHECK</Label>
       <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{!checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source}</span></span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{!checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
       <div className="row"><span className="grow">Token contract</span><span className="mono xs">{checked ? 'USDC · CANONICAL' : 'CHECKING…'}</span></div>
       <div className="row"><span className="grow">Drainer / approval risk</span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{st('NO APPROVAL NEEDED')}</span></div>
-    </section>
+    </section></div>
     {status === 'sent'
-      ? <motion.div className="receipt" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
+      ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
         <Label>RECEIPT <Example /></Label>
         <div className="money-r">{usd(n)} <span className="dim">sent to {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → Solana USDC</span></div>
@@ -188,10 +239,10 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: D
         <div className="row"><span className="grow">Quoted fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
         <div className="row"><span className="grow">Delivered by</span><span className="num">Ori</span></div>
       </motion.div>
-      : <button ref={cta} className={'cta hold' + (hold ? ' holding' : '')} disabled={!checked || flagged || status !== 'idle'}
+      : <button ref={cta} className={'cta hold sa2' + (hold ? ' holding' : '')} disabled={!checked || flagged || status !== 'idle'}
         onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel}>
         <span className="fill" />{flagged && checked ? 'Blocked — flagged address' : status === 'running' ? <Dots size={7} label="Ori is delivering" /> : status === 'done' ? <Check size={26} /> : `Hold to pay ${usd(n)}`}</button>}
-  </>
+  </div>
 }
 
 function LiveTag({ q }: { q: { q: Quote | null; loading: boolean; err: string | null } }) {
@@ -212,8 +263,8 @@ function Swap({ refundEvm }: { refundEvm: string }) {
   const to = flip ? { s: 'SOL', c: 'Solana', id: ASSET.SOL, d: 9, p: px?.sol } : { s: 'USDC', c: 'Base', id: ASSET.baseUSDC, d: 6, p: px?.usdc }
   const q = useQuote(n > 0 ? { from: from.id, to: to.id, amount: BigInt(Math.round(n * 10 ** from.d)), recipient: to.c === 'Base' ? refundEvm : PREVIEW.sol, refundTo: from.c === 'Base' ? refundEvm : PREVIEW.sol, outDecimals: to.d } : null, `${n}|${flip}`)
   const out = q.q ? q.q.amountOut : null
-  return <>
-    <section className="pad-top">
+  return <div className="split swap-split">
+    <section className="pad-top sa">
       <Label>SWAP · ONE TAP {px && <span className="live-tag">LIVE PRICES</span>}</Label>
       <div className="swapbox">
         <span className="mono xs dim">SEND</span>
@@ -227,15 +278,15 @@ function Swap({ refundEvm }: { refundEvm: string }) {
         <span className="mono xs dim">{q.q ? usd(q.q.amountOutUsd) : ' '}</span>
       </div>
     </section>
-    <section>
+    <section className="sb">
       <Label>QUOTE <LiveTag q={q} /></Label>
       <div className="row"><span className="grow">Rate</span><span className="num">{q.q && n ? `1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}` : '—'}</span></div>
       <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? `~${q.q.eta}s` : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
       <QuoteMeta q={q} extra={null} />
     </section>
-    <button className="cta" disabled title="Execution disabled in prototype">Swap · disabled in preview</button>
-  </>
+    <button className="cta sa2" disabled title="Execution disabled in prototype">Swap · disabled in preview</button>
+  </div>
 }
 
 function Earn() {
@@ -284,6 +335,19 @@ function Privacy({ hidden, setHidden }: { hidden: boolean; setHidden: (v: boolea
   </>
 }
 
+export function useWide() {
+  const q = () => typeof matchMedia !== 'undefined' && matchMedia('(min-width:1024px)').matches
+  const [w, setW] = useState(q)
+  useEffect(() => { const m = matchMedia('(min-width:1024px)'); const f = () => setW(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f) }, [])
+  return w
+}
+const activity = [
+  { t: 'Received', who: '@ade', amt: 12, note: 'USDC · Base', when: 'Just now' },
+  { t: 'Paid', who: '@tolu', amt: -50, note: 'Base USDC → Solana USDC', when: 'Today' },
+  { t: 'Swapped', who: '1.2 SOL → USDC', amt: 0, note: 'NEAR Intents', when: 'Yesterday' },
+  { t: 'Yield', who: 'Aave v3 · Base', amt: 1.38, note: 'Idle USDC', when: 'Mon' },
+  { t: 'Received', who: '@kemi', amt: 200, note: 'USDT · Solana', when: 'Sun' },
+]
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
@@ -301,6 +365,7 @@ export default function App() {
   const [chat, setChat] = useState(false)
   const [burst, setBurst] = useState<{ x: number; y: number } | null>(null)
   const [stage, skipIntro] = useIntro()
+  const wide = useWide()
   const [menu, setMenu] = useState(new URLSearchParams(location.search).get('menu') === '1')
   const [msgs, setMsgs] = useState<{ who: 'me' | 'ori'; t: string }[]>([{ who: 'ori', t: 'Hi, I’m Ori. Ask me to pay, swap or hide your balance. I always show you a card to confirm first.' }])
   const [input, setInput] = useState('')
@@ -350,29 +415,42 @@ export default function App() {
   const toggleMic = () => { if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } stopMic.current = startListening(heardCb) }
   const confirm = async (r: DOMRect) => { setStatus('running'); await ori.current?.run(r); setStatus('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 560); setStatus('sent'); setTimeout(() => setBurst(null), 420); setExtra(e => e - (+draft.amt || 0)); oriSay('Delivered. Receipt’s on the card.') }
 
-  const tabs: Screen[] = ['home', 'pay', 'swap', 'earn', 'privacy']
   return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
-    <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}
+    {wide && <Dust full />}
+    {wide && <aside className="side">
+      <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}</div>
+      <div className="side-nav">
+        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
+          {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
+          <button className={'side-item' + (screen === k ? ' on' : '') + (i > 4 ? ' soon' : '')} onClick={() => { if (i > 4) return; setScreen(k as Screen); if (k === 'pay' && status === 'sent') setStatus('idle'); scrollTo(0, 0) }} title={i > 4 ? 'Coming soon' : undefined}>
+            <span className="mono xs dim">{String(i + 1).padStart(2, '0')}</span>{label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
+      </div>
       <button className={'mic ' + mic} onClick={toggleMic} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button></header>
+        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>
+      <p className="mono xs dim side-foot">Preview · example data · nothing is signed</p>
+    </aside>}
+    {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}
+      <button className={'mic ' + mic} onClick={toggleMic} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
+        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
+        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button></header>}
     <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} />}
+        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay draft={draft} status={status} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) ori.current?.say('Stop. ' + why, 4000) }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} />}
         {screen === 'earn' && <Earn />}
         {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
     </AnimatePresence>
-    <nav>{(['home', 'pay', 'swap'] as Screen[]).map((t, i) => <button key={t} onClick={() => { setScreen(t); setMenu(false); if (t === 'pay' && status === 'sent') setStatus('idle'); scrollTo(0, 0) }} className={screen === t && !menu ? 'on' : ''}>
+    {!wide && <nav>{(['home', 'pay', 'swap'] as Screen[]).map((t, i) => <button key={t} onClick={() => { setScreen(t); setMenu(false); if (t === 'pay' && status === 'sent') setStatus('idle'); scrollTo(0, 0) }} className={screen === t && !menu ? 'on' : ''}>
       <span className="mono xs">{String(i + 1).padStart(2, '0')}</span>{t}
       {screen === t && !menu && <motion.i layoutId="nav" transition={spring} />}</button>)}
       <button className={menu || screen === 'earn' || screen === 'privacy' ? 'on' : ''} onClick={() => setMenu(!menu)} aria-label="Menu">
         <span className="burger" aria-hidden><motion.b animate={menu ? { rotate: 45, y: 3 } : { rotate: 0, y: 0 }} transition={spring} /><motion.b animate={menu ? { rotate: -45, y: -3 } : { rotate: 0, y: 0 }} transition={spring} /></span>More
-        {(menu || screen === 'earn' || screen === 'privacy') && <motion.i layoutId="nav" transition={spring} />}</button></nav>
+        {(menu || screen === 'earn' || screen === 'privacy') && <motion.i layoutId="nav" transition={spring} />}</button></nav>}
     <AnimatePresence>{menu && <>
       <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenu(false)} />
       <motion.div className="drawer" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={spring}>

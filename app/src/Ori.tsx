@@ -61,7 +61,7 @@ export function OriSprite({ pose, face = 1, moving = false }: { pose: Pose; face
 
 type Props = { hidden: boolean; reduced: boolean; screen: string; onTap: () => void }
 const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, onTap }, ref) {
-  const vw = () => Math.min(innerWidth, 480), off = () => (innerWidth - vw()) / 2
+  const vw = () => innerWidth >= 1024 ? innerWidth : Math.min(innerWidth, innerWidth >= 768 ? 760 : 480), off = () => (innerWidth - vw()) / 2
   const x = useMotionValue(off() + vw() - 80), y = useMotionValue(innerHeight - 170)
   const [pose, setPose] = useState<Pose>('idle')
   const [face, setFace] = useState(1)

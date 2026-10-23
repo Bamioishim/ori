@@ -158,3 +158,75 @@ nav{z-index:44}
 .cta .dots,.cta svg{position:relative;z-index:1}
 .cta.hold{display:flex;align-items:center;justify-content:center;min-height:56px}
 .burst{position:fixed;inset:0;z-index:70;background:var(--grey);pointer-events:none}
+/* ---------- tablet 768–1023 ---------- */
+@media (min-width:768px) and (max-width:1023px){
+  .app{max-width:760px;padding:0 32px 120px}
+  nav{max-width:760px}
+  .drawer{max-width:760px;left:max(0px,calc(50% - 380px))}
+  .hero{height:330px}
+  .total .money{font-size:84px}
+  .split{display:grid;grid-template-columns:1fr 1fr;column-gap:32px;align-items:start}
+  .split .sa{grid-column:1 / -1}
+  .split .sa2{grid-column:1 / -1}
+}
+/* ---------- desktop ≥1024 ---------- */
+.bgdust{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;opacity:.9}
+@media (min-width:1024px){
+  .app{max-width:none;margin:0;min-height:100vh;padding:0 56px 72px 304px;border:0}
+  .app>main{position:relative;z-index:1;max-width:1480px;margin:0 auto;padding-top:40px}
+  .side{position:fixed;left:0;top:0;bottom:0;width:248px;z-index:40;display:flex;flex-direction:column;padding:30px 22px 26px;border-right:1px solid var(--line);background:rgba(0,0,0,.6);backdrop-filter:blur(14px)}
+  .side-logo{height:44px;margin-bottom:34px}.side .logo{font-size:26px}
+  .side-nav{display:flex;flex-direction:column;gap:2px;flex:1}
+  .side-item{position:relative;display:flex;align-items:center;gap:14px;padding:11px 12px;font-size:15px;color:var(--dim);cursor:pointer;text-align:left;border-radius:2px;transition:color .2s}
+  .side-item:hover{color:var(--white)}.side-item.on{color:var(--white)}
+  .side-item.soon{opacity:.55;cursor:default}.side-item.soon:hover{color:var(--dim)}
+  .side-item i{position:absolute;inset:0;border:1px solid var(--line);background:rgba(255,255,255,.03);border-left:1px solid var(--accent)}
+  .side-sep{margin:22px 12px 8px;letter-spacing:.12em}
+  .side .mic{align-self:flex-start;margin-bottom:16px}
+  .side-foot{line-height:1.6;opacity:.7}
+  .intro-on .side-nav,.intro-on .side .mic,.intro-on .side-foot{opacity:0}
+  .side-nav,.side .mic,.side-foot{transition:opacity .7s ease .15s}
+  .landing .side-nav,.landing .side .mic,.landing .side-foot{opacity:1}
+  .heard{left:calc(50% + 124px)}
+  .d-card{background:rgba(10,10,10,.72);border:1px solid var(--line);padding:30px 32px;backdrop-filter:blur(6px)}
+  .dash{display:grid;grid-template-columns:repeat(12,1fr);gap:20px}
+  .dash section{border-bottom:1px solid var(--line)}
+  .d-hero{grid-column:span 8;display:flex;flex-direction:column}
+  .d-quick{grid-column:span 4;display:flex;flex-direction:column}
+  .d-watch{grid-column:span 12}.d-watch .watch{padding:0;border:0}
+  .d-chains{grid-column:span 5}.d-assets{grid-column:span 7;grid-row:span 2}.d-act{grid-column:span 5}
+  .d-hero .total .money{font-size:112px;letter-spacing:-.05em}
+  .d-hero .total .money.l7{font-size:88px}.d-hero .total .money.l9{font-size:68px}
+  .d-hero .total{margin:8px 0 16px}
+  .d-chart{margin-top:auto;padding-top:28px}.d-chart .spark{height:150px}
+  .amount.sm{font-size:56px}.amount.sm span{font-size:30px}
+  .d-quick .cta{margin-top:16px}
+  .d-swapq{margin-top:auto;padding-top:24px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .d-swapq .label{margin-bottom:6px}
+  .ghost{border:1px solid var(--line);padding:10px 14px;cursor:pointer;font-size:14px;white-space:nowrap;transition:border-color .2s}.ghost:hover{border-color:var(--grey)}
+  .tbl{width:100%;border-collapse:collapse;font-size:15px}
+  .tbl th{font:400 10.5px 'JetBrains Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--dim);text-align:left;padding:0 10px 12px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:14px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  .tbl tr:last-child td{border-bottom:0}.tbl th:first-child,.tbl td:first-child{padding-left:0}.tbl th:last-child,.tbl td:last-child{padding-right:0}
+  .tbl .rt{text-align:right}.tbl .mono{font-size:13px}
+  .tbl .dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--dim);margin-right:8px;vertical-align:middle;transition:background .25s}
+  .tbl tr.sel .dot{background:#7DF5D8}
+  .sharec{width:38%}.sharec i{display:block;height:2px;background:var(--grey);opacity:.7;transition:background .25s}
+  .tbl tr.sel .sharec i{background:#7DF5D8;opacity:1}
+  .tcell{display:flex;align-items:center;gap:12px}.tcell b{font-weight:500}
+  .d-act .row:first-of-type{border-top:0}
+  /* Pay / Swap: centred wide card + details beside */
+  .split{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);column-gap:20px;row-gap:0;align-items:start;grid-template-rows:auto 1fr}
+  .split>section,.split>.receipt{border:1px solid var(--line);background:rgba(10,10,10,.72);backdrop-filter:blur(6px)}
+  .split>section{padding:30px 32px}
+  .split .sa{grid-column:1;grid-row:1}
+  .split .sa2{grid-column:1;grid-row:2;margin-top:20px;width:100%}
+  .split>.receipt.sa2{padding:26px 32px}
+  .split .sb{grid-column:2}
+  .split .sbw{grid-column:2;grid-row:1 / span 2;display:flex;flex-direction:column;gap:20px}.sbw>section{border:1px solid var(--line);background:rgba(10,10,10,.72);backdrop-filter:blur(6px);padding:30px 32px}
+  .swap-split .sb{grid-row:1 / span 2}
+  .split .amount{font-size:104px}.split .amount span{font-size:52px}
+  .swaprow .big2{font-size:60px}
+  .app>main>section{max-width:860px;margin-left:auto;margin-right:auto}
+}
+@media (min-width:1600px){.d-hero .total .money{font-size:136px}.app{padding-left:320px}}
