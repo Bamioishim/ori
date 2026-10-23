@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter+Tight:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 :root{
   --bg:#000000; --surface:#0E0E0E; --grey:#D9D9D9; --white:#F5F4F1;
   --accent:#ECEAE5; /* TEMPORARY accent — single variable, swap when a colour is chosen */
@@ -137,3 +137,24 @@ nav{z-index:44}
 .drow{display:flex;align-items:center;gap:16px;width:100%;padding:16px 0;border-bottom:1px solid var(--line);text-align:left;color:var(--white);cursor:pointer}
 .dl{flex:1;display:flex;flex-direction:column;gap:3px;font-size:18px;letter-spacing:-.01em}.dl small{font-size:12px;color:var(--dim)}
 .arr{color:var(--dim)}.drow:hover .arr{color:var(--white)}
+
+/* intro */
+.intro{position:fixed;inset:0;z-index:80;background:#000;cursor:pointer;overflow:hidden}
+.intro-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.intro-mark{font-family:'Cormorant Garamond',serif;font-size:56px;letter-spacing:.32em;text-transform:uppercase;color:#fff;padding-left:.32em}
+.intro-sub{font-size:13px;color:#fff;opacity:.85;letter-spacing:.01em}
+.intro-sheet{position:absolute;left:-20%;right:-20%;top:0;height:130%;background:#0E0E0E;border-radius:50% 50% 0 0/14% 14% 0 0}
+.intro-skip{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#fff;opacity:.28}
+.app>main,.app>nav,.app header .mic,.app .dust{transition:opacity .7s ease .15s}
+.intro-on>main,.intro-on>nav,.intro-on header .mic,.intro-on .dust{opacity:0}
+.landing>main,.landing>nav,.landing header .mic{opacity:1}
+.landing .dust{opacity:1;transition-delay:.6s}
+.ori-wrap{transition:opacity .4s ease,transform .5s cubic-bezier(.2,.8,.2,1)}
+.ori-wrap.pre{opacity:0;pointer-events:none}
+.ori-wrap.aside{opacity:0;transform:translateX(70px);pointer-events:none}
+/* loaders */
+.dots{display:inline-flex;gap:5px;align-items:center;vertical-align:middle;color:currentColor}
+.dots i{display:block;border-radius:50%;background:currentColor}
+.cta .dots,.cta svg{position:relative;z-index:1}
+.cta.hold{display:flex;align-items:center;justify-content:center;min-height:56px}
+.burst{position:fixed;inset:0;z-index:70;background:var(--grey);pointer-events:none}

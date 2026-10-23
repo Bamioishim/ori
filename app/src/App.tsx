@@ -4,6 +4,9 @@ import { motion, AnimatePresence } from 'motion/react'
 import { APP_NAME } from './config'
 import { chains, assets, total, protocols } from './mock'
 import Dust from './Dust'
+import Intro, { useIntro } from './Intro'
+import { Dots, Check } from './Loaders'
+import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, goplus, kindOf, quote, readPortfolio, short, tokens, type Holding, type Quote, type Risk } from './live'
 import { handleHeard, parse, speak, speechSupported, startListening } from './voice'
@@ -58,7 +61,7 @@ function Watch({ addrs, setAddrs, live, refresh }: { addrs: string[]; setAddrs: 
   const [v, setV] = useState('')
   const k = kindOf(v)
   return <section className="watch">
-    <div className="sechead"><Label>WATCH-ONLY ADDRESSES</Label><button className="label linkish" onClick={refresh} disabled={live.loading}>{live.loading ? 'READING…' : 'REFRESH'}</button></div>
+    <div className="sechead"><Label>WATCH-ONLY ADDRESSES</Label><button className="label linkish" onClick={refresh} disabled={live.loading}>{live.loading ? <Dots size={4} label="Reading" /> : 'REFRESH'}</button></div>
     {addrs.map(a => <div className="row" key={a}><span className="mono xs tag">{kindOf(a)?.toUpperCase()}</span><span className="grow mono addr">{short(a)}</span><button className="mono xs dim" onClick={() => setAddrs(addrs.filter(x => x !== a))}>REMOVE</button></div>)}
     <form className="addaddr" onSubmit={e => { e.preventDefault(); if (k && !addrs.includes(v.trim())) { setAddrs([...addrs, v.trim()]); setV('') } }}>
       <input value={v} onChange={e => setV(e.target.value)} placeholder="Paste 0x…, Solana or .near address" spellCheck={false} />
@@ -85,7 +88,7 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
         <Label>TOTAL BALANCE {isLive ? <span className="live-tag">LIVE · READ-ONLY</span> : <Example />}</Label>
         <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} /></button>
         <div className="delta">{isLive
-          ? <><span className="dim">{live.loading ? 'Reading balances…' : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · prices 1Click · ${new Date(live.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : 'Add an address below'}</span><span className="dim">·</span><span className="dim">tap to hide</span></>
+          ? <><span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · prices 1Click · ${new Date(live.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : 'Add an address below'}</span><span className="dim">·</span><span className="dim">tap to hide</span></>
           : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">tap to hide</span></>}</div>
       </div>
     </section>
@@ -128,7 +131,7 @@ const fmtT = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: 
 
 export type Draft = { to: string; amt: string; k: number }
 const FLAGGED = /drain|scam|claim-airdrop/i // local demo heuristic for handles; real addresses go to GoPlus
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: Draft; status: 'idle' | 'running' | 'sent'; onConfirm: (r: DOMRect) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string }) {
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
@@ -164,9 +167,9 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: D
       <div className="route">
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
         <div className="line" />
-        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? `~${q.q.eta}s` : q.loading ? '…' : '—'}</span></div>
+        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? `~${q.q.eta}s` : q.loading ? <Dots size={4} /> : '—'}</span></div>
         <div className="line" />
-        <div className="step"><span className="mono xs dim">TO</span><span>USDC · Solana</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? '…' : '—'}</span></div>
+        <div className="step"><span className="mono xs dim">TO</span><span>USDC · Solana</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
       <QuoteMeta q={q} extra={solTo ? null : 'Quote uses a preview Solana recipient; handle → address lookup is still mocked.'} />
     </section>
@@ -187,16 +190,16 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo }: { draft: D
       </motion.div>
       : <button ref={cta} className={'cta hold' + (hold ? ' holding' : '')} disabled={!checked || flagged || status !== 'idle'}
         onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel}>
-        <span className="fill" />{flagged && checked ? 'Blocked — flagged address' : status === 'running' ? 'Ori is delivering…' : `Hold to pay ${usd(n)}`}</button>}
+        <span className="fill" />{flagged && checked ? 'Blocked — flagged address' : status === 'running' ? <Dots size={7} label="Ori is delivering" /> : status === 'done' ? <Check size={26} /> : `Hold to pay ${usd(n)}`}</button>}
   </>
 }
 
 function LiveTag({ q }: { q: { q: Quote | null; loading: boolean; err: string | null } }) {
-  return q.q ? <span className="live-tag">LIVE QUOTE</span> : q.loading ? <span className="live-tag dimtag">FETCHING…</span> : q.err ? <span className="live-tag dimtag">OFFLINE</span> : null
+  return q.q ? <span className="live-tag">LIVE QUOTE</span> : q.loading ? <span className="live-tag dimtag"><Dots size={4} label="Fetching quote" /></span> : q.err ? <span className="live-tag dimtag">OFFLINE</span> : null
 }
 function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: string | null }; extra: string | null }) {
   if (q.err) return <div className="mono xs err why">Live quote unavailable: {q.err}. Nothing was sent.</div>
-  if (!q.q) return <div className="mono xs dim why">{q.loading ? 'Asking 1Click solvers for a dry-run quote…' : 'Enter an amount for a live quote.'}</div>
+  if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : 'Enter an amount for a live quote.'}</div>
   return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · ETA ~{q.q.eta}s · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
 function Swap({ refundEvm }: { refundEvm: string }) {
@@ -281,6 +284,7 @@ function Privacy({ hidden, setHidden }: { hidden: boolean; setHidden: (v: boolea
   </>
 }
 
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
@@ -293,8 +297,10 @@ export default function App() {
   const setAddrs = (a: string[]) => { setAddrsS(a); localStorage.setItem('addrs', JSON.stringify(a)) }
   const lastTotal = useRef<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
-  const [status, setStatus] = useState<'idle' | 'running' | 'sent'>('idle')
+  const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
   const [chat, setChat] = useState(false)
+  const [burst, setBurst] = useState<{ x: number; y: number } | null>(null)
+  const [stage, skipIntro] = useIntro()
   const [menu, setMenu] = useState(new URLSearchParams(location.search).get('menu') === '1')
   const [msgs, setMsgs] = useState<{ who: 'me' | 'ori'; t: string }[]>([{ who: 'ori', t: 'Hi, I’m Ori. Ask me to pay, swap or hide your balance. I always show you a card to confirm first.' }])
   const [input, setInput] = useState('')
@@ -342,12 +348,12 @@ export default function App() {
   const heardCb = { onWake: wake, onCommand: (t: string, src: string) => { setHeard(`“${t}”${src === 'simulated' ? ' · simulated' : ''}`); command(t, src) }, onState: (s: string) => setMic(s as any) }
   useEffect(() => { (window as any).__ori = { hear: (t: string) => handleHeard(t, heardCb, 'simulated') } })
   const toggleMic = () => { if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } stopMic.current = startListening(heardCb) }
-  const confirm = async (r: DOMRect) => { setStatus('running'); await ori.current?.run(r); setStatus('sent'); setExtra(e => e - (+draft.amt || 0)); oriSay('Delivered. Receipt’s on the card.') }
+  const confirm = async (r: DOMRect) => { setStatus('running'); await ori.current?.run(r); setStatus('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 560); setStatus('sent'); setTimeout(() => setBurst(null), 420); setExtra(e => e - (+draft.amt || 0)); oriSay('Delivered. Receipt’s on the card.') }
 
   const tabs: Screen[] = ['home', 'pay', 'swap', 'earn', 'privacy']
-  return <div className="app">
+  return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
-    <header><span className="logo">{APP_NAME}</span>
+    <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}
       <button className={'mic ' + mic} onClick={toggleMic} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
         <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button></header>
@@ -386,6 +392,8 @@ export default function App() {
         <form onSubmit={e => { e.preventDefault(); if (input.trim()) { command(input); setInput('') } }} className="ask">
           <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori…" /><button className="mono xs">SEND</button></form>
       </motion.div></>}</AnimatePresence>
-    <Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => setChat(true)} />
-  </div>
+    <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => setChat(true)} /></div>
+    <AnimatePresence>{burst && <motion.div className="burst" initial={{ clipPath: `circle(0px at ${burst.x}px ${burst.y}px)` }} animate={{ clipPath: `circle(150vmax at ${burst.x}px ${burst.y}px)` }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : 0.55, ease: [0.65, 0, 0.35, 1] }} />}</AnimatePresence>
+    <Intro stage={stage} skip={skipIntro} />
+  </div></LayoutGroup>
 }
