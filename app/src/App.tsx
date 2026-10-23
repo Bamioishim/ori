@@ -16,30 +16,70 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
     <motion.span layout transition={spring} /></button>
 }
 
+const glyphs: Record<string, React.ReactNode> = {
+  USDC: <><circle cx="12" cy="12" r="8.5" /><path d="M14.6 9.6c-.4-.9-1.4-1.4-2.6-1.4-1.5 0-2.6.8-2.6 1.9 0 2.6 5.3 1.4 5.3 4 0 1.1-1.1 1.9-2.7 1.9-1.3 0-2.3-.6-2.7-1.5M12 6.6v1.6M12 15.9v1.5" /></>,
+  USDT: <><circle cx="12" cy="12" r="8.5" /><path d="M8 8.2h8M12 8.2v8.6M8.6 11.4c2.2.6 4.6.6 6.8 0" /></>,
+  SOL: <><path d="M8 6.5h11l-3 3H5zM5 10.5h11l3 3H8zM8 14.5h11l-3 3H5z" /></>,
+  ETH: <><path d="M12 3.5 6.8 12 12 15l5.2-3z" /><path d="M6.8 13.2 12 20.5l5.2-7.3L12 16.2z" /></>,
+  NEAR: <><path d="M7 17V7l10 10V7" /></>,
+}
+function Glyph({ s }: { s: string }) { return <span className="glyph"><svg viewBox="0 0 24 24">{glyphs[s]}</svg></span> }
+const series: Record<string, number[]> = (() => { const mk = (n: number, seed: number, drift: number) => { let v = 100, x = seed; return Array.from({ length: n }, (_, i) => { x = (x * 9301 + 49297) % 233280; v = v * .8 + (100 + (x / 233280 - 0.5) * 6) * .2; return v + i * drift * 4 }) }; return { '1D': mk(48, 3, .03), '1W': mk(56, 7, .02), '1M': mk(60, 11, .04), '1Y': mk(72, 5, .06) } })()
+function Spark({ range }: { range: string }) {
+  const d = series[range], W = 340, H = 92, mn = Math.min(...d), mx = Math.max(...d)
+  const pts = d.map((v, i) => [i / (d.length - 1) * W, H - 8 - (v - mn) / (mx - mn) * (H - 20)])
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')
+  const last = pts[pts.length - 1]
+  return <svg className="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+    <defs><linearGradient id="sg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#F5F4F1" stopOpacity=".10" /><stop offset="1" stopColor="#F5F4F1" stopOpacity="0" /></linearGradient></defs>
+    <path d={line + ` L${W} ${H} L0 ${H}Z`} fill="url(#sg)" />
+    <motion.path key={range} d={line} fill="none" stroke="#F5F4F1" strokeWidth="1" vectorEffect="non-scaling-stroke" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }} />
+    <line x1="0" x2={W} y1={H - 0.5} y2={H - 0.5} stroke="rgba(217,217,217,.14)" />
+    <circle cx={last[0] - 2} cy={last[1]} r="2.5" fill="#F5F4F1" />
+  </svg>
+}
+function useCount(target: number) {
+  const [v, setV] = useState(0)
+  useEffect(() => { let r = 0; const t0 = performance.now(); const f = (t: number) => { const k = Math.min((t - t0) / 1400, 1); setV(target * (1 - Math.pow(1 - k, 4))); if (k < 1) r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => cancelAnimationFrame(r) }, [target])
+  return v
+}
+function Money({ v, cls = '' }: { v: number; cls?: string }) {
+  const [w, c] = v.toFixed(2).split('.')
+  return <span className={'money ' + cls}><span className="cur">$</span>{(+w).toLocaleString('en-US')}<span className="cents">.{c}</span></span>
+}
 function Home({ hidden }: { hidden: boolean }) {
-  const [whole, cents] = usd(total).split('.')
+  const [blur, setBlur] = useState(false)
+  const [range, setRange] = useState('1W')
+  const [sel, setSel] = useState<string | null>(null)
+  const v = useCount(total)
+  const hide = hidden || blur
   return <>
     <section className="hero">
-      <Dust height={300} />
+      <Dust height={250} />
       <div className="hero-copy">
-        <Label>TOTAL BALANCE · 4 CHAINS <Example /></Label>
-        <h1 className="big">{hidden ? '$••••' : whole}<small>{hidden ? '' : '.' + cents}</small></h1>
-        <div className="mono dim">+$4.20 earned this week · private</div>
+        <Label>TOTAL BALANCE <Example /></Label>
+        <button className={'total' + (hide ? ' blurred' : '')} onClick={() => setBlur(!blur)} aria-label="Tap to hide balance"><Money v={v} /></button>
+        <div className="delta"><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">tap to hide</span></div>
       </div>
     </section>
-    <section>
-      <Label>01 — BY CHAIN</Label>
-      <div className="bar">{chains.map(c => <i key={c.name} style={{ flex: c.usd }} />)}</div>
-      {chains.map((c, i) => <div className="row" key={c.name}>
-        <span className="mono dim">{String(i + 1).padStart(2, '0')}</span>
-        <span className="grow">{c.name}<br /><span className="mono dim xs">{c.addr}</span></span>
-        <span className="num">{hidden ? '••••' : usd(c.usd)}</span></div>)}
+    <section className="chart">
+      <Spark range={range} />
+      <div className="ranges">{['1D', '1W', '1M', '1Y'].map(r => <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}{range === r && <motion.i layoutId="rg" transition={spring} />}</button>)}</div>
     </section>
     <section>
-      <Label>02 — ASSETS · SPEND ORDER</Label>
-      {assets.map((a, i) => <div className="row" key={i}>
-        <span className="grow">{a.sym} <span className="mono dim xs">/{a.chain.toUpperCase()}</span><br /><span className="mono dim xs">{a.role}</span></span>
-        <span className="num r">{hidden ? '••••' : usd(a.usd)}<br /><span className={'mono xs ' + (a.d24 >= 0 ? '' : 'dim')}>{a.d24 > 0 ? '+' : ''}{a.d24.toFixed(1)}%</span></span>
+      <div className="sechead"><Label>ALLOCATION</Label><span className="label">4 CHAINS</span></div>
+      <div className="alloc">{chains.map(c => <i key={c.name} style={{ flex: c.usd }} className={sel === c.name ? 'sel' : ''} />)}</div>
+      {chains.map(c => <button className={'arow' + (sel === c.name ? ' sel' : '')} key={c.name} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)} onClick={() => setSel(sel === c.name ? null : c.name)}>
+        <span className="dot" /><span className="grow">{c.name}</span>
+        <span className="pct">{(c.usd / total * 100).toFixed(1)}%</span>
+        <span className={'num w' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></span></button>)}
+    </section>
+    <section>
+      <div className="sechead"><Label>ASSETS</Label><span className="label">SPEND ORDER</span></div>
+      {assets.map((a, i) => <div className="asset" key={i}>
+        <Glyph s={a.sym} />
+        <span className="grow"><span className="aname">{a.sym}</span><span className="sub">{a.chain} · {a.role}</span></span>
+        <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className="sub">{a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })} {a.sym}<span className={a.d24 < 0 ? 'neg' : ''}> · {a.d24 > 0 ? '+' : ''}{a.d24.toFixed(1)}%</span></span></span>
       </div>)}
     </section>
   </>
