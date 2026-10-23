@@ -1,4 +1,4 @@
-# Meridian — NEAR Hackathon build plan
+# ORI — NEAR Hackathon build plan
 Working name lives in `app/src/config.ts` (`APP_NAME`). Rename there only.
 Concept: **One private balance across Ethereum, Solana, Base and NEAR. Pay or swap anything in one tap, no bridging.**
 Rules: https://nearhackathon.com/HACKATHON.md — build 2026-11-01 00:00 → 2026-11-14 23:59 UTC (01:00 Nov 1 → 00:59 Nov 15 WAT). Repo public by deadline. Never commit secrets. Never sign mainnet txs, make repo public, post or submit without Bamio's explicit OK.
@@ -8,7 +8,7 @@ Rules: https://nearhackathon.com/HACKATHON.md — build 2026-11-01 00:00 → 202
 
 ## Architecture
 ```
- Mobile web (Vite/React)  ──►  Meridian API (Node, TS)
+ Mobile web (Vite/React)  ──►  ORI API (Node, TS)
                                  ├─ Account service: NEAR account + Chain Signatures-derived addrs (ETH/Base share EVM path?, SOL)
                                  ├─ Portfolio indexer: balances per derived address → one total (stored client-side encrypted)
                                  ├─ Route optimiser: spend-order policy → 1Click quotes → pick best
@@ -46,7 +46,7 @@ Rules: https://nearhackathon.com/HACKATHON.md — build 2026-11-01 00:00 → 202
 
 ## Demo video script (~90s)
 1. 0–10s: "My money is on 4 chains. Paying someone means bridging, gas tokens, praying." Show 4 wallet apps.
-2. 10–25s: Open Meridian. One number, dust visual, chain breakdown. Toggle hide balance.
+2. 10–25s: Open ORI. One number, dust visual, chain breakdown. Toggle hide balance.
 3. 25–50s: Pay "@tolu $50". Route card: USDC from Base, SOL kept because it's up. Scam check turns clean. Hold to pay; status → arrived on Solana.
 4. 50–60s: Paste a known drainer address → blocked, with reason.
 5. 60–75s: Earn: opt in, floor $100, whitelist, simulate depeg → auto-exit.
