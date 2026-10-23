@@ -1,0 +1,66 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0B0B0B;color:#F5F4F1;font-family:'Inter Tight';width:1800px}
+h1{font-weight:600;letter-spacing:-.04em;font-size:44px;margin:0;padding:40px 48px 6px}
+.sub{font:12px 'JetBrains Mono';color:#888;padding:0 48px 24px;letter-spacing:.06em}
+.c{display:grid;grid-template-columns:70px 1fr 1fr 1fr 150px;border-top:1px solid #2a2a2a;margin:0 48px;align-items:center}
+.n{font:600 34px 'Inter Tight';color:#F5F4F1;align-self:start;padding-top:22px}
+.cell{border-left:1px solid #1f1f1f;padding:14px;text-align:center}
+.lab{font:11px 'JetBrains Mono';color:#7a7a7a;letter-spacing:.08em;margin-top:4px}
+.t{font:600 22px 'Inter Tight';letter-spacing:-.02em;text-align:left;padding:18px 0 0 70px;grid-column:1/-1}
+.sm{display:flex;flex-direction:column;align-items:center;gap:10px}
+.sm div{display:flex;gap:10px}
+</style></head><body>
+<h1>Meridian — mascot concepts</h1><div class="sub">STEP 1 · HAND-DRAWN SVG · IDLE / LISTENING / ACTING · RIGHT COLUMN = ACTUAL 48PX</div>
+<div id="root"></div>
+<script>
+const M='#7DF5D8', W='#F2F1EC', G='#8A8A8A', D='#1C1C1C';
+const defs=`<defs><filter id="gl" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<radialGradient id="orb" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#E9E8E4"/><stop offset=".6" stop-color="#9A9A98"/><stop offset="1" stop-color="#3a3a3a"/></radialGradient></defs>`;
+function rnd(s){return()=>{s=(s*16807)%2147483647;return s/2147483647}}
+const coin=(x,y,r=11)=>`<g filter="url(#gl)"><circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="${M}" stroke-width="2.2"/><circle cx="${x}" cy="${y}" r="${r*.45}" fill="${M}" opacity=".85"/></g>`;
+const waves=(x,y,dir=1)=>`<g fill="none" stroke="${M}" stroke-width="2" stroke-linecap="round" opacity=".9"><path d="M${x} ${y-8} q${6*dir} 8 0 16"/><path d="M${x+7*dir} ${y-14} q${10*dir} 14 0 28" opacity=".55"/></g>`;
+// 1 Speck: dust blob
+function speck(p){const r=rnd(7);let s='';const sx=p=='act'?1.15:1, sy=p=='act'?.88:p=='listen'?1.06:1;
+ for(let i=0;i<420;i++){const a=r()*6.283, d=Math.pow(r(),.55);const x=60+Math.cos(a)*d*38*sx, y=66+Math.sin(a)*d*36*sy;
+  const big=r()>.9;s+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${big?1.9:1.05}" fill="${M}" opacity="${(.25+.75*d*r()).toFixed(2)}"/>`}
+ // loose trailing specks
+ for(let i=0;i<30;i++){s+=`<circle cx="${(20+r()*80).toFixed(1)}" cy="${(100+r()*14).toFixed(1)}" r=".9" fill="${M}" opacity="${(.2+r()*.4).toFixed(2)}"/>`}
+ const ey=p=='listen'?58:64, eo=p=='listen'?3:0;
+ let face=p=='idle'?`<path d="M50 ${ey} q4 -3 8 0 M64 ${ey} q4 -3 8 0" stroke="${W}" stroke-width="2.6" fill="none" stroke-linecap="round"/>`
+  :`<ellipse cx="${52+eo}" cy="${ey}" rx="3.6" ry="${p=='listen'?5:4}" fill="${W}"/><ellipse cx="${70+eo}" cy="${ey}" rx="3.6" ry="${p=='listen'?5:4}" fill="${W}"/>`;
+ face+=p=='listen'?`<circle cx="${61+eo}" cy="76" r="2.4" fill="none" stroke="${W}" stroke-width="2"/>`:`<path d="M55 76 q6 4 12 0" stroke="${W}" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+ return `<g filter="url(#gl)">${s}</g>${face}${p=='listen'?waves(104,60):''}${p=='act'?coin(60,20,12)+`<path d="M44 36 l8 8 M76 36 l-8 8" stroke="${M}" stroke-width="2" stroke-linecap="round"/>`:''}`}
+// 2 Ori: orb bot
+function ori(p){const lean=p=='act'?-6:0, eyeX=p=='listen'?66:60;
+ const legs=p=='act'?`<path d="M50 92 l-8 16 M70 92 l10 14" stroke="${W}" stroke-width="3" stroke-linecap="round"/>`:`<path d="M50 92 l-3 16 M70 92 l3 16" stroke="${W}" stroke-width="3" stroke-linecap="round"/><path d="M42 108 h8 M70 108 h8" stroke="${W}" stroke-width="3" stroke-linecap="round"/>`;
+ const ant=p=='listen'?`<path d="M60 30 q2 -10 -4 -16" stroke="${W}" stroke-width="2" fill="none"/><circle cx="56" cy="14" r="3" fill="${M}" filter="url(#gl)"/>${waves(76,20)}`:`<path d="M60 30 v-12" stroke="${W}" stroke-width="2"/><circle cx="60" cy="16" r="3" fill="${G}"/>`;
+ const arms=p=='act'?`<path d="M34 62 q-8 -18 6 -34 M86 62 q8 -18 -6 -34" stroke="${W}" stroke-width="2.6" fill="none" stroke-linecap="round"/>${coin(60,14,13)}`:'';
+ return `<g transform="rotate(${lean} 60 64)">${legs}${ant}<circle cx="60" cy="62" r="32" fill="url(#orb)"/><path d="M34 70 a26 26 0 0 0 52 0" fill="none" stroke="#2a2a2a" stroke-width="1"/>
+ <rect x="38" y="48" width="44" height="22" rx="11" fill="#0B0B0B"/><circle cx="${eyeX}" cy="59" r="${p=='listen'?7:6}" fill="${M}" filter="url(#gl)"/><circle cx="${eyeX+2}" cy="57" r="1.8" fill="#fff"/>${p=='idle'?`<rect x="${eyeX-7}" y="52" width="14" height="4" fill="#0B0B0B"/>`:''}${arms}</g>`}
+// 3 Needle: compass sprite
+function needle(p){const rot=p=='listen'?-14:p=='act'?28:0;
+ const body=`<g transform="rotate(${rot} 60 64)"><path d="M60 14 L84 64 L60 114 L36 64Z" fill="${W}"/><path d="M60 14 L36 64 L60 114Z" fill="#9b9b9b"/>
+ <path d="M60 4 V124" stroke="${M}" stroke-width="2.4" filter="url(#gl)"/>
+ <circle cx="60" cy="64" r="7" fill="#0B0B0B"/><circle cx="60" cy="64" r="3" fill="${M}" filter="url(#gl)"/>
+ ${p=='idle'?`<path d="M49 50 h5 M66 50 h5" stroke="#0B0B0B" stroke-width="2.4" stroke-linecap="round"/>`:`<circle cx="52" cy="50" r="2.8" fill="#0B0B0B"/><circle cx="68" cy="50" r="2.8" fill="#0B0B0B"/>`}</g>`;
+ const extra=p=='listen'?`<g fill="none" stroke="${M}" stroke-width="1.4" opacity=".7"><circle cx="60" cy="64" r="48" stroke-dasharray="2 5"/><circle cx="60" cy="64" r="56" stroke-dasharray="1 7" opacity=".5"/></g>`
+  :p=='act'?`${coin(100,24,11)}<path d="M20 100 q30 10 70 -60" stroke="${M}" stroke-width="1.4" fill="none" stroke-dasharray="3 4" opacity=".8"/>`:`<path d="M30 118 h60" stroke="#333" stroke-width="1"/>`;
+ return extra+body}
+// 4 Courier: hooded runner
+function courier(p){const tilt=p=='act'?10:0;
+ const legs=p=='act'?`<path d="M52 98 l-12 12 M68 98 l14 6" stroke="${W}" stroke-width="3.2" stroke-linecap="round"/>`:`<path d="M52 100 v12 M68 100 v12" stroke="${W}" stroke-width="3.2" stroke-linecap="round"/>`;
+ const eyes=p=='listen'?`<circle cx="54" cy="58" r="3.4" fill="${M}" filter="url(#gl)"/><circle cx="68" cy="58" r="3.4" fill="${M}" filter="url(#gl)"/>`
+   :p=='idle'?`<path d="M50 59 h7 M64 59 h7" stroke="${M}" stroke-width="2.6" stroke-linecap="round" filter="url(#gl)"/>`:`<circle cx="58" cy="58" r="3" fill="${M}" filter="url(#gl)"/><circle cx="71" cy="58" r="3" fill="${M}" filter="url(#gl)"/>`;
+ const bag=`<path d="M36 74 Q60 80 80 86" stroke="#555" stroke-width="2.4"/><rect x="72" y="80" width="18" height="14" rx="3" fill="#3a3a3a" stroke="${W}" stroke-width="1.2"/>`;
+ const extra=p=='act'?`${coin(96,40,10)}${coin(108,62,7)}<path d="M8 70 h18 M14 82 h14 M10 94 h16" stroke="#555" stroke-width="2" stroke-linecap="round"/>`:p=='listen'?waves(92,48):'';
+ return `<g transform="rotate(${tilt} 60 80)">${legs}<path d="M60 22 C84 22 92 44 90 66 L94 102 H26 L30 66 C28 44 36 22 60 22Z" fill="#2b2b2b" stroke="${W}" stroke-width="1.6"/>
+ <path d="M60 22 C50 30 46 40 47 46" stroke="${W}" stroke-width="1.1" fill="none" opacity=".6"/>
+ <ellipse cx="${p=='act'?64:61}" cy="58" rx="20" ry="16" fill="#0B0B0B"/>${eyes}${bag}</g>${extra}`}
+const C=[['Speck','dust blob that forms a face from mint specks',speck],['Ori','round orb bot, one mint eye, little legs',ori],['Needle','compass-needle sprite with a meridian line',needle],['Courier','hooded runner carrying coins between chains',courier]];
+const svg=(f,p,s)=>`<svg width="${s}" height="${s}" viewBox="0 0 120 128">${defs}${f(p)}</svg>`;
+document.getElementById('root').innerHTML=C.map(([n,d,f],i)=>`<div class="c"><div class="t">${n} <span style="font:12px JetBrains Mono;color:#7a7a7a"> — ${d}</span></div>
+<div class="n">0${i+1}</div>${['idle','listen','act'].map(p=>`<div class="cell">${svg(f,p,280)}<div class="lab">${p=='act'?'ACTING / CARRYING':p.toUpperCase()+(p=='listen'?'ING':'')}</div></div>`).join('')}
+<div class="cell sm"><div>${svg(f,'idle',48)}${svg(f,'listen',48)}</div><div>${svg(f,'act',48)}</div><div class="lab">48PX</div></div></div>`).join('');
+</script></body></html>
