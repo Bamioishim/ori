@@ -109,3 +109,21 @@ section{padding:30px 0}
 .chips{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}.chips button{border:1px solid var(--line);padding:6px 9px;color:var(--grey);cursor:pointer}
 .ask{display:flex;border-top:1px solid var(--line);padding-top:10px}.ask input{flex:1;font-size:16px}.ask button{color:var(--white);cursor:pointer}
 @media (prefers-reduced-motion:reduce){.legs.walking path,.blink,.waves path,.speed path{animation:none}}
+/* live data */
+.live-tag{display:inline-block;margin-left:8px;padding:1px 6px;border:1px solid rgba(125,245,216,.45);color:var(--white);font-size:9.5px;letter-spacing:.12em;box-shadow:0 0 10px rgba(125,245,216,.12)}
+.live-tag.dimtag{border-color:var(--line);color:var(--dim);box-shadow:none}
+.modes{display:inline-flex;gap:2px;margin-bottom:22px;border:1px solid var(--line);padding:2px}
+.modes button{position:relative;padding:5px 10px;font-size:11.5px;color:var(--dim);cursor:pointer}
+.modes button.on{color:var(--bg)}.modes button span,.modes button{z-index:1}
+.modes i{position:absolute;inset:0;background:var(--accent);z-index:-1}
+.watch .tag{width:38px;color:var(--dim)}.watch .addr{font-size:13px}
+.addaddr{display:flex;border-bottom:1px solid var(--line);padding:12px 0;margin-bottom:10px}
+.addaddr input{flex:1;font-family:inherit;font-size:14px;min-width:0}.addaddr button{color:var(--white);cursor:pointer}.addaddr button:disabled{color:var(--dim)}
+.linkish{cursor:pointer}.err{color:#F5F4F1;opacity:.75;margin-top:6px;border-left:1px solid var(--grey);padding-left:8px}
+.total.loading{opacity:.35;animation:pulse 1.2s ease-in-out infinite}
+.pulse{animation:pulse 1.2s ease-in-out infinite}@keyframes pulse{50%{opacity:.35}}
+.asset.skel i{width:28px;height:28px;border:1px solid var(--line);border-radius:50%}
+.asset.skel b{display:block;height:9px;width:90px;background:rgba(255,255,255,.06);margin:4px 0;animation:pulse 1.2s infinite}
+.amtin{width:60%;font-family:inherit;background:none;border:0;color:inherit}
+.cta:disabled{opacity:.45}
+.total .money.l7{font-size:46px}.total .money.l9{font-size:36px}

@@ -74,3 +74,20 @@ Rules: https://nearhackathon.com/HACKATHON.md — build 2026-11-01 00:00 → 202
 - Auto-yield = custody/regulatory risk; keep it simulated + opt-in for hackathon.
 - "One balance" is a crowded category → edge = spend-order intelligence + privacy + scam blocking; lead the demo with those.
 - Final name + accent colour pending (accent is one CSS var `--accent`, currently temporary warm off-white).
+
+## Live read-only data (prototype, Oct 23 2026)
+All calls are reads. Nothing is signed, nothing is deposited, no keys are used.
+
+| Feature | Source | Status |
+|---|---|---|
+| Token list + USD prices | `GET https://1click.chaindefuser.com/v0/tokens` (205 assets, CORS `*`) | LIVE |
+| Pay / Swap route, fee, ETA | `POST /v0/quote` with `dry: true` — no JWT needed for dry quotes; returns amountIn/OutUsd, minAmountOut, timeEstimate, no deposit address | LIVE QUOTE |
+| EVM balances (ETH + USDC, Ethereum & Base) | publicnode JSON-RPC `eth_getBalance` / `eth_call balanceOf` | LIVE |
+| Solana SOL | publicnode `getBalance` | LIVE |
+| Solana USDC (SPL) | `getTokenAccountsByOwner` — publicnode requires a token for indexed calls, and api.mainnet-beta rejects browser Origins. Prototype routes it through the Vite dev/preview proxy `/rpc/sol`. **Prod: keyed RPC (Helius/QuickNode/Triton) or a tiny server proxy.** | LIVE via local proxy |
+| NEAR + NEAR USDC | fastnear RPC `view_account`, `ft_balance_of` | LIVE |
+| Scam check | GoPlus `GET /api/v1/address_security/{addr}?chain_id=1` (no key) | LIVE for EVM; Solana returns `system error` → shown as "not checked" |
+
+Notes / still mocked: handle (@tolu) → address resolution; executing payments/swaps (Hold to pay runs a simulated settlement, Swap CTA disabled); Earn APYs; Privacy "public sees" panel; sparkline/24h change (example mode only); voice is real Web Speech API but the demo video simulates it.
+Observed: dry quotes include `appFees` of 1 bps to a 1Click-side recipient even when none is requested — confirm with the Defuse team before the demo, and set our own `appFees`/`referral` once we have a JWT.
+For non-dry (executable) quotes: request a 1Click JWT via the partner form (docs.near-intents.org), send `Authorization: Bearer`. Not needed for anything in this prototype.
