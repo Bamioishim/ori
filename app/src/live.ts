@@ -62,9 +62,9 @@ async function evm(addr: string, ts: Token[]): Promise<Holding[]> {
   return out
 }
 async function sol(addr: string, ts: Token[]): Promise<Holding[]> {
-  const [b, t] = await Promise.all([rpc(RPC.sol, 'getBalance', [addr]), rpc(RPC.solIndexed, 'getTokenAccountsByOwner', [addr, { mint: USDC.sol }, { encoding: 'jsonParsed' }]).catch(() => null)])
+  const [b, t] = await Promise.all([rpc(RPC.sol, 'getBalance', [addr]), (import.meta.env.DEV ? rpc(RPC.solIndexed, 'getTokenAccountsByOwner', [addr, { mint: USDC.sol }, { encoding: 'jsonParsed' }]).catch(() => null) : Promise.resolve(null))])
   const s = b.value / 1e9, u = t ? t.value.reduce((a: number, x: any) => a + (x.account.data.parsed.info.tokenAmount.uiAmount || 0), 0) : 0
-  if (!t) partial.push(`${short(addr)}: SOL read, USDC (SPL) needs an indexed RPC`)
+  if (!t) partial.push(import.meta.env.DEV ? `${short(addr)}: SOL read, USDC (SPL) needs an indexed RPC` : `${short(addr)}: Solana USDC unavailable in preview`)
   return [{ sym: 'SOL', chain: 'Solana', amt: s, usd: s * price(ts, 'SOL', 'sol'), addr }, { sym: 'USDC', chain: 'Solana', amt: u, usd: u * price(ts, 'USDC', 'sol'), addr }]
 }
 async function near(addr: string, ts: Token[]): Promise<Holding[]> {
