@@ -1,0 +1,26 @@
+import { chromium, devices } from '@playwright/test'
+const S = '../shots/'
+const b = await chromium.launch({ executablePath: '/home/box/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome' })
+const dev = devices['iPhone 13']
+const ctx = await b.newContext({ ...dev, hasTouch: false, isMobile: false, recordVideo: { dir: '/tmp/vid', size: dev.viewport } })
+const p = await ctx.newPage(); const w = ms => p.waitForTimeout(ms)
+await p.goto('http://localhost:4317/'); await w(3000)
+await p.screenshot({ path: S + 'ori-roam.png' }); await w(2600)
+await p.screenshot({ path: S + 'ori-hop.png' }); await w(900)
+await p.click('.total'); await w(1300); await p.screenshot({ path: S + 'ori-cover.png' }); await p.click('.total'); await w(700)
+await p.evaluate(() => window.__ori.hear('hey ori')); await w(900); await p.screenshot({ path: S + 'ori-wake.png' }); await w(1300)
+await p.evaluate(() => window.__ori.hear('send $20 to tolu')); await w(1800); await p.screenshot({ path: S + 'ori-prefill.png' }); await w(700)
+await p.evaluate(() => { const e = document.querySelector('.cta'); scrollTo({ top: e.getBoundingClientRect().top + scrollY - 420, behavior: 'smooth' }) }); await w(900)
+const cta = await p.locator('.cta').boundingBox()
+await p.mouse.move(cta.x + cta.width / 2, cta.y + cta.height / 2); await p.mouse.down(); await w(900); await p.mouse.up()
+await w(350); await p.screenshot({ path: S + 'ori-run.png' }); await w(700); await p.screenshot({ path: S + 'ori-run2.png' }); await w(2400)
+await p.screenshot({ path: S + 'ori-receipt.png' }); await w(1200)
+const vid = await p.video().path(); await ctx.close()
+// stills not in video: chat sheet + scam block
+const c2 = await b.newContext({ ...dev }); const q = await c2.newPage()
+await q.goto('http://localhost:4317/'); await q.waitForTimeout(2000)
+await q.evaluate(() => document.querySelector('.ori').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, isPrimary: true })))
+await q.locator('.ori').click({ force: true }); await q.waitForTimeout(1600); await q.screenshot({ path: S + 'ori-chat.png' })
+await q.goto('http://localhost:4317/?screen=pay'); await q.waitForTimeout(800); await q.fill('.field', '0xdead…drainer'); await q.waitForTimeout(2200); await q.screenshot({ path: S + 'ori-scam.png' })
+const c3 = await b.newContext({ ...dev, reducedMotion: 'reduce' }); const r = await c3.newPage(); await r.goto('http://localhost:4317/'); await r.waitForTimeout(2500); await r.screenshot({ path: S + 'ori-reduced.png' })
+await b.close(); console.log(vid)
