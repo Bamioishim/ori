@@ -275,3 +275,27 @@ nav{z-index:44}
   .pg .how{grid-template-columns:repeat(4,1fr)}
   .pg .cta{max-width:320px}
 }
+/* policy, confirm sheet, feed, scanner */
+.ok-tag{border:1px solid rgba(125,245,216,.45);padding:1px 6px;font-size:9.5px;letter-spacing:.1em}
+.policy-sum{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.policy-sum span{border:1px solid var(--line);padding:6px 8px}
+.csheet{position:fixed;left:0;right:0;bottom:0;width:100%;max-width:480px;margin:0 auto;z-index:44;background:#0A0A0A;border-top:1px solid rgba(125,245,216,.35);padding:12px 20px 26px;max-height:92vh;overflow:auto;box-shadow:0 -30px 80px rgba(0,0,0,.7)}
+.csheet .row{padding:10px 0;font-size:14.5px}.csheet .cta{margin-top:16px}
+.csum{font-size:34px;font-weight:500;letter-spacing:-.04em;margin:6px 0 12px}
+.pwarn{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;margin-top:8px;border:1px solid var(--line);font-size:13.5px;line-height:1.4}
+.pwarn b{font-family:'JetBrains Mono';width:16px;flex:none;text-align:center}
+.pwarn.bad{border-color:rgba(255,107,107,.6)}.pwarn.bad b{color:#ff8a8a}
+.pwarn.warn{border-color:rgba(230,190,120,.5)}.pwarn.warn b{color:#E6BE78}
+.pwarn.info{border-color:rgba(125,245,216,.35)}.pwarn.info b{color:#7DF5D8}
+.ack{display:flex;gap:10px;align-items:center;margin-top:12px;font-size:14px;cursor:pointer}.ack input{accent-color:#7DF5D8;width:16px;height:16px}
+.feed{display:flex;flex-direction:column}
+.fitem{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line);font-size:14.5px}
+.fic{width:22px;height:22px;flex:none;border:1px solid var(--line);border-radius:50%;display:grid;place-items:center;font:500 11px 'JetBrains Mono'}
+.fitem.flag .fic{border-color:rgba(230,190,120,.6);color:#E6BE78}.fitem.block .fic{border-color:rgba(255,107,107,.6);color:#ff8a8a}
+.fitem.approve .fic,.fitem.revoke .fic{border-color:rgba(125,245,216,.55);color:#7DF5D8}
+.appr{border:1px solid var(--line);padding:0 14px 14px;margin-bottom:10px;overflow:hidden}.appr.risky{border-color:rgba(255,107,107,.35)}
+.appr .row{border-top:0}.appr .ghost{margin-top:10px}.gp{color:var(--dim)}
+@media (min-width:1024px){
+  .csheet{top:0;bottom:0;height:fit-content;width:460px;border:1px solid rgba(125,245,216,.3)}
+  .d-feed{grid-column:span 7}
+  .pg>section.pg-wide{grid-column:1 / -1}
+}

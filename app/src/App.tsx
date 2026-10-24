@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { APP_NAME } from './config'
 import { addSpent, limitCheck, logBlocked, setFmt, spentToday, usd, useSettings, type Settings } from './settings'
 import { SettingsScreen, SecurityScreen, HelpScreen } from './Screens'
+import { PolicyScreen, ScanScreen, ConfirmSheet, Feed, type SheetData } from './Policy'
 import { answer, DEFAULT_CHIPS, type Act, type Reply } from './brain'
 import { chains, assets, total, protocols } from './mock'
 import Dust from './Dust'
@@ -14,7 +15,7 @@ import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, goplus, kindOf, quote, readPortfolio, short, tokens, type Holding, type Quote, type Risk } from './live'
 import { handleHeard, speak, speechSupported, startListening } from './voice'
 
-type Screen = 'home' | 'pay' | 'swap' | 'earn' | 'privacy' | 'settings' | 'security' | 'help'
+type Screen = 'home' | 'pay' | 'swap' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
@@ -103,6 +104,10 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
       <Spark range={range} />
       <div className="ranges">{['1D', '1W', '1M', '1Y'].map(r => <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}{range === r && <motion.i layoutId="rg" transition={spring} />}</button>)}</div>
     </section>}
+    <section>
+      <div className="sechead"><Label>ORI ACTIVITY</Label><button className="label linkish" onClick={() => go?.('scan')}>SCANNER →</button></div>
+      <Feed max={4} />
+    </section>
     {!empty && <section>
       <div className="sechead"><Label>ALLOCATION</Label><span className="label">{chainRows.length} CHAINS</span></div>
       <div className="alloc">{chainRows.map(c => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
@@ -164,6 +169,10 @@ function HomeDesk(p: any) {
           <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td></tr>)}
       </tbody></table>
     </section>}
+    <section className="d-card d-feed">
+      <div className="sechead"><Label>ORI ACTIVITY · POLICY EVENTS</Label><span><button className="label linkish" onClick={() => go('policy')}>POLICY →</button> <button className="label linkish" onClick={() => go('scan')}>SCANNER →</button></span></div>
+      <Feed max={6} />
+    </section>
     <section className="d-card d-act">
       <div className="sechead"><Label>RECENT ACTIVITY <Example /></Label></div>
       {activity.map((a, i) => <div className="row" key={i}><span className="grow">{a.t} <span className="dim">· {a.who}</span><br /><span className="mono xs dim">{a.note} · {a.when}</span></span>
@@ -197,7 +206,7 @@ function ConfirmBtn({ label, need, blocked, limit, status, busyLabel, onGo, onLi
     <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : (need ? 'Hold to ' : 'Tap to ') + label}</button>
 }
 
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void }) {
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
@@ -255,8 +264,8 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Quoted fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
         <div className="row"><span className="grow">Delivered by</span><span className="num">Ori</span></div>
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`pay ${usd(n)}`} need={n > cfg.holdAbove} blocked={!checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
-        onGo={r => checked && onConfirm(r, n, to)} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
+      : <ConfirmBtn btn={cta} label={`review ${usd(n)} payment`} need={false} blocked={!checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
+        onGo={r => checked && onConfirm(r, n, to, q.q ? q.q.fee : null)} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
@@ -268,7 +277,7 @@ function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: 
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : 'Enter an amount for a live quote.'}</div>
   return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · ETA ~{q.q.eta}s · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
-function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
+function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [flip, setFlip] = useState(preset.flip)
   const [amt, setAmt] = useState(preset.amt)
   useEffect(() => { setFlip(preset.flip); setAmt(preset.amt) }, [preset.k])
@@ -316,8 +325,8 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
         <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · simulated · ~{sent.q.eta}s</span></div>
         <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)} · dry run</span></div>
       </motion.div>
-      : <ConfirmBtn label={`swap ${n || ''} ${from.s} → ${to.s}`} need={usdv > cfg.holdAbove} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"
-        onGo={r => { if (!q.q) return; setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
+      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"
+        onGo={r => { if (!q.q) return; setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
   </div>
 }
 
@@ -382,7 +391,7 @@ const activity = [
 ]
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 type Msg = { who: 'me' | 'ori'; t: string; chips?: string[]; pending?: Act }
-const MORE: Screen[] = ['earn', 'privacy', 'settings', 'security', 'help']
+const MORE: Screen[] = ['policy', 'scan', 'earn', 'privacy', 'settings', 'security', 'help']
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
@@ -467,9 +476,12 @@ export default function App() {
   useEffect(() => { (window as any).__ori = { hear: (t: string) => handleHeard(t, heardCb, 'simulated') } })
   const toggleMic = () => { if (!cfg.wake) { oriSay('The “Hey Ori” wake word is off. Turn it on in Settings, or click me to type.'); return } if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } stopMic.current = startListening(heardCb) }
   const celebrate = async (r: DOMRect, set: (v: 'idle' | 'running' | 'done' | 'sent') => void) => { set('running'); await ori.current?.run(r); set('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 560); set('sent'); setTimeout(() => setBurst(null), 420); ori.current?.mood('happy') }
-  const confirm = async (r: DOMRect, amt: number, to: string) => { await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`Delivered ${usd(amt)} to ${to}. Simulated, nothing was signed. Receipt’s on the card.`) }
-  const confirmSwap = async (r: DOMRect, v: number, detail: string) => { await celebrate(r, setSwapSt); addSpent(v); oriSay(`Swapped ${detail}, simulated at the live quote. Nothing was signed.`) }
-  const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Security.`, false, ['Open security', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
+  const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
+  const confirm = (r: DOMRect, amt: number, to: string, fee: number | null) => setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, run: () => doPay(r, amt, to) })
+  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, run: () => doSwap(r, v, detail) })
+  const doPay = async (r: DOMRect, amt: number, to: string) => { await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`Delivered ${usd(amt)} to ${to}. Simulated, nothing was signed. Receipt’s on the card.`) }
+  const doSwap = async (r: DOMRect, v: number, detail: string) => { await celebrate(r, setSwapSt); addSpent(v); oriSay(`Swapped ${detail}, simulated at the live quote. Nothing was signed.`) }
+  const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
 
 
   return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
@@ -478,7 +490,7 @@ export default function App() {
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}</div>
       <div className="side-nav">
-        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
+        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
           {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
           <button className={'side-item' + (screen === k ? ' on' : '') + ''} onClick={() => goTo(k as Screen)}>
             <span className="mono xs dim">{String(i + 1).padStart(2, '0')}</span>{label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
@@ -501,6 +513,8 @@ export default function App() {
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} speechOk={speechSupported()} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
         {screen === 'security' && <SecurityScreen s={cfg} set={setCfg} />}
+        {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
+        {screen === 'scan' && <ScanScreen />}
         {screen === 'help' && <HelpScreen ask={ask} />}
         {screen === 'earn' && <Earn />}
         {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
@@ -517,7 +531,7 @@ export default function App() {
       <motion.div className="drawer" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={spring}>
         <div className="grab" />
         <p className="mono xs dim">MORE</p>
-        {([['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
+        {([['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
             onClick={() => goTo(k)}>
             <span className="mono xs dim">{String(i + 4).padStart(2, '0')}</span><span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
@@ -537,6 +551,7 @@ export default function App() {
       </motion.div></>}</AnimatePresence>
     <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => setChat(c => !c)} balance={hidden ? null : rows.reduce((a, r) => a + r.usd, 0)} chat={chat && wide} /></div>
     <AnimatePresence>{burst && <motion.div className="burst" initial={{ clipPath: `circle(0px at ${burst.x}px ${burst.y}px)` }} animate={{ clipPath: `circle(150vmax at ${burst.x}px ${burst.y}px)` }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : 0.55, ease: [0.65, 0, 0.35, 1] }} />}</AnimatePresence>
+    <AnimatePresence>{sheet && <ConfirmSheet key="cs" d={sheet} cfg={cfg} onCancel={() => { if (!sheet.blocked) oriSay('Cancelled. Nothing moved.'); setSheet(null) }} onConfirm={() => { const r = sheet.run; setSheet(null); r?.() }} />}</AnimatePresence>
     <Intro stage={stage} skip={skipIntro} />
   </div></LayoutGroup>
 }

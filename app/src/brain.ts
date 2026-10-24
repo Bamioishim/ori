@@ -2,7 +2,7 @@
 // live 1Click prices / dry quotes, live GoPlus checks, and a small built-in knowledge base.
 // It never moves money: actions are proposals the user confirms in the UI.
 import { ASSET, PREVIEW, goplus, kindOf, quote, short, tokens } from './live'
-import { usd, type Settings } from './settings'
+import { APPROVALS, SUSPICIOUS, blockedLog, feed, revoked, usd, type Settings } from './settings'
 
 export type Act =
   | { k: 'pay'; to: string; amt: string }
@@ -20,7 +20,7 @@ const num = (s?: string) => !s ? NaN : isNaN(+s.replace(/,/g, '')) ? (N[s] ?? Na
 const CHAINS: Record<string, string> = { base: 'Base', solana: 'Solana', sol: 'Solana', ethereum: 'Ethereum', eth: 'Ethereum', mainnet: 'Ethereum', near: 'NEAR' }
 const SYMS = ['USDC', 'USDT', 'SOL', 'ETH', 'NEAR', 'BTC', 'WBTC']
 const PRICE_CHAIN: Record<string, string> = { SOL: 'sol', ETH: 'eth', NEAR: 'near', BTC: 'btc', USDC: 'base', USDT: 'eth', WBTC: 'eth' }
-const DEFAULT_CHIPS = ['What’s my balance?', 'Price of SOL', 'Swap 1 SOL to USDC', 'Is ORI safe?']
+const DEFAULT_CHIPS = ['What’s my balance?', 'What are my limits?', 'Anything flagged?', 'Swap 1 SOL to USDC']
 
 const KB: [RegExp, string, string[]?][] = [
   [/what(’|')?s ori|what is ori|about (ori|this app)|what does (ori|this app) do/, 'ORI is one balance for all your money across Base, Ethereum, Solana and NEAR. You pay or swap from that one balance, and ORI picks the route. In this preview the data is example or watch-only, and payments are simulated.', ['How does NEAR Intents work?', 'What’s live in this preview?']],
@@ -81,8 +81,25 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
   if (/(voice|speech|talking) off|mute|stop talking|be quiet/.test(t)) return { text: 'Voice off. I’ll stick to text.', act: { k: 'set', patch: { voice: false }, label: 'voice' } }
   if (/(voice|speech) on|unmute|talk to me/.test(t)) return { text: 'Voice on.', act: { k: 'set', patch: { voice: true }, label: 'voice' } }
   m = t.match(/trust\s+(@?[\w.-]+)/); if (m) { const w = m[1].startsWith('@') ? m[1] : '@' + m[1]; return { text: `Add ${w} to trusted contacts?`, act: { k: 'trust', who: w }, confirm: true } }
+  // policy, blocks, flags
+  if (/(open|go to|show|take me to).*(polic|limit|allowlist|cap)/.test(t)) return { text: 'Opening Policy & limits.', act: { k: 'go', screen: 'policy' } }
+  if (/(open|go to|show|take me to|run|start).*(scan|approval|revoke)/.test(t)) return { text: 'Opening the scam & approval scanner.', act: { k: 'go', screen: 'scan' } }
+  if (/(my )?(limits?|caps?|policy|threshold|allowlist|spending rules)\b/.test(t) && !/set|change|raise|lower/.test(t)) {
+    const c = ctx.settings, left = Math.max(0, c.daily - ctx.spent)
+    return { text: `Your policy: daily cap ${usd(c.daily)} (${usd(left)} left today), per-transaction cap ${usd(c.perPay)}, and anything above ${usd(c.holdAbove)} needs a hold to confirm. Allowlist: ${c.trusted.join(', ') || 'empty'}. Sends to anyone else get flagged.`, chips: ['Open policy', 'What did you block?', 'Set daily cap to 300'] }
+  }
+  if (/block|stopp|denied|rejected/.test(t)) {
+    const b = blockedLog()
+    if (!b.length) { const d = feed().find(f => f.kind === 'block'); return { text: `Nothing real blocked on this device yet.${d ? ` From the demo feed: ${d.text.toLowerCase()} (${d.sub}).` : ''} Try paying more than your per-transaction cap and I’ll stop it.`, chips: ['What are my limits?', 'Pay kemi 400'] } }
+    return { text: `I’ve blocked ${b.length} attempt${b.length > 1 ? 's' : ''}. Latest: ${b[0].what}. ${b[0].why}`, mood: 'worried', chips: ['Open policy', 'Open security'] }
+  }
+  if (/flag|risky|suspicious|approval|revoke|danger|warning/.test(t)) {
+    const rv = revoked(), act = APPROVALS.filter(a => !rv.includes(a.id) && a.risk)
+    const parts = [...SUSPICIOUS.map(x => `${x.sym} on ${x.chain} looks like a scam token (${x.why.split(' · ')[0].toLowerCase()})`), ...act.map(a => `${a.amount === 'Unlimited' ? 'an unlimited' : 'a'} ${a.token} approval on ${a.chain} to ${a.name}`)]
+    return { text: `I’ve flagged ${parts.length} thing${parts.length === 1 ? '' : 's'}: ${parts.join('; ')}. The scanner lets you revoke approvals (demo).`, mood: 'worried', act: { k: 'go', screen: 'scan' }, chips: ['What did you block?'] }
+  }
   // navigation
-  m = t.match(/\b(open|go to|show me|take me to)\s+(the )?(home|pay|swap|earn|privacy|settings|security|help)\b/)
+  m = t.match(/\b(open|go to|show me|take me to)\s+(the )?(home|pay|swap|policy|scan|earn|privacy|settings|security|help)\b/)
   if (m) return { text: `Opening ${m[3]}.`, act: { k: 'go', screen: m[3] } }
 
   // quote: how much to send $X to solana
