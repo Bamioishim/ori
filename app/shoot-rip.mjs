@@ -1,0 +1,16 @@
+import { chromium } from 'playwright'
+const b=await chromium.launch({executablePath:'/home/box/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'})
+const m=await b.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true})
+await m.goto('https://ori-preview.vercel.app/?intro=0');await m.waitForTimeout(1200)
+await m.locator('button',{hasText:/^pay$/}).last().click();await m.waitForTimeout(900)
+console.log(await m.locator('button:visible').allInnerTexts())
+await m.locator('button',{hasText:/review/i}).click();await m.waitForTimeout(900);console.log(await m.locator('button:visible').allInnerTexts())
+const btns=m.locator('button:visible').filter({hasText:/send|confirm|hold|approve|sign/i})
+console.log(await btns.allInnerTexts())
+const t=btns.last(); const bb=await t.boundingBox()
+await m.mouse.move(bb.x+bb.width/2,bb.y+bb.height/2);await m.mouse.down()
+for(let k=0;k<40;k++){await m.waitForTimeout(100);if(await m.locator('.ripple').count()){await m.waitForTimeout(550);break}}
+await m.mouse.up().catch(()=>{})
+console.log('ripple',await m.locator('.ripple').count())
+await m.screenshot({path:'/workspace/meridian/shots/fix-ripple-mob.png'})
+await b.close()

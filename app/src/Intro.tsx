@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { APP_NAME } from './config'
+import { LogoStack } from './Logo'
 export type Stage = 'black' | 'mark' | 'land' | 'done'
 // Opening: black hold -> wordmark + subtitle -> wordmark glides into header (shared layoutId) while a dark curved sheet sweeps up.
 export function useIntro(): [Stage, () => void] {
@@ -21,7 +21,7 @@ export default function Intro({ stage, skip }: { stage: Stage; skip: () => void 
   return <AnimatePresence>{stage !== 'done' && <motion.div className="intro" onClick={skip} exit={{ opacity: 0, transition: { duration: 0.3 } }}
     animate={{ backgroundColor: stage === 'land' ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,1)' }} transition={{ duration: 0.5, delay: stage === 'land' ? 0.35 : 0 }}>
     {stage === 'mark' && <div className="intro-c">
-      <motion.span layoutId="wordmark" className="intro-mark" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}>{APP_NAME}</motion.span>
+      <motion.span layoutId="wordmark" className="intro-logo" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}><LogoStack size={150} /></motion.span>
       <motion.p className="intro-sub" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.45, delay: 0.25, ease: 'easeOut' }}>All your money in one place</motion.p>
     </div>}
     {stage === 'land' && <motion.div className="intro-sheet" initial={{ y: '100%' }} animate={{ y: '-115%' }} transition={{ duration: 0.85, ease: [0.65, 0, 0.35, 1] }} />}

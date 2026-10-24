@@ -58,7 +58,7 @@ export function OriSprite({ pose, face = 1, moving = false, look = { x: 0, y: 0 
           ? <ellipse cx={eyeX} cy="59" rx="6" ry="1.6" fill={M} filter="url(#ori-gl)" />
           : pose === 'block'
             ? <path d="M54 54 l12 10 M66 54 l-12 10" stroke={M} strokeWidth="3.2" strokeLinecap="round" filter="url(#ori-gl)" />
-            : <><circle cx={eyeX} cy={eyeY} r={expr === 'worried' ? 4.6 : pose === 'listen' ? 7 : er} fill={M} filter="url(#ori-gl)" className={pose === 'idle' || pose === 'sit' ? 'blink' : undefined} /><circle cx={eyeX + 2} cy={eyeY - 2} r="1.8" fill="#fff" /></>}
+            : <><circle cx={eyeX} cy={eyeY} r={expr === 'worried' ? 4.6 : pose === 'listen' ? 7 : er} fill={M} filter="url(#ori-gl)" className={pose === 'idle' || pose === 'sit' ? 'blink' : undefined} /><circle cx={eyeX + 2.2} cy={eyeY - 2.2} r="1.9" fill="#0A0A0A" /></>}
     {expr === 'worried' && <path d={`M${eyeX - 8} 51 l14 -3`} stroke={M} strokeWidth="2.2" strokeLinecap="round" opacity=".85" />}
     {expr === 'yawn' && <ellipse cx="60" cy="80" rx="5" ry="6" fill="#0B0B0B" />}
     {expr === 'sleep' && <g className="zz" fill={W} fontFamily="ui-monospace,monospace" fontWeight="700"><text x="88" y="30" fontSize="13">z</text><text x="100" y="16" fontSize="10" opacity=".7">z</text></g>}
