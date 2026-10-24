@@ -542,7 +542,7 @@ export default function App() {
       </motion.div></>}</AnimatePresence>
     <AnimatePresence>{chat && <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChat(false)} />}</AnimatePresence>
     {/* sheet stays mounted so the input can be focused synchronously inside the tap gesture (iOS only shows the keyboard then) */}
-      <motion.div className={'sheet' + (chat ? ' open' : '')} initial={false} animate={{ y: chat ? 0 : 460 }} transition={spring} aria-hidden={!chat}>
+      <motion.div className={'sheet' + (chat ? ' open' : '')} initial={false} animate={{ y: chat ? 0 : 'calc(100% + 140px)', opacity: chat ? 1 : 0 }} transition={spring} aria-hidden={!chat}>
         <div className="sheet-head"><Label>ORI · LOCAL ASSISTANT · NO AI MODEL</Label><button className="mono xs dim" onClick={() => setChat(false)}>CLOSE</button></div>
         <div className="msgs" data-lenis-prevent>{msgs.slice(-14).map((m, k) => { const i = msgs.length - Math.min(14, msgs.length) + k; return <motion.div key={i} className={'msgw ' + (m.who === 'me' ? 'me' : 'bot')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
           <div className={'msg ' + (m.who === 'me' ? 'me' : 'bot')}>{m.t}</div>
