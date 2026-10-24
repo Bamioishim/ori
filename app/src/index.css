@@ -300,3 +300,9 @@ nav{z-index:44}
   .d-feed{grid-column:span 7}
   .pg>section.pg-wide{grid-column:1 / -1}
 }
+
+/* concept-orb */
+.nebula{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none}
+.intro-on .nebula{opacity:0}.nebula{transition:opacity .9s ease}
+.hero-copy,.total,.d-hero{text-shadow:0 1px 18px rgba(0,0,0,.85)}
+.d-card.d-hero{background:rgba(8,8,8,.28)!important;backdrop-filter:none!important}

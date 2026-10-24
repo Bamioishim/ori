@@ -7,7 +7,7 @@ import { SettingsScreen, SecurityScreen, HelpScreen } from './Screens'
 import { PolicyScreen, ScanScreen, ConfirmSheet, Feed, type SheetData } from './Policy'
 import { answer, DEFAULT_CHIPS, type Act, type Reply } from './brain'
 import { chains, assets, total, protocols } from './mock'
-import Dust from './Dust'
+import Nebula, { nebulaThink, nebulaDone } from './Nebula'
 import Intro, { useIntro } from './Intro'
 import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
@@ -89,7 +89,6 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go! }} />
   return <>
     <section className="hero">
-      <Dust height={250} />
       <div className="hero-copy">
         <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
         <Label>TOTAL BALANCE {isLive ? <span className="live-tag">LIVE · READ-ONLY</span> : <Example />}</Label>
@@ -459,10 +458,10 @@ export default function App() {
     else if (a.k === 'trust') { if (!cfg.trusted.includes(a.who)) setCfg({ trusted: [...cfg.trusted, a.who] }) }
   }
   const command = async (text: string, src = 'chat') => {
-    setMsgs(m => [...m.map(x => ({ ...x, pending: undefined })), { who: 'me', t: text }]); setThinking(true); ori.current?.mood('think')
+    setMsgs(m => [...m.map(x => ({ ...x, pending: undefined })), { who: 'me', t: text }]); setThinking(true); nebulaThink(); ori.current?.mood('think')
     let r: Reply
     try { r = await answer(text, { mode, hidden, rows, settings: cfg, spent: spentToday() }) } catch { r = { text: 'Something went wrong on my side. Try again?' } }
-    setThinking(false); const v = src !== 'chat'
+    setThinking(false); nebulaDone(); const v = src !== 'chat'
     if (r.mood) ori.current?.mood(r.mood)
     if (r.act && r.confirm) { setMsgs(m => [...m, { who: 'ori', t: r.text, chips: r.chips, pending: r.act }]); ori.current?.say(r.text); talk(r.text, v || chat); return }
     oriSay(r.text, v, r.chips)
@@ -486,7 +485,7 @@ export default function App() {
 
   return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
-    {wide && <Dust full reduce={reduced} />}
+    <Nebula reduce={reduced} dim={wide ? 1 : 0.9} />
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}</div>
       <div className="side-nav">
