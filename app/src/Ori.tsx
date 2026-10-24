@@ -191,7 +191,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     ;(async () => { if (t && t.top > 40 && t.top < innerHeight - 120) await moveTo(t.right - 10, t.top - S + 8, 'float'); setPose('peek'); setExpr(balance > prev ? 'happy' : 'worried', 2200); await sleep(2200); if (busy.current === 'peekbal') { busy.current = null; setPose('idle') } })()
   }, [balance])
   const spin = () => { if (!hop.current) return; setExpr('happy', 1400); say(['Wheee.', 'Again?', 'Ta-da.'][Math.floor(Math.random() * 3)], 1400); if (!reduced) animate(hop.current, { rotate: [0, 360], y: [0, -34, 0] }, { duration: .8, ease: [0.3, 0, 0.2, 1] }) }
-  const tap = () => { lastAct.current = Date.now(); if (busy.current === 'nap') return; if (tapT.current) { clearTimeout(tapT.current); tapT.current = 0; spin(); return } tapT.current = window.setTimeout(() => { tapT.current = 0; onTap() }, 260) }
+  const tap = () => { lastAct.current = Date.now(); if (busy.current === 'nap') return; if (tapT.current) { clearTimeout(tapT.current); tapT.current = 0; spin(); return } onTap(); tapT.current = window.setTimeout(() => { tapT.current = 0 }, 260) } // open now: focus must happen inside the gesture on iOS
 
   useImperativeHandle(ref, () => ({
     say,

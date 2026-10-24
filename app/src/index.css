@@ -101,8 +101,8 @@ section{padding:30px 0}
 .cta.holding .fill{width:100%;transition:width .75s linear}
 .receipt{margin-top:24px;border-top:1px solid var(--grey);padding-top:20px}
 .money-r{font-size:34px;font-weight:300;letter-spacing:-.03em;margin-bottom:12px;font-variant-numeric:tabular-nums}.money-r .dim{font-size:15px;letter-spacing:0}
-.scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:41}
-.sheet{position:fixed;left:50%;bottom:0;width:100%;max-width:480px;margin-left:-240px;z-index:42;background:#0E0E0E;border-top:1px solid rgba(217,217,217,.22);padding:18px 20px 30px;height:360px;display:flex;flex-direction:column}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:47}
+.sheet{position:fixed;left:50%;bottom:0;width:100%;max-width:480px;margin-left:-240px;z-index:48;background:#0E0E0E;pointer-events:none;visibility:visible;border-top:1px solid rgba(217,217,217,.22);padding:18px 20px 30px;height:360px;display:flex;flex-direction:column}
 @media (max-width:480px){.sheet{left:0;margin-left:0}}
 .sheet-head{display:flex;justify-content:space-between}
 .msgs{flex:1;display:flex;flex-direction:column;gap:8px;overflow:hidden;justify-content:flex-end;padding-bottom:10px}
@@ -314,3 +314,5 @@ nav{z-index:44}
 .logo-svg.anim .lg-iris{transform-box:view-box;transform-origin:679px 477.5px;animation:lg-glance 3.2s cubic-bezier(.6,0,.3,1) .5s infinite}
 @keyframes lg-glance{0%,30%{transform:translate(0,0) scaleY(1)}40%{transform:translate(-70px,8px)}62%{transform:translate(-70px,8px)}70%{transform:translate(0,0) scaleY(1)}76%{transform:scaleY(.08)}82%,100%{transform:scaleY(1)}}
 @media (prefers-reduced-motion:reduce){.logo-svg.anim .lg-iris{animation:none}}
+
+.sheet.open{pointer-events:auto}

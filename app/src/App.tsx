@@ -470,7 +470,10 @@ export default function App() {
     if (r.act) setTimeout(() => doAct(r.act!), r.act.k === 'pay' || r.act.k === 'swap' || r.act.k === 'go' ? 600 : 0)
   }
   const resolve = (i: number, ok: boolean) => { const m = msgs[i]; if (!m?.pending) return; setMsgs(ms => ms.map((x, j) => j === i ? { ...x, pending: undefined } : x)); if (ok) { doAct(m.pending); oriSay(m.pending.k === 'set' ? `Done: ${m.pending.label}.` : m.pending.k === 'trust' ? `${m.pending.who} is now trusted.` : m.pending.k === 'mode' ? `Switched to ${m.pending.m} mode.` : 'Done.'); ori.current?.mood('happy') } else oriSay('Okay, left it as it was.') }
-  const ask = (q?: string) => { setChat(true); if (q) command(q) }
+  const askIn = useRef<HTMLInputElement>(null)
+  const openChat = () => { setChat(true); askIn.current?.focus({ preventScroll: true }) }
+  useEffect(() => { if (!chat) askIn.current?.blur() }, [chat])
+  const ask = (q?: string) => { openChat(); if (q) command(q) }
   const wake = (src: string) => { if (!cfg.wake) return; ori.current?.listen(); setHeard(src === 'simulated' ? '“Hey Ori” · simulated' : '“Hey Ori”'); oriSay('Hey! What do you need?', true) }
   // single entry for speech results (real mic and the demo simulation both call this)
   const heardCb = { onWake: wake, onCommand: (t: string, src: string) => { setHeard(`“${t}”${src === 'simulated' ? ' · simulated' : ''}`); command(t, src) }, onState: (s: string) => setMic(s as any) }
@@ -499,11 +502,11 @@ export default function App() {
       <button className="side-ask" onClick={() => ask()}><span className="dot" />Ask Ori anything<span className="mono xs dim">CLICK</span></button>
       <p className="mono xs dim side-foot">Preview · {mode === 'live' ? 'live watch-only' : 'example data'} · nothing is signed</p>
     </aside>}
-    {wide && <button className={'mic top-mic ' + mic} onClick={() => { setChat(true); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
+    {wide && <button className={'mic top-mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
         <span className="mono xs">{!cfg.wake ? 'WAKE OFF' : mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>}
     {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}
-      <button className={'mic ' + mic} onClick={() => { setChat(true); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
+      <button className={'mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
         <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button></header>}
     <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
@@ -537,9 +540,9 @@ export default function App() {
             onClick={() => goTo(k)}>
             <span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
       </motion.div></>}</AnimatePresence>
-    <AnimatePresence>{chat && <>
-      <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChat(false)} />
-      <motion.div className="sheet" initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={spring}>
+    <AnimatePresence>{chat && <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChat(false)} />}</AnimatePresence>
+    {/* sheet stays mounted so the input can be focused synchronously inside the tap gesture (iOS only shows the keyboard then) */}
+      <motion.div className={'sheet' + (chat ? ' open' : '')} initial={false} animate={{ y: chat ? 0 : 460 }} transition={spring} aria-hidden={!chat}>
         <div className="sheet-head"><Label>ORI · LOCAL ASSISTANT · NO AI MODEL</Label><button className="mono xs dim" onClick={() => setChat(false)}>CLOSE</button></div>
         <div className="msgs" data-lenis-prevent>{msgs.slice(-14).map((m, k) => { const i = msgs.length - Math.min(14, msgs.length) + k; return <motion.div key={i} className={'msgw ' + (m.who === 'me' ? 'me' : 'bot')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
           <div className={'msg ' + (m.who === 'me' ? 'me' : 'bot')}>{m.t}</div>
@@ -548,9 +551,9 @@ export default function App() {
         </motion.div> })}
           {thinking && <div className="msg bot thinking"><Dots size={5} label="Ori is thinking" /></div>}<div ref={msgsEnd} /></div>
         <form onSubmit={e => { e.preventDefault(); if (input.trim() && !thinking) { command(input); setInput('') } }} className="ask">
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" autoFocus={wide} /><button className="mono xs" disabled={thinking}>SEND</button></form>
-      </motion.div></>}</AnimatePresence>
-    <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => setChat(c => !c)} balance={hidden ? null : rows.reduce((a, r) => a + r.usd, 0)} chat={chat && wide} /></div>
+          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" ref={askIn} enterKeyHint="send" tabIndex={chat ? 0 : -1} /><button className="mono xs" disabled={thinking}>SEND</button></form>
+      </motion.div>
+    <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => { if (chat) setChat(false); else openChat() }} balance={hidden ? null : rows.reduce((a, r) => a + r.usd, 0)} chat={chat && wide} /></div>
     <AnimatePresence>{burst && <motion.div className="ripple" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .25 }} aria-hidden>
       {[0, 1, 2].map(i => <motion.i key={i} initial={{ scale: 0.2, opacity: 0.7 }} animate={{ scale: [0.2, 1.05, 0.95, 1.6 + i * 0.5], opacity: [0.7, 0.55, 0.4, 0] }} transition={{ duration: reduced ? 0 : 1.3, delay: reduced ? 0 : i * 0.18, ease: 'easeOut', times: [0, 0.35, 0.5, 1] }} />)}
       <motion.b initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: [0.6, 1.12, 1], opacity: 1 }} transition={{ duration: reduced ? 0 : 0.5, delay: reduced ? 0 : 0.35 }}><Check size={30} /></motion.b></motion.div>}</AnimatePresence>
