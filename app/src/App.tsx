@@ -264,7 +264,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">Ori</span></div>
       </motion.div>
       : <ConfirmBtn btn={cta} label={`review ${usd(n)} payment`} need={false} blocked={!checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
-        onGo={r => checked && onConfirm(r, n, to, q.q ? q.q.fee : null)} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
+        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
@@ -325,7 +325,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
         <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)} · dry run</span></div>
       </motion.div>
       : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"
-        onGo={r => { if (!q.q) return; setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
+        onGo={r => { if (!q.q) return; nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
   </div>
 }
 
@@ -404,6 +404,7 @@ export default function App() {
   const lastTotal = useRef<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
+  useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
   const [chat, setChat] = useState(false)
   const [burst, setBurst] = useState<{ x: number; y: number } | null>(null)
   const [stage, skipIntro] = useIntro()
@@ -485,7 +486,7 @@ export default function App() {
 
   return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
-    <Nebula reduce={reduced} dim={wide ? 1 : 0.9} />
+    <Nebula reduce={reduced} dim={wide ? 1 : 0.9} active={screen === 'home' || thinking} />
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}</div>
       <div className="side-nav">

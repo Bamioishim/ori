@@ -6,17 +6,22 @@ const subs = new Set<(s: NebulaState) => void>()
 export const setNebula = (s: NebulaState) => { cur = s; subs.forEach(f => f(s)) }
 ;(window as any).__neb = setNebula
 // "start an action / speak" → burst to galaxy, then gather into a brain while processing
-let tm = 0
-export const nebulaThink = () => { clearTimeout(tm); setNebula('galaxy'); tm = window.setTimeout(() => cur === 'galaxy' && setNebula('brain'), 900) }
+let tm = 0, safety = 0
+export const nebulaThink = () => { clearTimeout(tm); clearTimeout(safety); safety = window.setTimeout(() => setNebula('orb'), 9000); setNebula('galaxy'); tm = window.setTimeout(() => cur === 'galaxy' && setNebula('brain'), 900) }
 export const nebulaDone = (delay = 1200) => { clearTimeout(tm); tm = window.setTimeout(() => setNebula('orb'), delay) }
 
-export default function Nebula({ reduce: rp = false, dim = 1 }: { reduce?: boolean; dim?: number }) {
+export default function Nebula({ reduce: rp = false, dim = 1, active = true }: { reduce?: boolean; dim?: number; active?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null)
+  const act = useRef(active); act.current = active
+  const kick = useRef<() => void>(() => {})
+  useEffect(() => { kick.current() }, [active])
   useEffect(() => {
     const c = ref.current!, ctx = c.getContext('2d')!
     const dpr = Math.min(devicePixelRatio || 1, 1.5)
     const mob = innerWidth < 760
-    const N = mob ? 1800 : 3200
+    const nav: any = navigator
+    const low = (nav.hardwareConcurrency || 8) <= 4 || (nav.deviceMemory || 8) <= 3
+    let N = mob ? (low ? 900 : 1800) : (low ? 1800 : 3200)
     const reduce = rp || matchMedia('(prefers-reduced-motion: reduce)').matches
     const forced = new URLSearchParams(location.search).get('nebula') as NebulaState | null
     if (forced) cur = forced
@@ -42,12 +47,12 @@ export default function Nebula({ reduce: rp = false, dim = 1 }: { reduce?: boole
       const violet = rnd() < 0.27
       return { orb, gal, br, x: orb[0], y: orb[1], z: orb[2], vx: 0, vy: 0, vz: 0, sz: rnd() < .04 ? 2 : rnd() < .4 ? 1.3 : 0.9, ph: rnd() * 6.28, violet, sx: 0, sy: 0 }
     })
-    let W = 0, H = 0, raf = 0, last = performance.now(), t = 0, state = cur, since = 0
+    let W = 0, H = 0, raf = 0, frames = 0, slowT = 0, running = false, last = performance.now(), t = 0, state = cur, since = 0
     const ptr = { x: -9999, y: -9999, tx: 0, ty: 0, on: false }
     const mv = (e: PointerEvent) => { ptr.x = e.clientX; ptr.y = e.clientY; ptr.on = true }
     const lv = () => { ptr.on = false }
     addEventListener('pointermove', mv); addEventListener('pointerdown', mv); document.addEventListener('pointerleave', lv)
-    const sub = (s: NebulaState) => { if (s !== state) { state = s; since = 0; if (s === 'galaxy') for (const p of P) { const k = 0.06; p.vx += p.x * k * 3; p.vz += p.z * k * 3; p.vy += (rnd() - .5) * k } } }
+    const sub = (s: NebulaState) => { if (s !== state) { setTimeout(() => wake(), 0); state = s; since = 0; if (s === 'galaxy') for (const p of P) { const k = 0.06; p.vx += p.x * k * 3; p.vz += p.z * k * 3; p.vy += (rnd() - .5) * k } } }
     subs.add(sub)
     const draw = (now = performance.now()) => {
       const dt = Math.min((now - last) / 1000, 0.05); last = now
@@ -94,10 +99,16 @@ export default function Nebula({ reduce: rp = false, dim = 1 }: { reduce?: boole
       const ga = (state === 'orb' ? 0.10 * breathe : state === 'brain' ? 0.08 : 0.05) * dim
       g.addColorStop(0, `rgba(125,245,216,${ga})`); g.addColorStop(0.5, `rgba(150,130,210,${ga * 0.5})`); g.addColorStop(1, 'rgba(0,0,0,0)')
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H)
-      raf = requestAnimationFrame(draw)
+      // FPS check: first ~90 frames; if averaging under ~40fps, halve particles once
+      if (frames < 90) { frames++; slowT += dt; if (frames === 90 && slowT / 90 > 0.025 && P.length > 600) { P.length = Math.floor(P.length / 2); N = P.length } }
+      if (visible()) raf = requestAnimationFrame(draw); else { running = false; c.style.opacity = '0' }
     }
-    draw()
-    return () => { cancelAnimationFrame(raf); subs.delete(sub); removeEventListener('pointermove', mv); removeEventListener('pointerdown', mv); document.removeEventListener('pointerleave', lv) }
+    const visible = () => !document.hidden && (act.current || state !== 'orb')
+    const wake = () => { if (!running && visible()) { running = true; c.style.opacity = ''; last = performance.now(); raf = requestAnimationFrame(draw) } else if (!visible()) c.style.opacity = '0' }
+    kick.current = wake
+    const vis = () => wake(); document.addEventListener('visibilitychange', vis)
+    wake()
+    return () => { cancelAnimationFrame(raf); document.removeEventListener('visibilitychange', vis); subs.delete(sub); removeEventListener('pointermove', mv); removeEventListener('pointerdown', mv); document.removeEventListener('pointerleave', lv) }
   }, [rp, dim])
   return <canvas ref={ref} className="nebula" aria-hidden />
 }
