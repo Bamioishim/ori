@@ -23,3 +23,11 @@ export const protocols = [
   { name: 'Kamino', chain: 'Solana', apy: 5.1, cap: 25, alloc: 120, tvl: '$410M' },
   { name: 'Rhea Lending', chain: 'NEAR', apy: 4.2, cap: 20, alloc: 0, tvl: '$90M' },
 ]
+
+// demo receive addresses (EXAMPLE DATA, not real keys, nothing derived)
+export const DEMO_ADDRS: { chain: Chain; addr: string }[] = [
+  { chain: 'NEAR', addr: 'example.near' },
+  { chain: 'Base', addr: '0x7a3F9c21D4b8E06f5A1c3B7d9E2f4a6C8b0De91' },
+  { chain: 'Ethereum', addr: '0x51cB2e4F7a9D3c6E8b1A0f5D2c7E9a4B6d8F0d2' },
+  { chain: 'Solana', addr: '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin4kP' },
+]

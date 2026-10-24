@@ -12,7 +12,8 @@ export function useIntro(): [Stage, () => void] {
   useEffect(() => {
     if (freeze || stage === 'done') return
     sessionStorage.setItem('ori-intro', '1')
-    const t1 = setTimeout(() => setStage('mark'), 1450), t2 = setTimeout(() => setStage('land'), 1450 + 1500), t3 = setTimeout(() => setStage('done'), 1450 + 1500 + 900)
+    const to = (n: Stage) => () => setStage(s => s === 'done' ? s : n)
+    const t1 = setTimeout(to('mark'), 1450), t2 = setTimeout(to('land'), 1450 + 1500), t3 = setTimeout(to('done'), 1450 + 1500 + 900)
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [])
   return [stage, () => { sessionStorage.setItem('ori-intro', '1'); setStage('done') }]

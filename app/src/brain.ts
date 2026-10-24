@@ -1,3 +1,4 @@
+import { DEMO_ADDRS } from './mock'
 // Ori's local intent engine. Rule-based, no LLM, no API keys. Answers from live app state,
 // live 1Click prices / dry quotes, live GoPlus checks, and a small built-in knowledge base.
 // It never moves money: actions are proposals the user confirms in the UI.
@@ -55,6 +56,12 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
   const S = (s: string) => SYMS.find(x => new RegExp('\\b' + x.toLowerCase() + '\\b').test(s))
   if (!t) return { text: 'Say something and I’ll do my best.', chips: DEFAULT_CHIPS }
 
+  // my own addresses (demo)
+  if (/\b(my|our)\b.*\b(address|account( id)?|wallet)\b|\bwhere (do|can) (i|people) (send|receive)|\breceive address/.test(t) && !/0x[0-9a-f]{6}/.test(t)) {
+    const ch = /sol/.test(t) ? 'Solana' : /near/.test(t) ? 'NEAR' : /base/.test(t) ? 'Base' : /eth/.test(t) ? 'Ethereum' : null
+    const list = ch ? DEMO_ADDRS.filter(a => a.chain === ch) : DEMO_ADDRS
+    return { text: (ch ? `Your ${ch} address is ${list[0].addr}` : 'Your addresses: ' + list.map(a => `${a.chain} ${a.addr}`).join(' · ')) + '. Example data: these are demo addresses, so don’t send real funds to them. All of them feed one balance.', chips: ['Open profile', 'What’s my balance?'] }
+  }
   // address check
   const addr = raw.match(/0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}|\b[a-z0-9_-]+\.near\b/)
   if (addr && (/check|scan|safe|scam|is this|address/.test(t) || t === addr[0].toLowerCase())) {
@@ -99,7 +106,7 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
     return { text: `I’ve flagged ${parts.length} thing${parts.length === 1 ? '' : 's'}: ${parts.join('; ')}. The scanner lets you revoke approvals (demo).`, mood: 'worried', act: { k: 'go', screen: 'scan' }, chips: ['What did you block?'] }
   }
   // navigation
-  m = t.match(/\b(open|go to|show me|take me to)\s+(the )?(home|pay|swap|policy|scan|earn|privacy|settings|security|help)\b/)
+  m = t.match(/\b(open|go to|show me|take me to)\s+(the )?(home|pay|swap|policy|scan|earn|privacy|settings|security|help|profile)\b/)
   if (m) return { text: `Opening ${m[3]}.`, act: { k: 'go', screen: m[3] } }
 
   // quote: how much to send $X to solana

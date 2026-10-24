@@ -24,9 +24,9 @@ export function SettingsScreen({ s, set, mode, setMode, watch, speechOk }: P & {
         <Seg v={mode} opts={[['example', 'Example'], ['live', 'Live · watch-only']]} onChange={setMode} /></div></section>
     <section>{watch}</section>
     <section><Label>VOICE</Label>
-      <div className="row"><span className="grow">Ori speaks replies<br /><span className="mono xs dim">Uses your browser’s speech synthesis</span></span><Toggle on={s.voice} onChange={v => set({ voice: v })} label="Voice" /></div>
+      <div className="row"><span className="grow">Ori speaks replies<br /><span className="mono xs dim">Off by default. Opt in to hear chat replies read aloud</span></span><Toggle on={s.voice} onChange={v => set({ voice: v, voiceOptIn: true })} label="Voice" /></div>
       <div className="row"><span className="grow">“Hey Ori” wake word<br /><span className="mono xs dim">{speechOk ? 'Listens only while the mic button is on' : 'Not supported in this browser. Click Ori to type instead'}</span></span><Toggle on={s.wake} onChange={v => set({ wake: v })} label="Wake word" /></div>
-      <div className="row col"><span className="grow">Ori voice speed <b className="num">{s.rate.toFixed(2)}×</b></span><input type="range" min={0.7} max={1.6} step={0.05} value={s.rate} onChange={e => set({ rate: +e.target.value })} /></div></section>
+      <div className="row col"><span className="grow">Ori voice speed <b className="num">{s.rate.toFixed(2)}×</b></span><input type="range" min={0.7} max={1.6} step={0.01} value={s.rate} onChange={e => set({ rate: +e.target.value })} /></div></section>
     <section><Label>DISPLAY</Label>
       <div className="row"><span className="grow">Currency display<br /><span className="mono xs dim">{usd(2857.69)}</span></span><Seg<Fmt> v={s.fmt} opts={[['full', '$1,234.56'], ['nocents', '$1,235'], ['compact', '$1.2K']]} onChange={v => set({ fmt: v })} /></div>
       <div className="row"><span className="grow">Reduce motion<br /><span className="mono xs dim">Calms Ori, the dust and the transitions. Your system setting is always respected</span></span><Toggle on={s.reduce} onChange={v => set({ reduce: v })} label="Reduce motion" /></div></section>

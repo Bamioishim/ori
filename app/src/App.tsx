@@ -7,7 +7,8 @@ import { addSpent, limitCheck, logBlocked, setFmt, spentToday, usd, useSettings,
 import { SettingsScreen, SecurityScreen, HelpScreen } from './Screens'
 import { PolicyScreen, ScanScreen, ConfirmSheet, Feed, type SheetData } from './Policy'
 import { answer, DEFAULT_CHIPS, type Act, type Reply } from './brain'
-import { chains, assets, total, protocols } from './mock'
+import { chains, assets, total, protocols, DEMO_ADDRS } from './mock'
+import qrcode from 'qrcode-generator'
 import Nebula, { nebulaThink, nebulaDone } from './Nebula'
 import Intro, { useIntro } from './Intro'
 import { Dots, Check } from './Loaders'
@@ -16,7 +17,7 @@ import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, goplus, kindOf, quote, readPortfolio, short, tokens, type Holding, type Quote, type Risk } from './live'
 import { handleHeard, speak, speechSupported, startListening } from './voice'
 
-type Screen = 'home' | 'pay' | 'swap' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help'
+type Screen = 'home' | 'pay' | 'swap' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
@@ -88,44 +89,61 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
   if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go! }} />
-  return <>
-    <section className="hero">
-      <div className="hero-copy">
-        <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
-        <Label>TOTAL BALANCE {isLive ? <span className="live-tag">LIVE · READ-ONLY</span> : <Example />}</Label>
-        <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} /></button>
-        <div className="delta">{isLive
-          ? <><span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · prices 1Click · ${new Date(live.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : 'Add an address below'}</span><span className="dim">·</span><span className="dim">tap to hide</span></>
-          : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">tap to hide</span></>}</div>
-      </div>
-    </section>
+  return <div className="mh">
+    <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
+    <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
+    <div className="mh-chg">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `Live · ${addrs.length} address${addrs.length === 1 ? '' : 'es'}` : 'Add an address in Settings'}</span> : <><span className="up">▲ 1.37%</span><span className="dim">+$38.62 · 24h</span><Example /></>}</div>
+    <Tiles go={go!} />
+    <Promo go={go!} />
     {isLive && <Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />}
-    {!isLive && <section className="chart">
-      <Spark range={range} />
-      <div className="ranges">{['1D', '1W', '1M', '1Y'].map(r => <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}{range === r && <motion.i layoutId="rg" transition={spring} />}</button>)}</div>
-    </section>}
+    {!empty && <HoldList rows={rows} chainRows={chainRows} sum={sum} hide={hide} sel={sel} setSel={setSel} />}
     <section>
       <div className="sechead"><Label>ORI ACTIVITY</Label><button className="label linkish" onClick={() => go?.('scan')}>SCANNER →</button></div>
       <Feed max={4} />
     </section>
-    {!empty && <section>
-      <div className="sechead"><Label>ALLOCATION</Label><span className="label">{chainRows.length} CHAINS</span></div>
-      <div className="alloc">{chainRows.map(c => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
-      {chainRows.map(c => <button className={'arow' + (sel === c.name ? ' sel' : '')} key={c.name} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)} onClick={() => setSel(sel === c.name ? null : c.name)}>
-        <span className="dot" style={{ background: chainCol(c.name) }} /><span className="grow">{c.name}</span>
-        <span className="pct">{(c.usd / (sum || 1) * 100).toFixed(1)}%</span>
-        <span className={'num w' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></span></button>)}
-    </section>}
-    {!empty && <section>
-      <div className="sechead"><Label>ASSETS</Label><span className="label">SPEND ORDER</span></div>
-      {isLive && live.loading && !live.holdings.length && [0, 1, 2].map(i => <div className="asset skel" key={i}><i /><span className="grow"><b /><b /></span></div>)}
-      {rows.map((a, i) => <div className="asset" key={i}>
-        <Glyph s={a.sym} />
-        <span className="grow"><span className="aname">{a.sym}</span><span className="sub">{a.chain} · {a.role}</span></span>
-        <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className="sub">{a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })} {a.sym}{a.d24 !== null && <span className={a.d24 < 0 ? 'neg' : ''}> · {a.d24 > 0 ? '+' : ''}{a.d24.toFixed(1)}%</span>}</span></span>
-      </div>)}
-    </section>}
-  </>
+  </div>
+}
+const NAMES: Record<string, string> = { USDC: 'USD Coin', SOL: 'Solana', ETH: 'Ether', NEAR: 'NEAR' }
+function Mini({ seed, up }: { seed: string; up: boolean }) {
+  let h = 0; for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  const pts = Array.from({ length: 14 }, (_, i) => { h = (h * 1103515245 + 12345) >>> 0; const t = i / 13; return [t * 60, 14 + (up ? -1 : 1) * (t * 10 - 5) + ((h % 1000) / 1000 - .5) * 9] })
+  return <svg className="mini" viewBox="0 0 60 28" aria-hidden><path d={pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')} fill="none" stroke={up ? '#6FE3C2' : '#C98A8A'} strokeWidth="1.4" strokeLinejoin="round" /></svg>
+}
+function AddrRow({ addr }: { addr: string }) {
+  const [ok, setOk] = useState(false)
+  return <button className="mh-addr mono" onClick={() => { navigator.clipboard?.writeText(addr).catch(() => {}); setOk(true); setTimeout(() => setOk(false), 1400) }} aria-label="Copy address">
+    {short(addr)}<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
+    {ok && <span className="copied">COPIED</span>}</button>
+}
+function Tiles({ go }: { go: (s: Screen, to?: string, amt?: string) => void }) {
+  const T: [string, string, () => void, React.ReactNode][] = [
+    ['Send', 'send', () => go('pay', '', ''), <path d="M12 19V5M6 11l6-6 6 6" />],
+    ['Swap', 'swap', () => go('swap'), <path d="M7 4v14M4 15l3 3 3-3M17 20V6M14 9l3-3 3 3" />],
+    ['Pay', 'pay', () => go('pay', '@tolu', '20'), <path d="M12 5v14M5 12h14" />]]
+  return <div className="tiles">{T.map(([l, k, f, ic]) => <motion.button key={k} className="tile" whileTap={{ scale: .96 }} onClick={f}>
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ic}</svg><span>{l}</span></motion.button>)}</div>
+}
+function Promo({ go }: { go: (s: Screen) => void }) {
+  const [off, setOff] = useState(() => localStorage.getItem('promo-limits') === '0')
+  return <AnimatePresence initial={false}>{!off && <motion.div className="promo" exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={spring}>
+    <button className="promo-x" aria-label="Dismiss" onClick={() => { localStorage.setItem('promo-limits', '0'); setOff(true) }}>×</button>
+    <div className="promo-c"><b>Set your limits</b><span className="dim">Daily and per-payment caps keep Ori inside the lines.</span>
+      <button className="promo-go" onClick={() => go('policy')}>Open Policy</button></div>
+    <img src="/ori-mark.svg" alt="" className="promo-art" /></motion.div>}</AnimatePresence>
+}
+function HoldList({ rows, chainRows, sum, hide, sel, setSel }: any) {
+  const [tab, setTab] = useState<'tokens' | 'chains'>('tokens')
+  return <section className="hl">
+    <div className="hl-tabs">{(['tokens', 'chains'] as const).map(t => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t === 'tokens' ? 'Tokens' : 'Chains'}</button>)}</div>
+    {tab === 'tokens' ? rows.map((a: any, i: number) => <div className="trow" key={i}><Glyph s={a.sym} />
+      <span className="grow"><b>{NAMES[a.sym] || a.sym}</b><span className="sub">{a.sym} · {a.chain}</span></span>
+      <Mini seed={a.sym} up={(a.d24 ?? 0) >= 0} />
+      <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>)
+    : <><div className="alloc">{chainRows.map((c: any) => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
+      {chainRows.map((c: any) => <button className={'arow trow' + (sel === c.name ? ' sel' : '')} key={c.name} onClick={() => setSel(sel === c.name ? null : c.name)}>
+        <span className="dot" style={{ background: chainCol(c.name) }} /><span className="grow"><b>{c.name}</b><span className="sub">{(c.usd / (sum || 1) * 100).toFixed(1)}% of balance</span></span>
+        <Mini seed={c.name} up={true} /><span className={'r' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></span></button>)}</>}
+  </section>
 }
 
 function HomeDesk(p: any) {
@@ -134,14 +152,14 @@ function HomeDesk(p: any) {
   return <div className="dash">
     <section className="d-card d-hero">
       <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
-      <Label>TOTAL BALANCE {isLive ? <span className="live-tag">LIVE · READ-ONLY</span> : <Example />}</Label>
+      <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
       <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
       <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
         : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">click to hide</span></>}</div>
       {!isLive && <div className="d-chart"><Spark range={range} />
         <div className="ranges">{['1D', '1W', '1M', '1Y'].map(r => <button key={r} className={range === r ? 'on' : ''} onClick={() => setRange(r)}>{r}{range === r && <motion.i layoutId="rg" transition={spring} />}</button>)}</div></div>}
     </section>
-    <section className="d-card d-quick">
+    <section className="d-card d-quick"><Tiles go={go} /><Promo go={go} />
       <Label>QUICK PAY</Label>
       <input className="field" value={to} onChange={e => setTo(e.target.value)} aria-label="Recipient" />
       <div className="amount sm"><span>$</span><input value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" aria-label="Amount" /></div>
@@ -199,10 +217,10 @@ function ConfirmBtn({ label, need, blocked, limit, status, busyLabel, onGo, onLi
   const own = useRef<HTMLButtonElement>(null); const cta = btn || own
   const [hold, setHold] = useState(false); const timer = useRef(0)
   const go = () => { const r = cta.current!.getBoundingClientRect(); if (limit) { onLimit(r, limit); return } onGo(r) }
-  const start = () => { if (blocked || status !== 'idle') return; if (limit) { go(); return } if (!need) return; setHold(true); timer.current = window.setTimeout(() => { setHold(false); go() }, 750) }
+  const start = () => { if (blocked || status !== 'idle' || limit) return; if (!need) return; navigator.vibrate?.(12); setHold(true); timer.current = window.setTimeout(() => { setHold(false); navigator.vibrate?.([18, 40, 18]); go() }, 750) }
   const cancel = () => { clearTimeout(timer.current); setHold(false) }
-  return <button ref={cta} className={'cta hold sa2' + (hold ? ' holding' : '') + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'}
-    onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onClick={() => { if (!need && !limit && !blocked && status === 'idle') go() }}>
+  return <button ref={cta} className={'cta hold sa2 mint' + (need ? ' needhold' : '') + (hold ? ' holding' : '') + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'}
+    onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel} onContextMenu={e => e.preventDefault()} onClick={() => { if ((limit || !need) && !blocked && status === 'idle') go() }}>
     <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : (need ? 'Hold to ' : 'Tap to ') + label}</button>
 }
 
@@ -391,7 +409,7 @@ const activity = [
 ]
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 type Msg = { who: 'me' | 'ori'; t: string; chips?: string[]; pending?: Act }
-const MORE: Screen[] = ['policy', 'scan', 'earn', 'privacy', 'settings', 'security', 'help']
+const MORE: Screen[] = ['policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
@@ -411,7 +429,8 @@ export default function App() {
   const [stage, skipIntro] = useIntro()
   const wide = useWide()
   const [menu, setMenu] = useState(new URLSearchParams(location.search).get('menu') === '1')
-  const [msgs, setMsgs] = useState<Msg[]>([{ who: 'ori', t: 'Hi, I’m Ori. Ask me about your balance, prices, safety, or tell me to pay or swap. I always show you a card to confirm first.', chips: DEFAULT_CHIPS }])
+  const [msgs, setMsgs] = useState<Msg[]>(() => { try { const h = JSON.parse(localStorage.getItem('ori-chat') || 'null'); if (Array.isArray(h) && h.length) return h } catch { /* */ } return [{ who: 'ori', t: 'Hi, I’m Ori. Ask me about your balance, prices, safety, or tell me to pay or swap. I always show you a card to confirm first.', chips: DEFAULT_CHIPS }] })
+  useEffect(() => { localStorage.setItem('ori-chat', JSON.stringify(msgs.slice(-60).map(m => ({ ...m, pending: undefined })))) }, [msgs])
   const [thinking, setThinking] = useState(false)
   const [cfg, setCfg] = useSettings()
   setFmt(cfg.fmt)
@@ -494,7 +513,7 @@ export default function App() {
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}</div>
       <div className="side-nav">
-        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
+        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
           {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
           <button className={'side-item' + (screen === k ? ' on' : '') + ''} onClick={() => goTo(k as Screen)}>
             {label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
@@ -508,11 +527,12 @@ export default function App() {
     {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}
       <button className={'mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button></header>}
+        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>
+      {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
     <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
+        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay draft={draft} status={status} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} speechOk={speechSupported()} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
@@ -520,6 +540,7 @@ export default function App() {
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
         {screen === 'scan' && <ScanScreen />}
         {screen === 'help' && <HelpScreen ask={ask} />}
+        {screen === 'profile' && <Profile sum={total + extra} hide={hidden} />}
         {screen === 'earn' && <Earn />}
         {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
@@ -535,7 +556,7 @@ export default function App() {
       <motion.div className="drawer" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={spring}>
         <div className="grab" />
         <p className="mono xs dim">MORE</p>
-        {([['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
+        {([['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
             onClick={() => goTo(k)}>
             <span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
@@ -543,7 +564,7 @@ export default function App() {
     <AnimatePresence>{chat && <motion.div className="scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChat(false)} />}</AnimatePresence>
     {/* sheet stays mounted so the input can be focused synchronously inside the tap gesture (iOS only shows the keyboard then) */}
       <motion.div className={'sheet' + (chat ? ' open' : '')} initial={false} animate={{ y: chat ? 0 : 'calc(100% + 140px)', opacity: chat ? 1 : 0 }} transition={spring} aria-hidden={!chat}>
-        <div className="sheet-head"><Label>ORI · LOCAL ASSISTANT · NO AI MODEL</Label><button className="mono xs dim" onClick={() => setChat(false)}>CLOSE</button></div>
+        <div className="sheet-head"><Label>ORI · LOCAL ASSISTANT · NO AI MODEL</Label><span className="rowbtns"><button className="mono xs dim hbtn" onClick={() => { localStorage.removeItem('ori-chat'); setMsgs([{ who: 'ori', t: 'Fresh start. What can I do for you?', chips: DEFAULT_CHIPS }]) }}>CLEAR</button><button className="mono xs dim hbtn" onClick={() => setChat(false)}>CLOSE</button></span></div>
         <div className="msgs" data-lenis-prevent>{msgs.slice(-14).map((m, k) => { const i = msgs.length - Math.min(14, msgs.length) + k; return <motion.div key={i} className={'msgw ' + (m.who === 'me' ? 'me' : 'bot')} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
           <div className={'msg ' + (m.who === 'me' ? 'me' : 'bot')}>{m.t}</div>
           {m.pending && <div className="confirm-row"><button className="ghost" onClick={() => resolve(i, false)}>Cancel</button><button className="ghost ok" onClick={() => resolve(i, true)}>Confirm</button></div>}
@@ -560,4 +581,29 @@ export default function App() {
     <AnimatePresence>{sheet && <ConfirmSheet key="cs" d={sheet} cfg={cfg} onCancel={() => { if (!sheet.blocked) oriSay('Cancelled. Nothing moved.'); setSheet(null) }} onConfirm={() => { const r = sheet.run; setSheet(null); r?.() }} />}</AnimatePresence>
     <Intro stage={stage} skip={skipIntro} />
   </div></LayoutGroup>
+}
+
+function QR({ text }: { text: string }) {
+  const q = qrcode(0, 'M'); q.addData(text); q.make(); const n = q.getModuleCount(); let d = ''
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`
+  return <svg viewBox={`-2 -2 ${n + 4} ${n + 4}`} className="qr" role="img" aria-label={'QR code for ' + text}><rect x="-2" y="-2" width={n + 4} height={n + 4} fill="#F5F4F1" /><path d={d} fill="#0A0A0A" /></svg>
+}
+function Profile({ sum, hide }: { sum: number; hide: boolean }) {
+  const [qr, setQr] = useState<string | null>(null), [cp, setCp] = useState<string | null>(null)
+  const bal = (c: string) => chains.find(x => x.name === c)?.usd || 0
+  const scale = sum / (total || 1)
+  return <div className="pg profile">
+    <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">One account · four chains <Example /></div></div></section>
+    <section><Label>CHAIN ADDRESSES · DEMO</Label>
+      {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
+        <span className="pchip" style={{ background: chainCol(a.chain) }}>{a.chain[0]}</span>
+        <span className="grow"><b>{a.chain === 'Base' ? 'Base · EVM' : a.chain}</b><span className="sub mono">{a.addr.length > 20 ? short(a.addr) : a.addr}</span></span>
+        <span className={'num' + (hide ? ' blurred' : '')}><Money v={bal(a.chain) * scale} cls="sm" /></span>
+        <button className="picon" aria-label={'Copy ' + a.chain + ' address'} onClick={() => { navigator.clipboard?.writeText(a.addr).catch(() => {}); setCp(a.chain); setTimeout(() => setCp(null), 1400) }}>{cp === a.chain ? '✓' : <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>}</button>
+        <button className="picon" aria-label={'Show ' + a.chain + ' QR'} onClick={() => setQr(qr === a.chain ? null : a.chain)}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" /></svg></button>
+        <AnimatePresence>{qr === a.chain && <motion.div className="pqr" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring}><QR text={a.addr} /><span className="mono xs dim">Demo address · don’t send real funds</span></motion.div>}</AnimatePresence>
+      </div>)}
+      <div className="ptotal"><span className="grow">All addresses feed one balance</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
+      <div className="mono xs dim">Example data. These are demo addresses: no keys exist and no wallet is created.</div></section>
+  </div>
 }

@@ -191,7 +191,15 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     ;(async () => { if (t && t.top > 40 && t.top < innerHeight - 120) await moveTo(t.right - 10, t.top - S + 8, 'float'); setPose('peek'); setExpr(balance > prev ? 'happy' : 'worried', 2200); await sleep(2200); if (busy.current === 'peekbal') { busy.current = null; setPose('idle') } })()
   }, [balance])
   const spin = () => { if (!hop.current) return; setExpr('happy', 1400); say(['Wheee.', 'Again?', 'Ta-da.'][Math.floor(Math.random() * 3)], 1400); if (!reduced) animate(hop.current, { rotate: [0, 360], y: [0, -34, 0] }, { duration: .8, ease: [0.3, 0, 0.2, 1] }) }
-  const tap = () => { lastAct.current = Date.now(); if (busy.current === 'nap') return; if (tapT.current) { clearTimeout(tapT.current); tapT.current = 0; spin(); return } onTap(); tapT.current = window.setTimeout(() => { tapT.current = 0 }, 260) } // open now: focus must happen inside the gesture on iOS
+  // touch tap-through: if Ori is sitting on a control, a touch on Ori goes to that control and Ori moves aside
+  const through = useRef<HTMLElement | null>(null)
+  const under = (e: React.PointerEvent) => { if (e.pointerType === 'mouse') return null; const me = e.currentTarget as HTMLElement
+    const n = document.elementsFromPoint(e.clientX, e.clientY).find(k => !me.contains(k)) as HTMLElement | undefined
+    return (n?.closest('button,a,input,select,textarea,label,[role=button],[role=tab]') as HTMLElement | null) || null }
+  const passDown = (e: React.PointerEvent) => { const c = under(e); through.current = c; if (c) { e.stopPropagation(); if (/^(INPUT|TEXTAREA|SELECT)$/.test(c.tagName)) c.focus() } }
+  const passUp = (e: React.PointerEvent) => { const c = through.current; if (!c) return; e.stopPropagation(); if (!/^(INPUT|TEXTAREA|SELECT)$/.test(c.tagName)) c.click(); else c.focus()
+    setTimeout(() => { through.current = null }, 50); moveTo(rand(off() + 10, off() + vw() - S - 10), 90, 'float') }
+  const tap = () => { if (through.current) return; lastAct.current = Date.now(); if (busy.current === 'nap') return; if (tapT.current) { clearTimeout(tapT.current); tapT.current = 0; spin(); return } onTap(); tapT.current = window.setTimeout(() => { tapT.current = 0 }, 260) } // open now: focus must happen inside the gesture on iOS
 
   useImperativeHandle(ref, () => ({
     say,
@@ -261,7 +269,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     raf = requestAnimationFrame(place); return () => cancelAnimationFrame(raf)
   }, [bubble, x, y])
   return <>
-    <motion.div className="ori" style={{ x, y }} drag dragMomentum={false}
+    <motion.div className="ori" style={{ x, y }} drag dragMomentum={false} onPointerDownCapture={passDown} onPointerUpCapture={passUp}
       onDragStart={() => { busy.current = 'drag'; setPose('float') }}
       onDragEnd={() => { busy.current = null; setPose('idle') }}
       onTap={tap} onHoverStart={() => { setHover(true); if (!busy.current && !bubble && Math.random() < 0.6) say(HOVER[Math.floor(Math.random() * HOVER.length)], 1800) }} onHoverEnd={() => setHover(false)}
