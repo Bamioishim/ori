@@ -17,6 +17,9 @@ import { handleHeard, speak, speechSupported, startListening } from './voice'
 type Screen = 'home' | 'pay' | 'swap' | 'earn' | 'privacy' | 'settings' | 'security' | 'help'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
+const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
+const chainCol = (n: string) => CHAIN_COL[n] || '#B39A82'
+
 function Example() { return <span className="example">EXAMPLE DATA</span> }
 function Label({ children }: { children: React.ReactNode }) { return <div className="label">{children}</div> }
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
@@ -102,9 +105,9 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
     </section>}
     {!empty && <section>
       <div className="sechead"><Label>ALLOCATION</Label><span className="label">{chainRows.length} CHAINS</span></div>
-      <div className="alloc">{chainRows.map(c => <i key={c.name} style={{ flex: c.usd }} className={sel === c.name ? 'sel' : ''} />)}</div>
+      <div className="alloc">{chainRows.map(c => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
       {chainRows.map(c => <button className={'arow' + (sel === c.name ? ' sel' : '')} key={c.name} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)} onClick={() => setSel(sel === c.name ? null : c.name)}>
-        <span className="dot" /><span className="grow">{c.name}</span>
+        <span className="dot" style={{ background: chainCol(c.name) }} /><span className="grow">{c.name}</span>
         <span className="pct">{(c.usd / (sum || 1) * 100).toFixed(1)}%</span>
         <span className={'num w' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></span></button>)}
     </section>}
@@ -148,7 +151,7 @@ function HomeDesk(p: any) {
       <div className="sechead"><Label>BY CHAIN</Label><span className="label">{chainRows.length} CHAINS</span></div>
       <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th></tr></thead><tbody>
         {chainRows.map((c: any) => <tr key={c.name} className={sel === c.name ? 'sel' : ''} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)}>
-          <td><span className="dot" /> {c.name}</td><td className="sharec"><i style={{ width: (c.usd / (sum || 1) * 100) + '%' }} /></td>
+          <td><span className="dot" style={{ background: chainCol(c.name) }} /> {c.name}</td><td className="sharec"><i style={{ width: (c.usd / (sum || 1) * 100) + '%', background: chainCol(c.name) }} /></td>
           <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className={'rt' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></td></tr>)}
       </tbody></table>
     </section>}
