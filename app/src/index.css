@@ -306,3 +306,6 @@ nav{z-index:44}
 .intro-on .nebula{opacity:0}.nebula{transition:opacity .9s ease}
 .hero-copy,.total,.d-hero{text-shadow:0 1px 18px rgba(0,0,0,.85)}
 .d-card.d-hero{background:rgba(8,8,8,.28)!important;backdrop-filter:none!important}
+.ripple{position:fixed;inset:0;z-index:70;pointer-events:none;display:grid;place-items:center;background:radial-gradient(circle at 50% 50%,rgba(125,245,216,.06),rgba(0,0,0,0) 40%)}
+.ripple i{position:absolute;left:50%;top:50%;width:180px;height:180px;margin:-90px 0 0 -90px;border-radius:50%;border:1.5px solid rgba(125,245,216,.55);box-shadow:0 0 24px rgba(125,245,216,.18),inset 0 0 18px rgba(125,245,216,.08)}
+.ripple b{position:relative;display:grid;place-items:center;width:64px;height:64px;border-radius:50%;background:rgba(10,10,10,.85);border:1px solid rgba(125,245,216,.5);color:#7DF5D8}

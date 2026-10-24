@@ -58,10 +58,11 @@ export default function Nebula({ reduce: rp = false, dim = 1, active = true }: {
     let askedGyro = false
     const dn = (e: PointerEvent) => {
       mv(e); ptr.down = true; rip.push({ x: e.clientX, y: e.clientY, t: 0 }); if (rip.length > 4) rip.shift()
-      const D: any = (window as any).DeviceOrientationEvent
-      if (!askedGyro && D && typeof D.requestPermission === 'function') { askedGyro = true; D.requestPermission().catch(() => {}) }
     }
-    const up = () => { ptr.down = false; if (matchMedia('(pointer: coarse)').matches) ptr.on = false }
+    const up = (e: PointerEvent) => {
+      // iOS motion permission: only from a tap on empty background, never on Ori/buttons/inputs (the prompt would swallow the tap)
+      const D: any = (window as any).DeviceOrientationEvent, el = e.target as Element | null
+      if (!askedGyro && D && typeof D.requestPermission === 'function' && el && !el.closest('button,a,input,textarea,form,.ori,.chat,[role=button]')) { askedGyro = true; D.requestPermission().catch(() => {}) } ptr.down = false; if (matchMedia('(pointer: coarse)').matches) ptr.on = false }
     const lv = () => { ptr.on = false }
     const sc = () => { const d = scrollY - lastScroll; lastScroll = scrollY; scrollV += d * 0.6 }
     const ori = (e: DeviceOrientationEvent) => { if (e.gamma == null || e.beta == null) return; tilt.gx = Math.max(-1, Math.min(1, e.gamma / 35)); tilt.gy = Math.max(-1, Math.min(1, (e.beta - 45) / 35)) }

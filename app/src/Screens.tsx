@@ -88,7 +88,7 @@ export function HelpScreen({ ask }: { ask: (q?: string) => void }) {
   const live: [string, boolean][] = [['Prices (1Click tokens)', true], ['Dry-run route quotes (1Click)', true], ['GoPlus scam checks', true], ['Watch-only balances (public RPCs)', true], ['Payments and swaps', false], ['Yield and Earn numbers', false], ['Handle → address lookup', false], ['Ori’s answers (local rules, no LLM)', true]]
   return <div className="pg">
     <section className="pad-top"><Label>HELP</Label><h2 className="big2">How ORI works.</h2>
-      <div className="how">{how.map(([h, d], i) => <div key={h} className="howc"><span className="mono xs dim">{String(i + 1).padStart(2, '0')}</span><b>{h}</b><p className="dim">{d}</p></div>)}</div>
+      <div className="how">{how.map(([h, d]) => <div key={h} className="howc"><b>{h}</b><p className="dim">{d}</p></div>)}</div>
       <button className="cta" onClick={() => ask()}>Ask Ori a question</button></section>
     <section><Label>WHAT’S LIVE IN THIS PREVIEW</Label>
       {live.map(([l, on]) => <div className="row" key={l}><span className="grow">{l}</span><span className={'mono xs ' + (on ? 'live-tag' : 'dim')}>{on ? 'LIVE' : 'SIMULATED'}</span></div>)}</section>
