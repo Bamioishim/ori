@@ -7,7 +7,7 @@ import { SettingsScreen, SecurityScreen, HelpScreen } from './Screens'
 import { PolicyScreen, ScanScreen, ConfirmSheet, Feed, type SheetData } from './Policy'
 import { answer, DEFAULT_CHIPS, type Act, type Reply } from './brain'
 import { chains, assets, total, protocols } from './mock'
-import Dust from './Dust'
+import Nebula, { nebulaThink, nebulaDone } from './Nebula'
 import Intro, { useIntro } from './Intro'
 import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
@@ -89,7 +89,6 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go! }} />
   return <>
     <section className="hero">
-      <Dust height={250} />
       <div className="hero-copy">
         <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
         <Label>TOTAL BALANCE {isLive ? <span className="live-tag">LIVE · READ-ONLY</span> : <Example />}</Label>
@@ -265,7 +264,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">Ori</span></div>
       </motion.div>
       : <ConfirmBtn btn={cta} label={`review ${usd(n)} payment`} need={false} blocked={!checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
-        onGo={r => checked && onConfirm(r, n, to, q.q ? q.q.fee : null)} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
+        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
@@ -326,7 +325,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
         <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)} · dry run</span></div>
       </motion.div>
       : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"
-        onGo={r => { if (!q.q) return; setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
+        onGo={r => { if (!q.q) return; nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
   </div>
 }
 
@@ -405,6 +404,7 @@ export default function App() {
   const lastTotal = useRef<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
+  useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
   const [chat, setChat] = useState(false)
   const [burst, setBurst] = useState<{ x: number; y: number } | null>(null)
   const [stage, skipIntro] = useIntro()
@@ -459,10 +459,10 @@ export default function App() {
     else if (a.k === 'trust') { if (!cfg.trusted.includes(a.who)) setCfg({ trusted: [...cfg.trusted, a.who] }) }
   }
   const command = async (text: string, src = 'chat') => {
-    setMsgs(m => [...m.map(x => ({ ...x, pending: undefined })), { who: 'me', t: text }]); setThinking(true); ori.current?.mood('think')
+    setMsgs(m => [...m.map(x => ({ ...x, pending: undefined })), { who: 'me', t: text }]); setThinking(true); nebulaThink(); ori.current?.mood('think')
     let r: Reply
     try { r = await answer(text, { mode, hidden, rows, settings: cfg, spent: spentToday() }) } catch { r = { text: 'Something went wrong on my side. Try again?' } }
-    setThinking(false); const v = src !== 'chat'
+    setThinking(false); nebulaDone(); const v = src !== 'chat'
     if (r.mood) ori.current?.mood(r.mood)
     if (r.act && r.confirm) { setMsgs(m => [...m, { who: 'ori', t: r.text, chips: r.chips, pending: r.act }]); ori.current?.say(r.text); talk(r.text, v || chat); return }
     oriSay(r.text, v, r.chips)
@@ -486,7 +486,7 @@ export default function App() {
 
   return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
-    {wide && <Dust full reduce={reduced} />}
+    <Nebula reduce={reduced} dim={wide ? 1 : 0.9} active={screen === 'home' || thinking} />
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}>{APP_NAME}</motion.span> : <span className="logo" style={{ opacity: 0 }}>{APP_NAME}</span>}</div>
       <div className="side-nav">
