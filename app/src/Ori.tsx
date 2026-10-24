@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { motion, useMotionValue, useTransform, animate, AnimatePresence } from 'motion/react'
+import { motion, useMotionValue, animate, AnimatePresence } from 'motion/react'
 
 export type Pose = 'idle' | 'walk' | 'float' | 'listen' | 'carry' | 'cover' | 'block' | 'sit' | 'peek'
 export type OriApi = {
@@ -13,6 +13,8 @@ export type OriApi = {
 }
 export type Expr = 'none' | 'yawn' | 'sleep' | 'happy' | 'worried' | 'think'
 const S = 56 // rendered size
+const MODAL_SEL = '.csheet, .drawer, .scrim, [role="dialog"], [aria-modal="true"]'
+const AVOID_SEL = '.d-card .row, .d-card .appr, .appr, .fitem, .pwarn, .csum, .cta, .field, .swapbox, .tbl, .sechead, .big2, .policy-sum, h1, h2, button, input, .d-card'
 const M = '#7DF5D8', W = '#F2F1EC'
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 const rand = (a: number, b: number) => a + Math.random() * (b - a)
@@ -103,7 +105,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     setMoving(false)
   }, [reduced, x, y])
 
-  const say = useCallback((t: string, ms = 3200) => { clearTimeout(bTimer.current); setBubble(t); bTimer.current = window.setTimeout(() => setBubble(null), ms) }, [])
+  const say = useCallback((t: string, ms = 3200) => { clearTimeout(bTimer.current); setBubble(t); bTimer.current = window.setTimeout(() => setBubble(null), Math.min(Math.max(ms, 1400), 4500)) }, [])
 
   // roaming brain
   useEffect(() => {
@@ -219,8 +221,45 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     },
   }), [say, moveTo, reduced, face])
 
-  const bx = useTransform(x, v => Math.max(off() + 8, Math.min(off() + vw() - 228, v - 84)))
-  const by = useTransform(y, v => v < 140 ? v + S + 10 : v - 62)
+  // Bubble placement: beside Ori on the freest side, clamped to safe margins, avoiding content.
+  const bRef = useRef<HTMLDivElement>(null)
+  const [modal, setModal] = useState(false)
+  useEffect(() => {
+    const chk = () => setModal(!!document.querySelector(MODAL_SEL))
+    chk(); const mo = new MutationObserver(chk); mo.observe(document.body, { childList: true, subtree: true }); return () => mo.disconnect()
+  }, [])
+  useEffect(() => { if (modal) { clearTimeout(bTimer.current); setBubble(null) } }, [modal])
+  useEffect(() => {
+    if (!bubble) return
+    let raf = 0, last = ''
+    const place = () => {
+      const el = bRef.current
+      if (el) {
+        const w = el.offsetWidth, h = el.offsetHeight, ox = x.get(), oy = y.get(), M = 12, G = 10
+        const L = off() + M, R = off() + vw() - M, T = M + (innerWidth < 1024 ? 0 : 0), B = innerHeight - M - (innerWidth < 1024 ? 72 : 0)
+        const cl = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
+        const cands = [
+          { k: 'r', l: ox + S + G, t: oy + S / 2 - h / 2 }, { k: 'l', l: ox - G - w, t: oy + S / 2 - h / 2 },
+          { k: 't', l: ox + S / 2 - w / 2, t: oy - G - h }, { k: 'b', l: ox + S / 2 - w / 2, t: oy + S + G },
+        ]
+        const obs = Array.from(document.querySelectorAll<HTMLElement>(AVOID_SEL)).map(e => e.getBoundingClientRect()).filter(r => r.width && r.height && r.width < innerWidth * .98)
+        let best = cands[0], bs = Infinity
+        for (const c of cands) {
+          const fit = (c.l < L || c.l + w > R || c.t < T || c.t + h > B) ? 1 : 0
+          const l = cl(c.l, L, R - w), t = cl(c.t, T, B - h)
+          // penalise overlap with content and with Ori himself
+          let sc = fit * 5e4
+          for (const r of obs) sc += Math.max(0, Math.min(l + w, r.right + 6) - Math.max(l, r.left - 6)) * Math.max(0, Math.min(t + h, r.bottom + 6) - Math.max(t, r.top - 6))
+          sc += 40 * Math.max(0, Math.min(l + w, ox + S) - Math.max(l, ox)) * Math.max(0, Math.min(t + h, oy + S) - Math.max(t, oy))
+          if (sc < bs) { bs = sc; best = { ...c, l, t } }
+        }
+        const key = `${Math.round(best.l)},${Math.round(best.t)}`
+        if (key !== last) { last = key; el.style.transform = `translate(${best.l}px,${best.t}px)`; el.dataset.side = best.k }
+      }
+      raf = requestAnimationFrame(place)
+    }
+    raf = requestAnimationFrame(place); return () => cancelAnimationFrame(raf)
+  }, [bubble, x, y])
   return <>
     <motion.div className="ori" style={{ x, y }} drag dragMomentum={false}
       onDragStart={() => { busy.current = 'drag'; setPose('float') }}
@@ -230,8 +269,8 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
       <div ref={hop}><motion.div animate={reduced || moving ? {} : { y: pose === 'float' ? [0, -4, 0] : [0, -1.5, 0] }} transition={{ repeat: Infinity, duration: pose === 'float' ? 1.8 : 2.6 }}>
         <OriSprite pose={pose} face={face} moving={moving && pose !== 'float'} look={look} expr={expr} big={hover} /></motion.div></div>
     </motion.div>
-    <AnimatePresence>{bubble && <motion.div className="bubble" style={{ x: bx, y: by }} initial={{ opacity: 0, scale: .92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .95 }}>
-      <span className="mono xs dim">ORI</span>{bubble}</motion.div>}</AnimatePresence>
+    <AnimatePresence>{bubble && !modal && <motion.div key="b" className="bubble-wrap" ref={bRef} style={{ transform: `translate(${x.get()}px,${y.get() - 70}px)` }}><motion.div className="bubble" role="status" aria-live="polite" initial={{ opacity: 0, scale: .92 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: .95 }}>
+      <span className="mono xs dim">ORI</span>{bubble}</motion.div></motion.div>}</AnimatePresence>
   </>
 })
 export default Ori

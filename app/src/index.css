@@ -87,7 +87,8 @@ section{padding:30px 0}
 @keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
 .waves path{animation:wv 1s ease-in-out infinite alternate}@keyframes wv{from{opacity:.25}to{opacity:1}}
 .speed path{animation:sp .25s linear infinite}@keyframes sp{from{transform:translateX(6px);opacity:.9}to{transform:translateX(-6px);opacity:.2}}
-.bubble{position:fixed;left:0;top:0;z-index:46;width:max-content;max-width:220px;padding:10px 12px;background:rgba(20,20,20,.94);border:1px solid rgba(217,217,217,.22);border-radius:10px;font-size:13.5px;line-height:1.35;backdrop-filter:blur(10px);pointer-events:none;box-shadow:0 0 24px rgba(125,245,216,.08)}
+.bubble-wrap{position:fixed;left:0;top:0;z-index:46;pointer-events:none;will-change:transform}
+.bubble{position:relative;width:max-content;max-width:220px;padding:10px 12px;background:rgba(20,20,20,.94);border:1px solid rgba(217,217,217,.22);border-radius:10px;font-size:13.5px;line-height:1.35;backdrop-filter:blur(10px);pointer-events:none;box-shadow:0 0 24px rgba(125,245,216,.08)}
 .bubble .mono{display:block;margin-bottom:3px;color:#7DF5D8;letter-spacing:.1em;font-size:9.5px}
 .mic{display:flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--line);border-radius:20px;cursor:pointer;color:var(--dim)}
 .mic svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
