@@ -194,6 +194,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
   // touch tap-through: if Ori is sitting on a control, a touch on Ori goes to that control and Ori moves aside
   const through = useRef<HTMLElement | null>(null)
   const under = (e: React.PointerEvent) => { if (e.pointerType === 'mouse') return null; const me = e.currentTarget as HTMLElement
+    { const r = me.getBoundingClientRect(); if (Math.hypot(e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2) < r.width * 0.3) return null } // centre of Ori = open chat
     const n = document.elementsFromPoint(e.clientX, e.clientY).find(k => !me.contains(k)) as HTMLElement | undefined
     return (n?.closest('button,a,input,select,textarea,label,[role=button],[role=tab]') as HTMLElement | null) || null }
   const passDown = (e: React.PointerEvent) => { const c = under(e); through.current = c; if (c) { e.stopPropagation(); if (/^(INPUT|TEXTAREA|SELECT)$/.test(c.tagName)) c.focus() } }
