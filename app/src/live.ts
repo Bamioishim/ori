@@ -99,6 +99,12 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+export type HandleResolution = { handle: string; address: string; chain: 'solana'; label: string }
+export async function resolveHandle(handle: string): Promise<HandleResolution> {
+  const q = new URLSearchParams({ handle: handle.trim().toLowerCase() })
+  return apiJson<HandleResolution>('/api/resolve?' + q.toString())
+}
+
 export async function createSettlementQuote(o: { from: string; to: string; amount: bigint; recipient: string; refundTo: string }): Promise<SettlementQuote> {
   if (!settlementEnabled) throw new Error('Live settlement is disabled in this preview.')
   return apiJson<SettlementQuote>('/api/quote', { method: 'POST', body: JSON.stringify({ originAsset: o.from, destinationAsset: o.to, amount: o.amount.toString(), recipient: o.recipient, refundTo: o.refundTo }) })

@@ -14,10 +14,13 @@ import Intro, { useIntro } from './Intro'
 import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
-import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
+import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
 import { handleHeard, speak, speechSupported, startListening } from './voice'
+import AccountSheet, { type Account } from './Account'
+import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
+import { logTransaction, type Transaction } from './transactions'
 
-type Screen = 'home' | 'pay' | 'swap' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile'
+type Screen = 'home' | 'pay' | 'swap' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
@@ -78,7 +81,7 @@ function Watch({ addrs, setAddrs, live, refresh }: { addrs: string[]; setAddrs: 
     {live.errors.map(e => <div className="mono xs err" key={e}>{e}</div>)}
   </section>
 }
-function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go }: { wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
+function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
   const [range, setRange] = useState('1W')
   const [sel, setSel] = useState<string | null>(null)
   const isLive = mode === 'live'
@@ -88,7 +91,7 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
-  if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go! }} />
+  if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
     <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
     <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
@@ -147,7 +150,7 @@ function HoldList({ rows, chainRows, sum, hide, sel, setSel }: any) {
 }
 
 function HomeDesk(p: any) {
-  const { hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go } = p
+  const { hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
   const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
   return <div className="dash">
     <section className="d-card d-hero">
@@ -192,9 +195,8 @@ function HomeDesk(p: any) {
       <Feed max={6} />
     </section>
     <section className="d-card d-act">
-      <div className="sechead"><Label>RECENT ACTIVITY <Example /></Label></div>
-      {activity.map((a, i) => <div className="row" key={i}><span className="grow">{a.t} <span className="dim">· {a.who}</span><br /><span className="mono xs dim">{a.note} · {a.when}</span></span>
-        <span className={'num' + (hide ? ' blurred' : '')}>{a.amt ? (a.amt > 0 ? '+' : '−') + usd(Math.abs(a.amt)) : '—'}</span></div>)}
+      <div className="sechead"><Label>RECENT ACTIVITY</Label><button className="label linkish" onClick={() => go('history')}>SEE ALL →</button></div>
+      <RecentTransactions max={5} onSelect={onTransaction} />
     </section>
   </div>
 }
@@ -236,13 +238,23 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     if (!cfg.scam) { setChecked(true); return }
     const t = setTimeout(async () => { const r = await goplus(to.trim()); if (dead) return; setRisk(r); setChecked(true); if (r.state === 'error') onEvent('Couldn’t reach GoPlus. Treat this address with care.') }, 500)
     return () => { dead = true; clearTimeout(t) } }, [to, cfg.scam])
+  const [resolvedRecipient, setResolvedRecipient] = useState<string | null>(null)
+  const [resolveError, setResolveError] = useState<string | null>(null)
+  useEffect(() => {
+    const value = to.trim(); setResolvedRecipient(null); setResolveError(null)
+    if (!isSettlementEnabled() || kindOf(value) === 'sol' || !value.startsWith('@')) return
+    let dead = false
+    resolveHandle(value).then(r => { if (!dead) setResolvedRecipient(r.address) }).catch(e => { if (!dead) setResolveError((e as Error).message) })
+    return () => { dead = true }
+  }, [to])
   const local = cfg.scam && FLAGGED.test(to)
   const flagged = local || risk?.state === 'flagged'
   const why = risk?.state === 'flagged' ? `GoPlus flags this address: ${risk.flags.join(', ')}.` : 'That handle matches a known drainer pattern.'
   useEffect(() => { if (checked && flagged) logBlocked(`Payment to ${to}`, why); onRisk(checked && flagged && cta.current ? cta.current.getBoundingClientRect() : null, why) }, [checked, flagged])
   const n0 = +amt || 0
   const solTo = kindOf(to.trim()) === 'sol'
-  const q = useQuote(n0 > 0 ? { from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(n0 * 1e6)), recipient: solTo ? to.trim() : PREVIEW.sol, refundTo, outDecimals: 6 } : null, `${n0}|${solTo ? to : ''}|${refundTo}`)
+  const liveRecipient = solTo ? to.trim() : resolvedRecipient
+  const q = useQuote(n0 > 0 ? { from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(n0 * 1e6)), recipient: liveRecipient || PREVIEW.sol, refundTo, outDecimals: 6 } : null, `${n0}|${liveRecipient || ''}|${refundTo}`)
   useEffect(() => () => onRisk(null), [])
   const trusted = cfg.trusted.includes(to.trim())
   const st = (ok: string) => !cfg.scam ? 'CHECK OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : ok
@@ -265,11 +277,11 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · Solana</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={solTo ? null : 'Quote uses a preview Solana recipient; handle → address lookup is still mocked.'} />
+      <QuoteMeta q={q} extra={solTo ? null : resolvedRecipient ? `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.` : resolveError || 'Resolving handle to a verified Solana address…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
-      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{!cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source}</span></span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{!cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
+      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{resolveError || (resolvedRecipient ? `${to} → ${short(resolvedRecipient)}` : !cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source)}</span></span><span className={'mono xs' + ((flagged && checked) || resolveError ? ' bad' : '')}>{resolveError ? 'UNRESOLVED' : resolvedRecipient ? 'RESOLVED · LIVE' : !cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
       <div className="row"><span className="grow">Token contract</span><span className="mono xs">{checked ? 'USDC · CANONICAL' : 'CHECKING…'}</span></div>
       <div className="row"><span className="grow">Drainer / approval risk</span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{st('NO APPROVAL NEEDED')}</span></div>
       <div className="row"><span className="grow">Spending limits</span><span className={'mono xs' + (limit ? ' bad' : '')}>{limit ? 'OVER CAP' : `${usd(Math.max(0, cfg.daily - spentToday()))} LEFT TODAY`}</span></div>
@@ -285,7 +297,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`review ${usd(n)} payment`} need={false} blocked={!checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
+      : <ConfirmBtn btn={cta} label={`review ${usd(n)} payment`} need={false} blocked={resolveError ? 'Handle unresolved' : isSettlementEnabled() && !liveRecipient ? 'Resolving handle…' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
         onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
@@ -403,16 +415,9 @@ export function useWide() {
   useEffect(() => { const m = matchMedia('(min-width:1024px)'); const f = () => setW(m.matches); m.addEventListener('change', f); return () => m.removeEventListener('change', f) }, [])
   return w
 }
-const activity = [
-  { t: 'Received', who: '@ade', amt: 12, note: 'USDC · Base', when: 'Just now' },
-  { t: 'Paid', who: '@tolu', amt: -50, note: 'Base USDC → Solana USDC', when: 'Today' },
-  { t: 'Swapped', who: '1.2 SOL → USDC', amt: 0, note: 'NEAR Intents', when: 'Yesterday' },
-  { t: 'Yield', who: 'Aave v3 · Base', amt: 1.38, note: 'Idle USDC', when: 'Mon' },
-  { t: 'Received', who: '@kemi', amt: 200, note: 'USDT · Solana', when: 'Sun' },
-]
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 type Msg = { who: 'me' | 'ori'; t: string; chips?: string[]; pending?: Act }
-const MORE: Screen[] = ['policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
+const MORE: Screen[] = ['history', 'policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
@@ -427,14 +432,18 @@ export default function App() {
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
   const [settlement, setSettlement] = useState<LivePayment | null>(null)
+  const [account, setAccount] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('ori-account') || 'null') } catch { return null } })
+  const [accountOpen, setAccountOpen] = useState(false)
+  const [guestId] = useState(() => { const existing = sessionStorage.getItem('ori-guest'); if (existing) return existing; const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); sessionStorage.setItem('ori-guest', id); return id })
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
   const [chat, setChat] = useState(false)
   const [burst, setBurst] = useState<{ x: number; y: number } | null>(null)
   const [stage, skipIntro] = useIntro()
   const wide = useWide()
   const [menu, setMenu] = useState(new URLSearchParams(location.search).get('menu') === '1')
-  const [msgs, setMsgs] = useState<Msg[]>(() => { try { const h = JSON.parse(localStorage.getItem('ori-chat') || 'null'); if (Array.isArray(h) && h.length) return h } catch { /* */ } return [{ who: 'ori', t: 'Hi, I’m Ori. Ask me about your balance, prices, safety, or tell me to pay or swap. I always show you a card to confirm first.', chips: DEFAULT_CHIPS }] })
-  useEffect(() => { localStorage.setItem('ori-chat', JSON.stringify(msgs.slice(-60).map(m => ({ ...m, pending: undefined })))) }, [msgs])
+  const [msgs, setMsgs] = useState<Msg[]>(() => { if (!account) return [{ who: 'ori', t: 'Hi, I’m Ori. Ask me about your balance, prices, safety, or tell me to pay or swap. I always show you a card to confirm first.', chips: DEFAULT_CHIPS }]; try { const h = JSON.parse(localStorage.getItem('ori-chat') || 'null'); if (Array.isArray(h) && h.length) return h } catch { /* */ } return [{ who: 'ori', t: 'Hi, I’m Ori. Ask me about your balance, prices, safety, or tell me to pay or swap. I always show you a card to confirm first.', chips: DEFAULT_CHIPS }] })
+  useEffect(() => { if (account) localStorage.setItem('ori-chat', JSON.stringify(msgs.slice(-60).map(m => ({ ...m, pending: undefined })))) }, [msgs, account])
   const [thinking, setThinking] = useState(false)
   const [cfg, setCfg] = useSettings()
   setFmt(cfg.fmt)
@@ -471,6 +480,11 @@ export default function App() {
 
   const talk = (t: string, voice: boolean) => { if (voice && cfg.voice) speak(t, cfg.rate) }
   const oriSay = (t: string, voice = false, chips?: string[]) => { setMsgs(m => [...m, { who: 'ori', t, chips }]); ori.current?.say(t); talk(t, voice || chat) }
+  useEffect(() => {
+    if (sessionStorage.getItem('ori-account-prompted')) return
+    const t = window.setTimeout(() => { sessionStorage.setItem('ori-account-prompted', '1'); oriSay(account ? 'Your ORI account is ready in More. Sign in keeps conversations and memory available on this device.' : 'You’re in a limited guest session. Sign in with Gmail in More when you want saved conversations or persistent memory.') }, 2600)
+    return () => clearTimeout(t)
+  }, [account])
   const rows = mode === 'live' ? live.holdings.map(h => ({ sym: h.sym, chain: h.chain, amt: h.amt, usd: h.usd })) : assets.map((a, i) => ({ sym: a.sym, chain: a.chain, amt: a.amt, usd: a.usd + (i === 0 ? extra : 0) }))
   const goTo = (k: Screen) => { setScreen(k); setMenu(false); if (k === 'pay' && status === 'sent') setStatus('idle'); if (k === 'swap' && swapSt === 'sent') setSwapSt('idle'); scrollTo(0, 0) }
   const doAct = (a: Act) => {
@@ -504,26 +518,34 @@ export default function App() {
   const toggleMic = () => { if (!cfg.wake) { oriSay('The “Hey Ori” wake word is off. Turn it on in Settings, or click me to type.'); return } if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } stopMic.current = startListening(heardCb) }
   const celebrate = async (r: DOMRect, set: (v: 'idle' | 'running' | 'done' | 'sent') => void) => { set('running'); await ori.current?.run(r); set('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 700); set('sent'); setTimeout(() => setBurst(null), reduced ? 300 : 900); ori.current?.mood('happy') }
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
-  const confirm = (r: DOMRect, amt: number, to: string, fee: number | null) => setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, run: () => doPay(r, amt, to) })
-  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, run: () => doSwap(r, v, detail) })
+  const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
+  const confirm = (r: DOMRect, amt: number, to: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, run: () => doPay(r, amt, to) }) }
+  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, run: () => doSwap(r, v, detail) }) }
   const doPay = async (r: DOMRect, amt: number, to: string) => {
     if (!isSettlementEnabled()) { await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`Delivered ${usd(amt)} to ${to}. Simulated, nothing was signed. Receipt’s on the card.`); return }
-    if (kindOf(to.trim()) !== 'sol') { oriSay('Live settlement needs a Solana address, not a handle. Nothing was signed.'); return }
+    let recipient = to.trim()
+    if (kindOf(recipient) !== 'sol') {
+      try { recipient = (await resolveHandle(recipient)).address }
+      catch (e) { oriSay(`${(e as Error).message} No transaction was submitted.`); return }
+    }
     setStatus('running')
+    let broadcastHash: string | null = null
     try {
       const wallet = await connectBaseWallet()
-      const settlementQuote = await createSettlementQuote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(amt * 1e6)), recipient: to.trim(), refundTo: wallet })
+      const settlementQuote = await createSettlementQuote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(amt * 1e6)), recipient, refundTo: wallet })
       const txHash = await depositBaseUSDC(wallet, settlementQuote)
+      broadcastHash = txHash
       setSettlement({ quote: settlementQuote, wallet, txHash, state: 'BROADCAST' })
+      logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash })
       addSpent(amt); setExtra(e => e - amt); setStatus('sent')
       oriSay(`Deposit signed in your wallet. I’m watching 1Click for settlement. Transaction ${short(txHash)}.`)
       for (let i = 0; i < 30; i++) {
         await wait(4000)
         const s = await settlementStatus(settlementQuote.quote.depositAddress, settlementQuote.quote.depositMemo)
         setSettlement(p => p ? { ...p, state: s.status } : p)
-        if (['SUCCESS', 'REFUNDED', 'FAILED'].includes(s.status)) { oriSay(s.status === 'SUCCESS' ? `Delivered ${usd(amt)} to ${to}. Settlement complete.` : `Settlement ended ${s.status.toLowerCase()}. Check the receipt for details.`); break }
+        if (['SUCCESS', 'REFUNDED', 'FAILED'].includes(s.status)) { logTransaction({ kind: 'send', status: s.status === 'SUCCESS' ? 'completed' : s.status === 'FAILED' ? 'failed' : 'pending', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash }); oriSay(s.status === 'SUCCESS' ? `Delivered ${usd(amt)} to ${to}. Settlement complete.` : `Settlement ended ${s.status.toLowerCase()}. Check the receipt for details.`); break }
       }
-    } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); setStatus('idle'); oriSay(`${error} Nothing was sent by Ori.`) }
+    } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} No transaction was submitted.`) } }
   }
   const doSwap = async (r: DOMRect, v: number, detail: string) => { await celebrate(r, setSwapSt); addSpent(v); oriSay(`Swapped ${detail}, simulated at the live quote. Nothing was signed.`) }
   const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
@@ -535,11 +557,12 @@ export default function App() {
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}</div>
       <div className="side-nav">
-        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
+        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['history', 'History'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
           {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
           <button className={'side-item' + (screen === k ? ' on' : '') + ''} onClick={() => goTo(k as Screen)}>
             {label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
       </div>
+      <button className="side-account" onClick={() => setAccountOpen(true)}><span className="account-dot" />{account ? `@${account.username}` : 'Sign in / Login'}<span className="mono xs dim">{account ? 'ACCOUNT' : 'GUEST'}</span></button>
       <button className="side-ask" onClick={() => ask()}><span className="dot" />Ask Ori anything<span className="mono xs dim">CLICK</span></button>
       <p className="mono xs dim side-foot">Preview · {mode === 'live' ? 'live watch-only' : 'example data'} · nothing is signed</p>
     </aside>}
@@ -554,9 +577,10 @@ export default function App() {
     <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
+        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
         {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} speechOk={speechSupported()} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
         {screen === 'security' && <SecurityScreen s={cfg} set={setCfg} />}
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
@@ -578,7 +602,8 @@ export default function App() {
       <motion.div className="drawer" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={spring}>
         <div className="grab" />
         <p className="mono xs dim">MORE</p>
-        {([['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
+        <button className="drow account-menu" onClick={() => setAccountOpen(true)}><span className="dl">{account ? `@${account.username}` : 'Sign in / Login'}<small>{account ? 'Gmail account · saved conversations on' : 'Guest session · save conversations and memory'}</small></span><span className="arr">→</span></button>
+        {([['history', 'History', 'Every transaction, status, and detail'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
             onClick={() => goTo(k)}>
             <span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
@@ -600,7 +625,9 @@ export default function App() {
     <AnimatePresence>{burst && <motion.div className="ripple" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .25 }} aria-hidden>
       {[0, 1, 2].map(i => <motion.i key={i} initial={{ scale: 0.2, opacity: 0.7 }} animate={{ scale: [0.2, 1.05, 0.95, 1.6 + i * 0.5], opacity: [0.7, 0.55, 0.4, 0] }} transition={{ duration: reduced ? 0 : 1.3, delay: reduced ? 0 : i * 0.18, ease: 'easeOut', times: [0, 0.35, 0.5, 1] }} />)}
       <motion.b initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: [0.6, 1.12, 1], opacity: 1 }} transition={{ duration: reduced ? 0 : 0.5, delay: reduced ? 0 : 0.35 }}><Check size={30} /></motion.b></motion.div>}</AnimatePresence>
-    <AnimatePresence>{sheet && <ConfirmSheet key="cs" d={sheet} cfg={cfg} onCancel={() => { if (!sheet.blocked) oriSay('Cancelled. Nothing moved.'); setSheet(null) }} onConfirm={() => { const r = sheet.run; setSheet(null); r?.() }} />}</AnimatePresence>
+    <AnimatePresence>{sheet && <ConfirmSheet key="cs" d={sheet} cfg={cfg} onCancel={() => { if (sheetAction.current !== 'confirm' && !sheet.blocked) oriSay('Cancelled. Nothing moved.'); sheetAction.current = 'cancel'; setSheet(null) }} onConfirm={() => { sheetAction.current = 'confirm'; const r = sheet.run; setSheet(null); r?.() }} />}</AnimatePresence>
+    <TransactionDetail tx={selectedTransaction} onClose={() => setSelectedTransaction(null)} />
+    <AccountSheet open={accountOpen} guestId={guestId} account={account} onClose={() => setAccountOpen(false)} onSignedIn={(a) => { setAccount(a); if (a) oriSay(`Signed in as @${a.username}. Saved conversations and memory are now enabled.`); else { localStorage.removeItem('ori-chat'); setMsgs([{ who: 'ori', t: 'You’re back in a limited guest session. Sign in again to save conversations.', chips: DEFAULT_CHIPS }]); oriSay('Signed out. You are back in a limited guest session.') } }} />
     <Intro stage={stage} skip={skipIntro} />
   </div></LayoutGroup>
 }
