@@ -1,4 +1,4 @@
-import { json, oneClick } from './_oneclick'
+import { json, oneClick } from './_oneclick.js'
 
 export default async function handler(request: Request) {
   if (request.method !== 'GET') return json({ error: 'Method not allowed.' }, 405)

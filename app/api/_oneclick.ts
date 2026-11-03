@@ -1,5 +1,7 @@
 const ONECLICK = 'https://1click.chaindefuser.com/v0'
 
+declare const process: { env: Record<string, string | undefined> }
+
 export const ALLOWED_ASSETS = new Set([
   'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near',
   'nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near',
@@ -39,7 +41,7 @@ export function validateQuoteInput(input: unknown): QuoteInput | string {
   const deadline = v.deadline ? new Date(v.deadline) : new Date(Date.now() + 3 * 60 * 1000)
   if (!Number.isFinite(deadline.getTime()) || deadline.getTime() <= Date.now()) return 'Deadline must be in the future.'
   if (deadline.getTime() > Date.now() + 15 * 60 * 1000) return 'Deadline cannot be more than 15 minutes away.'
-  return { originAsset: v.originAsset, destinationAsset: v.destinationAsset, amount: v.amount, recipient: v.recipient, refundTo: v.refundTo, deadline: deadline.toISOString() }
+  return { originAsset: String(v.originAsset), destinationAsset: String(v.destinationAsset), amount: String(v.amount), recipient: String(v.recipient), refundTo: String(v.refundTo), deadline: deadline.toISOString() }
 }
 
 export async function oneClick(path: string, init: RequestInit = {}) {

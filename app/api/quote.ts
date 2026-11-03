@@ -1,4 +1,4 @@
-import { json, oneClick, validateQuoteInput } from './_oneclick'
+import { json, oneClick, validateQuoteInput } from './_oneclick.js'
 
 export default async function handler(request: Request) {
   if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405)
