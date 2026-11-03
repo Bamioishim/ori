@@ -57,6 +57,38 @@ export type SettlementStatus = {
   swapDetails?: { intentHashes?: string[]; nearTxHashes?: string[]; amountInFormatted?: string; amountOutFormatted?: string; amountOutUsd?: string }
 }
 
+type EthereumProvider = { request: (args: { method: string; params?: unknown[] }) => Promise<any> }
+const BASE_CHAIN_ID = '0x2105'
+const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
+const pad32 = (value: string) => value.replace(/^0x/, '').padStart(64, '0')
+
+function provider(): EthereumProvider {
+  const p = (window as Window & { ethereum?: EthereumProvider }).ethereum
+  if (!p) throw new Error('No EVM wallet found. Install MetaMask or another EIP-1193 wallet.')
+  return p
+}
+
+export async function connectBaseWallet(): Promise<string> {
+  const p = provider()
+  const chain = String(await p.request({ method: 'eth_chainId' })).toLowerCase()
+  if (chain !== BASE_CHAIN_ID) {
+    try { await p.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] }) }
+    catch (e: any) { throw new Error(e?.code === 4902 ? 'Add the Base network to your wallet first.' : 'Switch your wallet to Base to continue.') }
+  }
+  const accounts = await p.request({ method: 'eth_requestAccounts' }) as string[]
+  const account = accounts?.[0]
+  if (!account || kindOf(account) !== 'evm') throw new Error('No EVM wallet account was selected.')
+  return account
+}
+
+export async function depositBaseUSDC(account: string, settlement: SettlementQuote): Promise<string> {
+  const p = provider()
+  const amount = settlement.quote.amountIn
+  if (!/^\d+$/.test(amount)) throw new Error('1Click returned an invalid deposit amount.')
+  const data = '0xa9059cbb' + pad32(settlement.quote.depositAddress) + pad32(BigInt(amount).toString(16))
+  return String(await p.request({ method: 'eth_sendTransaction', params: [{ from: account, to: BASE_USDC, data }] }))
+}
+
 const settlementEnabled = import.meta.env.VITE_ORI_SETTLEMENT_MODE === 'live'
 export const isSettlementEnabled = () => settlementEnabled
 
