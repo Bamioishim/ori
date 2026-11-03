@@ -1,4 +1,4 @@
-// Read-only live data. No keys, no signing, no transactions. Every call here is a GET or a read-only JSON-RPC / dry quote.
+// Read-only live data plus an explicitly opt-in settlement boundary. The browser never sees the 1Click JWT.
 const ONECLICK = 'https://1click.chaindefuser.com/v0'
 export const RPC = { eth: 'https://ethereum-rpc.publicnode.com', base: 'https://base-rpc.publicnode.com', sol: 'https://solana-rpc.publicnode.com', solIndexed: '/rpc/sol', near: 'https://rpc.mainnet.fastnear.com' }
 export const ASSET = {
@@ -28,6 +28,54 @@ export async function quote(o: { from: string; to: string; amount: bigint; recip
   if (!r.ok) throw new Error(j.message || '1Click quote ' + r.status)
   const q = j.quote, inU = +q.amountInUsd, outU = +q.amountOutUsd
   return { amountInUsd: inU, amountOutUsd: outU, amountOut: +q.amountOut / 10 ** o.outDecimals, minOut: +q.minAmountOut / 10 ** o.outDecimals, eta: q.timeEstimate, fee: inU - outU, bps: j.quoteRequest?.appFees?.reduce((a: number, f: any) => a + f.fee, 0) ?? 0, at: j.timestamp }
+}
+
+export type SettlementQuote = {
+  correlationId: string
+  timestamp: string
+  signature: string
+  quoteRequest: Record<string, unknown>
+  quote: {
+    depositAddress: string
+    depositMemo?: string
+    amountIn: string
+    amountInFormatted?: string
+    amountInUsd?: string
+    amountOut: string
+    amountOutFormatted?: string
+    amountOutUsd?: string
+    minAmountOut?: string
+    timeEstimate?: number
+  }
+}
+
+export type SettlementStatus = {
+  correlationId: string
+  status: 'PENDING_DEPOSIT' | 'KNOWN_DEPOSIT_TX' | 'INCOMPLETE_DEPOSIT' | 'PROCESSING' | 'SUCCESS' | 'REFUNDED' | 'FAILED'
+  updatedAt: string
+  quoteResponse: SettlementQuote
+  swapDetails?: { intentHashes?: string[]; nearTxHashes?: string[]; amountInFormatted?: string; amountOutFormatted?: string; amountOutUsd?: string }
+}
+
+const settlementEnabled = import.meta.env.VITE_ORI_SETTLEMENT_MODE === 'live'
+export const isSettlementEnabled = () => settlementEnabled
+
+async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers || {}) } })
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(body.error || body.message || `ORI API ${r.status}`)
+  return body as T
+}
+
+export async function createSettlementQuote(o: { from: string; to: string; amount: bigint; recipient: string; refundTo: string }): Promise<SettlementQuote> {
+  if (!settlementEnabled) throw new Error('Live settlement is disabled in this preview.')
+  return apiJson<SettlementQuote>('/api/quote', { method: 'POST', body: JSON.stringify({ originAsset: o.from, destinationAsset: o.to, amount: o.amount.toString(), recipient: o.recipient, refundTo: o.refundTo }) })
+}
+
+export async function settlementStatus(depositAddress: string, depositMemo?: string): Promise<SettlementStatus> {
+  if (!settlementEnabled) throw new Error('Live settlement is disabled in this preview.')
+  const q = new URLSearchParams({ depositAddress }); if (depositMemo) q.set('depositMemo', depositMemo)
+  return apiJson<SettlementStatus>('/api/status?' + q.toString())
 }
 
 // ---------- address detection ----------
