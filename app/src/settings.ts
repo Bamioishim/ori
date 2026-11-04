@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react'
 export type Fmt = 'full' | 'nocents' | 'compact'
 export type Settings = {
   voice: boolean; voiceOptIn?: boolean; wake: boolean; rate: number; fmt: Fmt; reduce: boolean
-  scam: boolean; daily: number; perPay: number; holdAbove: number; trusted: string[]
+  scam: boolean; daily: number; perPay: number; holdAbove: number; trusted: string[]; preferredReceivingCurrency: string
 }
-export const DEFAULTS: Settings = { voice: false, wake: true, rate: 1.02, fmt: 'full', reduce: false, scam: true, daily: 500, perPay: 250, holdAbove: 20, trusted: ['@tolu', '@ade'] }
+export const DEFAULTS: Settings = { voice: false, wake: true, rate: 1.02, fmt: 'full', reduce: false, scam: true, daily: 500, perPay: 250, holdAbove: 20, trusted: ['@tolu', '@ade'], preferredReceivingCurrency: 'USDC' }
 const KEY = 'ori-settings'
 export function loadSettings(): Settings { try { const o = JSON.parse(localStorage.getItem(KEY) || '{}'); if (!o.voiceOptIn) o.voice = false; return { ...DEFAULTS, ...o } } catch { return DEFAULTS } }
 export function useSettings(): [Settings, (p: Partial<Settings>) => void] {

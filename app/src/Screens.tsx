@@ -23,6 +23,10 @@ export function SettingsScreen({ s, set, mode, setMode, watch, speechOk }: P & {
       <div className="row"><span className="grow">Data mode<br /><span className="mono xs dim">Example data, or real balances read from your watched addresses</span></span>
         <Seg v={mode} opts={[['example', 'Example'], ['live', 'Live · watch-only']]} onChange={setMode} /></div></section>
     <section>{watch}</section>
+    <section><Label>PAYMENTS</Label>
+      <div className="row"><span className="grow">Preferred receiving currency<br /><span className="mono xs dim">Recipients keep this default until they change it. Routes are shown only when supported.</span></span>
+        <select className="history-filter" value={s.preferredReceivingCurrency} onChange={e => set({ preferredReceivingCurrency: e.target.value })}><option>USDC</option><option>USDT</option><option>ETH</option><option>SOL</option></select></div>
+      <div className="mono xs dim">ORI will not assume that every token or network is available through NEAR Intents.</div></section>
     <section><Label>VOICE</Label>
       <div className="row"><span className="grow">Ori speaks replies<br /><span className="mono xs dim">Off by default. Opt in to hear chat replies read aloud</span></span><Toggle on={s.voice} onChange={v => set({ voice: v, voiceOptIn: true })} label="Voice" /></div>
       <div className="row"><span className="grow">“Hey Ori” wake word<br /><span className="mono xs dim">{speechOk ? 'Listens only while the mic button is on' : 'Not supported in this browser. Click Ori to type instead'}</span></span><Toggle on={s.wake} onChange={v => set({ wake: v })} label="Wake word" /></div>

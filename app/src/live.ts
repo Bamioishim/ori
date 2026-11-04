@@ -58,6 +58,8 @@ export type SettlementStatus = {
 }
 
 type EthereumProvider = { request: (args: { method: string; params?: unknown[] }) => Promise<any> }
+export type WalletConnection = { address: string; chain: 'evm' | 'sol'; network: string; provider: string }
+type SolanaProvider = { connect: () => Promise<{ publicKey?: { toString: () => string } }>; publicKey?: { toString: () => string } }
 const BASE_CHAIN_ID = '0x2105'
 const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
 const pad32 = (value: string) => value.replace(/^0x/, '').padStart(64, '0')
@@ -81,11 +83,26 @@ export async function connectBaseWallet(): Promise<string> {
   return account
 }
 
+export async function connectPhantomWallet(): Promise<WalletConnection> {
+  const p = (window as Window & { solana?: SolanaProvider }).solana
+  if (!p) throw new Error('No Solana wallet found. Install Phantom or another compatible wallet.')
+  const result = await p.connect()
+  const address = result?.publicKey?.toString() || p.publicKey?.toString()
+  if (!address || kindOf(address) !== 'sol') throw new Error('No Solana wallet account was selected.')
+  return { address, chain: 'sol', network: 'Solana', provider: 'Phantom / EIP-1193-compatible' }
+}
+
 export async function depositBaseUSDC(account: string, settlement: SettlementQuote): Promise<string> {
-  const p = provider()
   const amount = settlement.quote.amountIn
   if (!/^\d+$/.test(amount)) throw new Error('1Click returned an invalid deposit amount.')
-  const data = '0xa9059cbb' + pad32(settlement.quote.depositAddress) + pad32(BigInt(amount).toString(16))
+  return sendBaseUSDC(account, settlement.quote.depositAddress, BigInt(amount))
+}
+
+export async function sendBaseUSDC(account: string, recipient: string, amount: bigint): Promise<string> {
+  const p = provider()
+  if (kindOf(recipient) !== 'evm') throw new Error('Base USDC transfers require an EVM recipient address.')
+  if (amount <= 0n) throw new Error('Transfer amount must be positive.')
+  const data = '0xa9059cbb' + pad32(recipient) + pad32(amount.toString(16))
   return String(await p.request({ method: 'eth_sendTransaction', params: [{ from: account, to: BASE_USDC, data }] }))
 }
 
