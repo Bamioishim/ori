@@ -259,6 +259,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
   const liveRecipient = solTo ? to.trim() : evmTo || resolvedRecipient
   const destinationAsset = solTo || resolvedRecipient ? ASSET.solUSDC : ASSET.baseUSDC
   const destinationNetwork = solTo || resolvedRecipient ? 'Solana' : 'Base'
+  const preferredSupported = cfg.preferredReceivingCurrency === 'USDC'
   const q = useQuote(!evmTo && n0 > 0 ? { from: ASSET.baseUSDC, to: destinationAsset, amount: BigInt(Math.round(n0 * 1e6)), recipient: liveRecipient || PREVIEW.evm, refundTo, outDecimals: 6 } : null, `${n0}|${liveRecipient || ''}|${destinationAsset}|${refundTo}`)
   useEffect(() => () => onRisk(null), [])
   const trusted = cfg.trusted.includes(to.trim())
@@ -267,7 +268,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
   const limit = n > 0 ? limitCheck(cfg, n) : null
   return <div className="split pay-split">
     <section className="pad-top sa">
-      <Label>PAY · TO @HANDLE OR ADDRESS {trusted && <span className="live-tag">TRUSTED</span>}</Label>
+      <Label>PAY · TO @HANDLE OR ADDRESS · RECEIVE {cfg.preferredReceivingCurrency} {trusted && <span className="live-tag">TRUSTED</span>}</Label>
       <input className="field" value={to} onChange={e => setTo(e.target.value)} disabled={status !== 'idle'} />
       <div className="amount"><span>$</span><input value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" disabled={status !== 'idle'} /></div>
       <div className="mono dim xs">They receive USDC on Solana · their choice of chain{limit ? <><br /><span className="limitnote">{limit}</span></> : n > cfg.holdAbove ? ` · hold required above ${usd(cfg.holdAbove)}` : ''}</div>
@@ -282,7 +283,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.` : resolveError || 'Resolving handle to a verified Solana address…'} />
+      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.` : resolveError || 'Resolving handle to a verified Solana address…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
@@ -302,7 +303,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement?.kind === 'direct' ? 'Your connected wallet' : settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={resolveError ? 'Handle unresolved' : isSettlementEnabled() && !liveRecipient ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
+      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? 'Handle unresolved' : isSettlementEnabled() && !liveRecipient ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
         onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
