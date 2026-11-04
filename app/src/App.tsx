@@ -15,11 +15,12 @@ import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, sendBaseUSDC, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
-import { handleHeard, speak, speechSupported, startListening } from './voice'
+import { handleHeard, requestMicrophoneAccess, speak, speechSupported, startListening } from './voice'
 import AccountSheet, { type Account } from './Account'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { logTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
+import { TOKEN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
 
 type Screen = 'home' | 'pay' | 'swap' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
@@ -42,7 +43,7 @@ const glyphs: Record<string, React.ReactNode> = {
   ETH: <><path d="M12 3.5 6.8 12 12 15l5.2-3z" /><path d="M6.8 13.2 12 20.5l5.2-7.3L12 16.2z" /></>,
   NEAR: <><path d="M7 17V7l10 10V7" /></>,
 }
-function Glyph({ s }: { s: string }) { return <span className="glyph"><svg viewBox="0 0 24 24">{glyphs[s]}</svg></span> }
+function Glyph({ s }: { s: string }) { return <span className="glyph">{TOKEN_LOGOS[s] && <img src={TOKEN_LOGOS[s]} alt="" onError={e => e.currentTarget.remove()} />}<svg viewBox="0 0 24 24">{glyphs[s]}</svg></span> }
 const series: Record<string, number[]> = (() => { const mk = (n: number, seed: number, drift: number) => { let v = 100, x = seed; return Array.from({ length: n }, (_, i) => { x = (x * 9301 + 49297) % 233280; v = v * .8 + (100 + (x / 233280 - 0.5) * 6) * .2; return v + i * drift * 4 }) }; return { '1D': mk(48, 3, .03), '1W': mk(56, 7, .02), '1M': mk(60, 11, .04), '1Y': mk(72, 5, .06) } })()
 function Spark({ range }: { range: string }) {
   const d = series[range], W = 340, H = 92, mn = Math.min(...d), mx = Math.max(...d)
@@ -458,7 +459,7 @@ export default function App() {
   const msgsEnd = useRef<HTMLDivElement>(null)
   useEffect(() => { msgsEnd.current?.scrollIntoView({ block: 'end' }) }, [msgs.length, thinking, chat])
   const [input, setInput] = useState('')
-  const [mic, setMic] = useState<'off' | 'listening' | 'unsupported' | 'denied'>('off')
+  const [mic, setMic] = useState<'off' | 'requesting' | 'listening' | 'unsupported' | 'denied'>('off')
   const [heard, setHeard] = useState<string | null>(null)
   const ori = useRef<OriApi>(null)
   const stopMic = useRef<() => void>(() => { })
@@ -521,7 +522,7 @@ export default function App() {
   // single entry for speech results (real mic and the demo simulation both call this)
   const heardCb = { onWake: wake, onCommand: (t: string, src: string) => { setHeard(`“${t}”${src === 'simulated' ? ' · simulated' : ''}`); command(t, src) }, onState: (s: string) => setMic(s as any) }
   useEffect(() => { (window as any).__ori = { hear: (t: string) => handleHeard(t, heardCb, 'simulated') } })
-  const toggleMic = () => { if (!cfg.wake) { oriSay('The “Hey Ori” wake word is off. Turn it on in Settings, or click me to type.'); return } if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } stopMic.current = startListening(heardCb) }
+  const toggleMic = async () => { if (!cfg.wake) { oriSay('The “Hey Ori” wake word is off. Turn it on in Settings, or click me to type.'); return } if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } setMic('requesting'); const access = await requestMicrophoneAccess(); if (access === 'unsupported') { setMic('unsupported'); oriSay('This browser does not provide microphone access. Tap Ori to type instead.'); return } if (access === 'denied') { setMic('denied'); oriSay('Microphone access is blocked. Allow Microphone for this site in your browser permissions, then tap the mic again.'); return } stopMic.current = startListening(heardCb) }
   const celebrate = async (r: DOMRect, set: (v: 'idle' | 'running' | 'done' | 'sent') => void) => { set('running'); await ori.current?.run(r); set('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 700); set('sent'); setTimeout(() => setBurst(null), reduced ? 300 : 900); ori.current?.mood('happy') }
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
@@ -585,11 +586,11 @@ export default function App() {
     </aside>}
     {wide && <button className={'mic top-mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{!cfg.wake ? 'WAKE OFF' : mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>}
+        <span className="mono xs">{!cfg.wake ? 'WAKE OFF' : mic === 'listening' ? 'HEY ORI · ON' : mic === 'requesting' ? 'MIC ACCESS…' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>}
     {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}
       <button className={'mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
         <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>
+        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'requesting' ? 'MIC ACCESS…' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>
       {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
     <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
     <AnimatePresence mode="wait">

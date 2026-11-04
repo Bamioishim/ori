@@ -12,8 +12,9 @@ export const PREVIEW = { sol: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', ev
 export type Token = { assetId: string; symbol: string; blockchain: string; price: number; decimals: number; priceUpdatedAt: string }
 let tokP: Promise<Token[]> | null = null
 const timeout = (ms: number) => AbortSignal.timeout(ms)
+const serviceError = (status: number, label: string) => status >= 500 ? `${label} is temporarily unavailable. Try again shortly.` : `${label} returned an error (${status}).`
 export function tokens() {
-  tokP ??= fetch(ONECLICK + '/tokens', { signal: timeout(10000) }).then(r => { if (!r.ok) throw new Error('1Click tokens ' + r.status); return r.json() }).catch(e => { tokP = null; throw e })
+  tokP ??= fetch(ONECLICK + '/tokens', { signal: timeout(10000) }).then(r => { if (!r.ok) throw new Error(serviceError(r.status, 'Token service')); return r.json() }).catch(e => { tokP = null; throw e })
   return tokP
 }
 export const price = (ts: Token[], sym: string, chain: string) => ts.find(t => t.symbol === sym && t.blockchain === chain)?.price ?? ts.find(t => t.symbol === sym)?.price ?? 0
@@ -25,7 +26,7 @@ export async function quote(o: { from: string; to: string; amount: bigint; recip
     body: JSON.stringify({ dry: true, swapType: 'EXACT_INPUT', slippageTolerance: 100, originAsset: o.from, depositType: 'ORIGIN_CHAIN', destinationAsset: o.to, amount: o.amount.toString(), refundTo: o.refundTo, refundType: 'ORIGIN_CHAIN', recipient: o.recipient, recipientType: 'DESTINATION_CHAIN', deadline: new Date(Date.now() + 36e5).toISOString() }),
   })
   const j = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(j.message || '1Click quote ' + r.status)
+  if (!r.ok) throw new Error(r.status >= 500 ? 'Live quote service is temporarily unavailable. Try again shortly.' : j.message || serviceError(r.status, 'Live quote service'))
   const q = j.quote, inU = +q.amountInUsd, outU = +q.amountOutUsd
   return { amountInUsd: inU, amountOutUsd: outU, amountOut: +q.amountOut / 10 ** o.outDecimals, minOut: +q.minAmountOut / 10 ** o.outDecimals, eta: q.timeEstimate, fee: inU - outU, bps: j.quoteRequest?.appFees?.reduce((a: number, f: any) => a + f.fee, 0) ?? 0, at: j.timestamp }
 }
@@ -112,7 +113,7 @@ export const isSettlementEnabled = () => settlementEnabled
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers || {}) } })
   const body = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(body.error || body.message || `ORI API ${r.status}`)
+  if (!r.ok) throw new Error(body.error || body.message || serviceError(r.status, 'ORI service'))
   return body as T
 }
 

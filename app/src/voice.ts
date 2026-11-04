@@ -3,6 +3,10 @@ type Cb = { onWake: (src: string) => void; onCommand: (text: string, src: string
 const WAKE = /\b(hey|hi|okay|ok)[,\s]+(ori|orri|orie|aury|ory|dory|laurie)\b/i
 let awaiting = 0
 export function speechSupported() { return !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) }
+export async function requestMicrophoneAccess(): Promise<'granted' | 'denied' | 'unsupported'> {
+  if (!navigator.mediaDevices?.getUserMedia) return 'unsupported'
+  try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(t => t.stop()); return 'granted' } catch { return 'denied' }
+}
 // The single handler used by real recognition AND by the demo simulation.
 export function handleHeard(text: string, cb: Cb, src = 'mic') {
   const t = text.trim()
