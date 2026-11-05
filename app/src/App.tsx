@@ -30,7 +30,7 @@ import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolPro
 import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
-import { TOKEN_LOGOS } from './tokenLogos'
+import { TOKEN_LOGOS, CHAIN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
 
 type Screen = 'home' | 'send' | 'receive' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
@@ -54,6 +54,12 @@ const glyphs: Record<string, React.ReactNode> = {
   NEAR: <><path d="M7 17V7l10 10V7" /></>,
 }
 function Glyph({ s }: { s: string }) { return <span className="glyph">{TOKEN_LOGOS[s] && <img src={TOKEN_LOGOS[s]} alt="" onError={e => e.currentTarget.remove()} />}<svg viewBox="0 0 24 24">{glyphs[s]}</svg></span> }
+const CHAIN_GLYPH: Record<string, string> = { Ethereum: 'ETH', Solana: 'SOL', NEAR: 'NEAR' }
+function ChainMark({ chain }: { chain: string }) {
+  const src = CHAIN_LOGOS[chain], fb = CHAIN_GLYPH[chain]
+  return <span className="pchip" style={{ background: chainCol(chain) }} aria-hidden>{src && <img src={src} alt="" onError={e => e.currentTarget.remove()} />}{fb ? <svg viewBox="0 0 24 24">{glyphs[fb]}</svg> : null}</span>
+}
+
 const series: Record<string, number[]> = (() => { const mk = (n: number, seed: number, drift: number) => { let v = 100, x = seed; return Array.from({ length: n }, (_, i) => { x = (x * 9301 + 49297) % 233280; v = v * .8 + (100 + (x / 233280 - 0.5) * 6) * .2; return v + i * drift * 4 }) }; return { '1D': mk(48, 3, .03), '1W': mk(56, 7, .02), '1M': mk(60, 11, .04), '1Y': mk(72, 5, .06) } })()
 function Spark({ range }: { range: string }) {
   const d = series[range], W = 340, H = 92, mn = Math.min(...d), mx = Math.max(...d)
@@ -789,7 +795,7 @@ function Profile({ sum, hide }: { sum: number; hide: boolean }) {
     <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">One account · four chains <Example /></div></div></section>
     <section><Label>CHAIN ADDRESSES · DEMO</Label>
       {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
-        <span className="pchip" style={{ background: chainCol(a.chain) }}>{a.chain[0]}</span>
+        <ChainMark chain={a.chain} />
         <span className="grow"><b>{a.chain === 'Base' ? 'Base · EVM' : a.chain}</b><span className="sub mono">{a.addr.length > 20 ? short(a.addr) : a.addr}</span></span>
         <span className={'num' + (hide ? ' blurred' : '')}><Money v={bal(a.chain) * scale} cls="sm" /></span>
         <button className="picon" aria-label={'Copy ' + a.chain + ' address'} onClick={() => { navigator.clipboard?.writeText(a.addr).catch(() => {}); setCp(a.chain); setTimeout(() => setCp(null), 1400) }}>{cp === a.chain ? '✓' : <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>}</button>

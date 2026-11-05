@@ -5,4 +5,13 @@ export const TOKEN_LOGOS: Record<string, string> = {
   ETH: `${TRUST}/ethereum/info/logo.png`,
   SOL: `${TRUST}/solana/info/logo.png`,
   NEAR: `${TRUST}/near/info/logo.png`,
+  BASE: `${TRUST}/base/info/logo.png`,
+}
+// Chain rows reuse the same Trust Wallet files as Home token glyphs (ETH/SOL/NEAR)
+// plus the official Trust Wallet Base chain logo. No generated marks.
+export const CHAIN_LOGOS: Record<string, string> = {
+  Ethereum: TOKEN_LOGOS.ETH,
+  Base: TOKEN_LOGOS.BASE,
+  Solana: TOKEN_LOGOS.SOL,
+  NEAR: TOKEN_LOGOS.NEAR,
 }
