@@ -17,6 +17,8 @@ import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, sendBaseUSDC, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
 import { speak } from './voice'
 import { ReceiveScreen } from './Receive'
+import { SendScreen } from './Send'
+import { findAsset, unsupportedReason } from './transfers'
 import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
@@ -26,7 +28,7 @@ import { saveWallet } from './wallets'
 import { TOKEN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
 
-type Screen = 'home' | 'receive' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
+type Screen = 'home' | 'send' | 'receive' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
@@ -105,7 +107,7 @@ function Home({ profile, hidden, setHidden, extra, mode, setMode, live, addrs, s
     <Tiles go={go!} />
     <Promo go={go!} />
     {isLive && <Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />}
-    {!empty && <HoldList rows={rows} chainRows={chainRows} sum={sum} hide={hide} sel={sel} setSel={setSel} />}
+    {!empty && <HoldList rows={rows} chainRows={chainRows} sum={sum} hide={hide} sel={sel} setSel={setSel} go={go} />}
     <section>
       <div className="sechead"><Label>ORI ACTIVITY</Label>{!isHiddenScreen('scan') && <button className="label linkish" onClick={() => go?.('scan')}>SCANNER →</button>}</div>
       <Feed max={4} />
@@ -117,6 +119,14 @@ function Mini({ seed, up }: { seed: string; up: boolean }) {
   let h = 0; for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0
   const pts = Array.from({ length: 14 }, (_, i) => { h = (h * 1103515245 + 12345) >>> 0; const t = i / 13; return [t * 60, 14 + (up ? -1 : 1) * (t * 10 - 5) + ((h % 1000) / 1000 - .5) * 9] })
   return <svg className="mini" viewBox="0 0 60 28" aria-hidden><path d={pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')} fill="none" stroke={up ? '#6FE3C2' : '#C98A8A'} strokeWidth="1.4" strokeLinejoin="round" /></svg>
+}
+// Per-asset Send / Receive. Send is only offered where ORI can actually sign a same-network transfer.
+function AssetActions({ sym, chain, go, compact = false }: { sym: string; chain: string; go: (s: Screen, to?: string) => void; compact?: boolean }) {
+  const a = findAsset(sym, chain), why = unsupportedReason(a)
+  return <span className={'asset-actions' + (compact ? ' compact' : '')} onClick={e => e.stopPropagation()}>
+    <button className="ghost" disabled={!!why} title={why || `Send ${sym} on ${chain}`} onClick={() => go('send', `${sym}|${chain}`)}>Send</button>
+    <button className="ghost" onClick={() => go('receive')}>Receive</button>
+    {why && !compact && <span className="mono xs dim">{why}</span>}</span>
 }
 // Replaces the old EVM address line above the balance: who is signed in, with profile and log out.
 function ProfileChip({ account, onAccount, onProfile, onLogout }: { account: Account | null; onAccount: () => void; onProfile: () => void; onLogout: () => void }) {
@@ -131,7 +141,7 @@ function ProfileChip({ account, onAccount, onProfile, onLogout }: { account: Acc
 }
 function Tiles({ go }: { go: (s: Screen, to?: string, amt?: string) => void }) {
   const T: [string, string, () => void, React.ReactNode][] = [
-    ['Send', 'send', () => go('pay', '', ''), <path d="M12 19V5M6 11l6-6 6 6" />],
+    ['Send', 'send', () => go('send'), <path d="M12 19V5M6 11l6-6 6 6" />],
     ['Swap', 'swap', () => go('swap'), <path d="M7 4v14M4 15l3 3 3-3M17 20V6M14 9l3-3 3 3" />],
     ['Receive', 'receive', () => go('receive'), <path d="M12 5v14M6 13l6 6 6-6" />]]
   return <div className="tiles">{T.map(([l, k, f, ic]) => <motion.button key={k} className="tile" whileTap={{ scale: .96 }} onClick={f}>
@@ -145,14 +155,15 @@ function Promo({ go }: { go: (s: Screen) => void }) {
       <button className="promo-go" onClick={() => go('policy')}>Open Policy</button></div>
     <img src="/ori-mark.svg" alt="" className="promo-art" /></motion.div>}</AnimatePresence>
 }
-function HoldList({ rows, chainRows, sum, hide, sel, setSel }: any) {
+function HoldList({ rows, chainRows, sum, hide, sel, setSel, go }: any) {
+  const [open, setOpen] = useState<number | null>(null)
   const [tab, setTab] = useState<'tokens' | 'chains'>('tokens')
   return <section className="hl">
     <div className="hl-tabs">{(['tokens', 'chains'] as const).map(t => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t === 'tokens' ? 'Tokens' : 'Chains'}</button>)}</div>
-    {tab === 'tokens' ? rows.map((a: any, i: number) => <div className="trow" key={i}><Glyph s={a.sym} />
+    {tab === 'tokens' ? rows.map((a: any, i: number) => <Fragment key={i}><div className="trow" role="button" tabIndex={0} aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}><Glyph s={a.sym} />
       <span className="grow"><b>{NAMES[a.sym] || a.sym}</b><span className="sub">{a.sym} · {a.chain}</span></span>
       <Mini seed={a.sym} up={(a.d24 ?? 0) >= 0} />
-      <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>)
+      <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>{open === i && go && <AssetActions sym={a.sym} chain={a.chain} go={go} />}</Fragment>)
     : <><div className="alloc">{chainRows.map((c: any) => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
       {chainRows.map((c: any) => <button className={'arow trow' + (sel === c.name ? ' sel' : '')} key={c.name} onClick={() => setSel(sel === c.name ? null : c.name)}>
         <span className="dot" style={{ background: chainCol(c.name) }} /><span className="grow"><b>{c.name}</b><span className="sub">{(c.usd / (sum || 1) * 100).toFixed(1)}% of balance</span></span>
@@ -186,7 +197,7 @@ function HomeDesk(p: any) {
     {isLive && <section className="d-card d-watch"><Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} /></section>}
     {!empty && <section className="d-card d-chains">
       <div className="sechead"><Label>BY CHAIN</Label><span className="label">{chainRows.length} CHAINS</span></div>
-      <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th></tr></thead><tbody>
+      <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th><th className="rt">Actions</th></tr></thead><tbody>
         {chainRows.map((c: any) => <tr key={c.name} className={sel === c.name ? 'sel' : ''} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)}>
           <td><span className="dot" style={{ background: chainCol(c.name) }} /> {c.name}</td><td className="sharec"><i style={{ width: (c.usd / (sum || 1) * 100) + '%', background: chainCol(c.name) }} /></td>
           <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className={'rt' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></td></tr>)}
@@ -198,7 +209,7 @@ function HomeDesk(p: any) {
         {rows.map((a: any, i: number) => <tr key={i}><td><span className="tcell"><Glyph s={a.sym} /><b>{a.sym}</b></span></td><td className="dim">{a.chain}</td><td className="dim">{a.role}</td>
           <td className={'rt mono' + (hide ? ' blurred' : '')}>{a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
           <td className={'rt mono' + (a.d24 !== null && a.d24 < 0 ? ' neg' : '')}>{a.d24 === null ? '—' : (a.d24 > 0 ? '+' : '') + a.d24.toFixed(1) + '%'}</td>
-          <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td></tr>)}
+          <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td><td className="rt"><AssetActions sym={a.sym} chain={a.chain} go={go} compact /></td></tr>)}
       </tbody></table>
     </section>}
     <section className="d-card d-feed">
@@ -464,6 +475,7 @@ export default function App() {
   useEffect(() => { if (account) localStorage.setItem('ori-chat', JSON.stringify(msgs.slice(-60).map(m => ({ ...m, pending: undefined })))) }, [msgs, account])
   const [thinking, setThinking] = useState(false)
   const [cfg, setCfg] = useSettings()
+  const [sendPreset, setSendPreset] = useState<{ sym: string; net: string } | null>(null)
   setFmt(cfg.fmt)
   const [swapSt, setSwapSt] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
   const [swapPre, setSwapPre] = useState({ amt: '1', flip: false, k: 0 })
@@ -602,9 +614,10 @@ export default function App() {
       {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
+        {screen === 'home' && <Home profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'send') setSendPreset(to ? { sym: to.split('|')[0], net: to.split('|')[1] } : null); if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'send' && <SendScreen key={sendPreset ? sendPreset.sym + sendPreset.net : 'send'} cfg={cfg} preset={sendPreset} openWallets={() => goTo('wallets')} />}
         {screen === 'receive' && <ReceiveScreen watched={addrs} live={mode === 'live'} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
         {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}

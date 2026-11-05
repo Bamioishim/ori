@@ -373,3 +373,5 @@ header{align-items:center}
 html,main,.pg{scroll-padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 .drawer{max-height:calc(100dvh - 96px);overflow-y:auto;overscroll-behavior:contain;scroll-padding-bottom:120px}
 .hbtn{min-height:44px;min-width:44px;padding:0 10px}
+
+.asset-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 0 12px 44px}.asset-actions.compact{padding:0;justify-content:flex-end;flex-wrap:nowrap}.asset-actions .ghost{min-height:36px;padding:6px 12px}.asset-actions .ghost:disabled{opacity:.4;cursor:not-allowed}
