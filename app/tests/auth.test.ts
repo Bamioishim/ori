@@ -33,3 +33,14 @@ test('frontend: registration creates the account only after a verified register 
   assert.match(s, /j\.purpose !== 'register'/)
   assert.doesNotMatch(readFileSync(new URL('../api/auth/_store.ts', import.meta.url), 'utf8'), /new Map/)
 })
+test('old-format signed challenges (pre-change {email,exp,hash}) are rejected', async () => {
+  const { deps } = mk(); const enc = (o: object) => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const body = enc({ email: 'a@gmail.com', exp: Date.now() + 60000, hash: 'x' })
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  assert.equal((await verifyCode(body + '.' + sig, '123456', deps)).status, 400)
+})
+test('only two auth endpoints exist and both route through the gated handlers', () => {
+  const s = readFileSync(new URL('../api/auth/send-code.ts', import.meta.url), 'utf8') + readFileSync(new URL('../api/auth/verify-code.ts', import.meta.url), 'utf8')
+  assert.match(s, /sendCode\(/); assert.match(s, /verifyCode\(/); assert.match(s, /getAuthStore\(\)/); assert.doesNotMatch(s, /crypto\.subtle/)
+})

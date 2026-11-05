@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ASSETS, balanceOf, estimateFee, findAsset, fromUnits, preSignCheck, sendEvm, sendSol, toUnits, unsupportedReason, validateRecipient, type FeeEstimate, type EvmProvider, type SolProvider } from './transfers'
+import { ASSETS, balanceOf, checkRpcChain, solRecipientCheck, estimateFee, findAsset, fromUnits, preSignCheck, sendEvm, sendSol, toUnits, unsupportedReason, validateRecipient, type FeeEstimate, type EvmProvider, type SolProvider } from './transfers'
 import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction } from './transactions'
 import { addSpent, spentToday, type Settings } from './settings'
@@ -26,20 +26,23 @@ export function SendScreen({ cfg, preset, openWallets }: { cfg: Settings; preset
   const paste = async () => { try { setTo((await navigator.clipboard.readText()).trim()) } catch { setErr('Clipboard access was blocked. Paste into the field instead.') } }
   const sign = async () => {
     if (!a || !units || !fee) return; setErr(''); setStage('signing')
+    let txId: string | null = null
     try {
       if (!(usd > 0)) { setErr('No live USD price for this asset, so ORI cannot check your spending limits. Nothing was sent.'); setStage('review'); return }
+      const chainErr = a.net === 'Ethereum' || a.net === 'Base' ? await checkRpcChain(a.net) : await solRecipientCheck(to.trim(), units)
+      if (chainErr) { setErr(chainErr); setStage('review'); return }
       const bal = await balanceOf(a, from)
       const why = preSignCheck({ a, units, fee, bal, usd, caps: cfg, spent: spentToday(), recipientError: validateRecipient(a.net, to) })
       if (why) { setErr(why); setStage('review'); return }
       const w = window as unknown as { ethereum?: EvmProvider; solana?: SolProvider }
-      const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: a.sym, network: a.net, to: to.trim(), note: 'Waiting for your wallet signature' })
+      const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: a.sym, network: a.net, to: to.trim(), note: 'Waiting for your wallet signature' }); txId = tx.id
       let r
       if (a.net === 'Solana') { if (!w.solana?.signAndSendTransaction) throw new Error('No Solana wallet that can sign was found.'); r = await sendSol(w.solana, from, to.trim(), units) }
       else { if (!w.ethereum) throw new Error('No EVM wallet found.'); r = await sendEvm(w.ethereum, a, from, to.trim(), units) }
       updateTransaction(tx.id, { status: r.status === 'confirmed' ? 'completed' : r.status === 'failed' ? 'failed' : 'pending', txHash: r.hash, explorer: r.explorer, note: r.status === 'confirmed' ? 'Confirmed on-chain' : r.status === 'failed' ? 'Transaction reverted on-chain' : 'Submitted; not confirmed yet' })
       if (r.status !== 'failed') addSpent(usd)
       setRes(r); setStage('done')
-    } catch (e) { setErr((e as Error).message || 'The wallet did not sign. Nothing was sent.'); setStage('review') }
+    } catch (e) { if (txId) updateTransaction(txId, { status: 'cancelled', note: 'Not sent: wallet rejected or the transfer failed before broadcast' }); setErr((e as Error).message || 'The wallet did not sign. Nothing was sent.'); setStage('review') }
   }
   const options = ASSETS.map(x => `${x.sym}|${x.net}`)
   return <div className="pg">

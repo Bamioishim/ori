@@ -48,6 +48,7 @@ export type SettlementQuote = {
     amountOutUsd?: string
     minAmountOut?: string
     timeEstimate?: number
+    deadline?: string
   }
 }
 
@@ -94,9 +95,17 @@ export async function connectPhantomWallet(): Promise<WalletConnection> {
   return { address, chain: 'sol', network: 'Solana', provider: 'Phantom / EIP-1193-compatible' }
 }
 
-export async function depositBaseUSDC(account: string, settlement: SettlementQuote): Promise<string> {
+// Bind the deposit to what the user reviewed: exact input amount, quote not expired, EVM deposit address.
+export function checkDepositQuote(settlement: SettlementQuote, expectedUnits: bigint, now = Date.now()): string | null {
+  const q = settlement?.quote; if (!q) return '1Click returned no quote.'
+  if (!/^\d+$/.test(String(q.amountIn)) || BigInt(q.amountIn) !== expectedUnits) return 'The quote amount does not match what you reviewed. Nothing was sent.'
+  if (!/^0x[0-9a-fA-F]{40}$/.test(String(q.depositAddress))) return '1Click returned an invalid deposit address. Nothing was sent.'
+  if (q.deadline && !(Date.parse(q.deadline) > now + 30_000)) return 'The quote expired. Review a fresh quote.'
+  return null
+}
+export async function depositBaseUSDC(account: string, settlement: SettlementQuote, expectedUnits: bigint): Promise<string> {
+  const bad = checkDepositQuote(settlement, expectedUnits); if (bad) throw new Error(bad)
   const amount = settlement.quote.amountIn
-  if (!/^\d+$/.test(amount)) throw new Error('1Click returned an invalid deposit amount.')
   return sendBaseUSDC(account, settlement.quote.depositAddress, BigInt(amount))
 }
 

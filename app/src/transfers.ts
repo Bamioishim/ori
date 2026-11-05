@@ -77,6 +77,17 @@ async function solTransferFee(from: string, to: string, lamports: bigint, rpc: R
   return BigInt(r.value)
 }
 
+// A brand-new Solana account must receive at least the rent-exempt minimum, or the transfer fails.
+export async function solRecipientCheck(to: string, lamports: bigint, rpc: Rpc = rpcFetch): Promise<string | null> {
+  const [bal, min] = await Promise.all([rpc(SOL_RPC, 'getBalance', [to]), rpc(SOL_RPC, 'getMinimumBalanceForRentExemption', [0])])
+  const have = BigInt(bal?.value ?? bal ?? 0), need = BigInt(min)
+  return have === 0n && lamports < need ? `This Solana address has no account yet; send at least ${fromUnits(need, 9)} SOL (rent-exempt minimum) or the network rejects it.` : null
+}
+// Guard against a wrong/misconfigured RPC: it must report the expected chain.
+export async function checkRpcChain(net: 'Ethereum' | 'Base', rpc: Rpc = rpcFetch): Promise<string | null> {
+  const id = String(await rpc(EVM_CHAINS[net].rpc, 'eth_chainId', [])).toLowerCase()
+  return id === EVM_CHAINS[net].chainId ? null : `The ${net} RPC reported a different chain. Nothing was sent.`
+}
 export async function balanceOf(a: AssetDef, owner: string, rpc: Rpc = rpcFetch): Promise<{ asset: bigint; native: bigint }> {
   if (a.net === 'Ethereum' || a.net === 'Base') {
     const c = EVM_CHAINS[a.net], native = BigInt(await rpc(c.rpc, 'eth_getBalance', [owner, 'latest']))
@@ -107,6 +118,8 @@ export async function sendEvm(p: EvmProvider, a: AssetDef, from: string, to: str
   const c = EVM_CHAINS[a.net as 'Ethereum' | 'Base']; if (!c) throw new Error(unsupportedReason(a) || 'Unsupported network.')
   const chain = String(await p.request({ method: 'eth_chainId' })).toLowerCase()
   if (chain !== c.chainId) await p.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: c.chainId }] })
+  const after = String(await p.request({ method: 'eth_chainId' })).toLowerCase()
+  if (after !== c.chainId) throw new Error(`Your wallet is not on ${a.net}. Nothing was sent.`)
   const accounts = await p.request({ method: 'eth_requestAccounts' }) as string[]
   if (!accounts?.some(x => x.toLowerCase() === from.toLowerCase())) throw new Error('The wallet account changed. Review the transfer again.')
   const hash = String(await p.request({ method: 'eth_sendTransaction', params: [evmTxFor(a, from, to, units)] }))

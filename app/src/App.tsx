@@ -582,14 +582,16 @@ export default function App() {
       const wallet = await connectBaseWallet()
       saveWallet({ address: wallet, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
       if (kindOf(recipient) === 'evm') {
-        const txHash = await sendBaseUSDC(wallet, recipient, BigInt(Math.round(amt * 1e6)))
+        const directUnits = toUnits(String(amt), 6); if (!directUnits) throw new Error('Amount is not valid. Nothing was sent.')
+        const txHash = await sendBaseUSDC(wallet, recipient, directUnits)
         broadcastHash = txHash
         setSettlement({ kind: 'direct', wallet, txHash, state: 'SUCCESS', destination: recipient, network: 'Base', amount: amt })
         logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'Base', to: recipient, txHash })
         addSpent(amt); setExtra(e => e - amt); setStatus('sent'); oriSay(`Sent ${usd(amt)} USDC to ${short(recipient)} on Base. The wallet transaction was submitted.`); return
       }
-      const settlementQuote = await createSettlementQuote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(amt * 1e6)), recipient, refundTo: wallet })
-      const txHash = await depositBaseUSDC(wallet, settlementQuote)
+      const units = toUnits(String(amt), 6); if (!units) throw new Error('Amount is not valid. Nothing was sent.')
+      const settlementQuote = await createSettlementQuote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: units, recipient, refundTo: wallet })
+      const txHash = await depositBaseUSDC(wallet, settlementQuote, units)
       broadcastHash = txHash
       setSettlement({ kind: 'settlement', quote: settlementQuote, wallet, txHash, state: 'BROADCAST', destination: recipient, network: 'Solana', amount: amt })
       const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash, note: 'Deposit submitted to 1Click for settlement', explorer: `https://basescan.org/tx/${txHash}` })

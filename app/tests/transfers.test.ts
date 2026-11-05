@@ -39,13 +39,13 @@ test('pre-sign gate: balance + fee + caps + recipient, fail-closed', () => {
   assert.ok(preSignCheck({ a: usdc, units: 5n, fee, bal: { asset: 5n, native: 1000n }, usd: 5, caps, spent: 0, recipientError: 'bad' }))
 })
 test('mocked EVM wallet: switches chain, sends direct tx, confirms only on receipt status 0x1', async () => {
-  const calls: any[] = []; const p = { request: async (a: any) => { calls.push(a); return a.method === 'eth_chainId' ? '0x1' : a.method === 'eth_requestAccounts' ? [ME] : a.method === 'eth_sendTransaction' ? '0xhash' : null } }
+  const calls: any[] = []; let cid = '0x1'; const p = { request: async (a: any) => { calls.push(a); if (a.method === 'wallet_switchEthereumChain') cid = a.params[0].chainId; return a.method === 'eth_chainId' ? cid : a.method === 'eth_requestAccounts' ? [ME] : a.method === 'eth_sendTransaction' ? '0xhash' : null } }
   let n = 0; const rpc: Rpc = async (_u, m) => m === 'eth_getTransactionReceipt' ? (++n < 2 ? null : { status: '0x1' }) : null
   const r = await sendEvm(p, findAsset('USDC', 'Base')!, ME, YOU, 7n, rpc, 0, 5)
   assert.equal(r.status, 'confirmed'); assert.match(r.explorer, /basescan/)
   assert.ok(calls.some(c => c.method === 'wallet_switchEthereumChain' && c.params[0].chainId === '0x2105'))
   const sent = calls.find(c => c.method === 'eth_sendTransaction').params[0]; assert.equal(sent.to, '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913')
-  const failed = await sendEvm(p, findAsset('ETH', 'Base')!, ME, YOU, 7n, async () => ({ status: '0x0' }), 0, 2); assert.equal(failed.status, 'failed')
+  cid = '0x2105'; const failed = await sendEvm(p, findAsset('ETH', 'Base')!, ME, YOU, 7n, async () => ({ status: '0x0' }), 0, 2); assert.equal(failed.status, 'failed')
   const pending = await sendEvm(p, findAsset('ETH', 'Base')!, ME, YOU, 7n, async () => null, 0, 2); assert.equal(pending.status, 'pending')
 })
 test('mocked EVM wallet: account mismatch aborts before signing', async () => {
