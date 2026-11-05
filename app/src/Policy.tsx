@@ -18,12 +18,12 @@ export function PolicyScreen({ s, set }: P) {
   const spent = spentToday()
   const add = () => { const w = who.trim(); if (w && !s.trusted.includes(w)) { set({ trusted: [...s.trusted, w] }); logEvent('info', 'Ori added a contact to your allowlist', w); setWho('') } }
   return <div className="pg">
-    <section className="pad-top"><Label>POLICY & LIMITS · ENFORCED BY ORI</Label><h2 className="big2">Ori can only spend<br /><span className="dim">inside these lines.</span></h2>
+    <section className="pad-top"><Label>POLICY & LIMITS · CHECKED IN THE ORI APP</Label><h2 className="big2">Ori can only spend<br /><span className="dim">inside these lines.</span></h2>
       <div className="mono xs dim">Saved on this device. Every send and swap is checked against this policy before the confirmation sheet lets it through.</div></section>
     <section><Label>SPENDING CAPS</Label>
       <div className="row"><span className="grow">Daily cap<br /><span className="mono xs dim">{usd(spent)} used today · {usd(Math.max(0, s.daily - spent))} left</span></span><Num v={s.daily} onChange={v => set({ daily: v })} step={50} /></div>
       <div className="meter"><motion.i initial={{ width: 0 }} animate={{ width: Math.min(100, spent / (s.daily || 1) * 100) + '%' }} transition={spring} /></div>
-      <div className="row"><span className="grow">Per-transaction cap<br /><span className="mono xs dim">Anything above is blocked outright</span></span><Num v={s.perPay} onChange={v => set({ perPay: v })} step={25} /></div></section>
+      <div className="row"><span className="grow">Per-transaction cap<br /><span className="mono xs dim">Anything above is blocked inside ORI (not on-chain)</span></span><Num v={s.perPay} onChange={v => set({ perPay: v })} step={25} /></div></section>
     <section><Label>APPROVAL THRESHOLD</Label>
       <div className="row"><span className="grow">Extra confirmation above<br /><span className="mono xs dim">Above this, you press and hold on the confirmation sheet. Below it, one tap.</span></span><Num v={s.holdAbove} onChange={v => set({ holdAbove: v })} step={5} /></div>
       <div className="policy-sum mono xs">
@@ -38,7 +38,7 @@ export function PolicyScreen({ s, set }: P) {
   </div>
 }
 
-export type SheetData = { kind: 'pay' | 'swap'; to: string; amount: string; usdv: number; chain: string; fee: number | null; blocked: string | null }
+export type SheetData = { kind: 'pay' | 'swap'; to: string; amount: string; usdv: number; chain: string; fee: number | null; blocked: string | null; live?: boolean; lines?: [string, string][] }
 export function ConfirmSheet({ d, cfg, onCancel, onConfirm }: { d: SheetData; cfg: Settings; onCancel: () => void; onConfirm: () => void }) {
   const allow = d.kind === 'swap' || cfg.trusted.includes(d.to.trim())
   const need = d.usdv > cfg.holdAbove
@@ -59,12 +59,13 @@ export function ConfirmSheet({ d, cfg, onCancel, onConfirm }: { d: SheetData; cf
     <motion.div className="csheet" drag="y" dragControls={dc} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: .6 }} onDragEnd={(_, i) => { if (i.offset.y > 110 || i.velocity.y > 600) onCancel() }}
       onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }} transition={spring} role="dialog" aria-label="Confirm">
       <div className="grabzone" onPointerDown={e => dc.start(e)} style={{ touchAction: 'none' }}><div className="grab" /></div>
-      <div className="sheet-head"><Label>{d.blocked ? 'ORI STOPPED THIS' : 'CONFIRM ' + (d.kind === 'pay' ? 'SEND' : 'SWAP')} <span className="example">SIMULATED</span></Label><button className="mono xs dim" onClick={onCancel}>CANCEL</button></div>
+      <div className="sheet-head"><Label>{d.blocked ? 'ORI STOPPED THIS' : 'CONFIRM ' + (d.kind === 'pay' ? 'SEND' : 'SWAP')} <span className="example">{d.live ? 'LIVE · YOUR WALLET SIGNS' : 'EXAMPLE · SIMULATED'}</span></Label><button className="mono xs dim" onClick={onCancel}>CANCEL</button></div>
       <div className="csum">{d.amount}</div>
       <div className="row"><span className="grow dim">Recipient</span><span className="num">{d.to.length > 24 ? short(d.to) : d.to}{allow && d.kind === 'pay' && <span className="mono xs ok-tag" style={{ marginLeft: 8 }}>ALLOWLISTED</span>}</span></div>
       <div className="row"><span className="grow dim">Amount</span><span className="num">{usd(d.usdv)}</span></div>
       <div className="row"><span className="grow dim">Chain</span><span className="num">{d.chain}</span></div>
       <div className="row"><span className="grow dim">Network fee</span><span className="num">{d.fee === null ? '—' : usd(d.fee)}</span></div>
+      {d.lines?.map(([k, v]) => <div key={k} className="row"><span className="grow dim">{k}</span><span className="num">{v}</span></div>)}
       <div className="row"><span className="grow">Total</span><span className="num">{usd(d.usdv + (d.fee || 0))}</span></div>
       <div className="row"><span className="grow dim">Left today after this</span><span className="num">{usd(Math.max(0, left - d.usdv))}</span></div>
       {warns.map(([k, w], i) => <motion.div key={w} className={'pwarn ' + k} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ ...spring, delay: .08 + i * .05 }}><b>{k === 'bad' ? '×' : k === 'warn' ? '!' : 'i'}</b>{w}</motion.div>)}

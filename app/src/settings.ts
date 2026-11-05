@@ -1,11 +1,12 @@
+import { decideLimit } from './limits.ts'
 import { useEffect, useState } from 'react'
 // Local-only preferences. Nothing leaves the browser.
 export type Fmt = 'full' | 'nocents' | 'compact'
 export type Settings = {
-  voice: boolean; voiceOptIn?: boolean; wake: boolean; rate: number; fmt: Fmt; reduce: boolean
+  voice: boolean; voiceOptIn?: boolean; rate: number; fmt: Fmt; reduce: boolean
   scam: boolean; daily: number; perPay: number; holdAbove: number; trusted: string[]; preferredReceivingCurrency: string
 }
-export const DEFAULTS: Settings = { voice: false, wake: true, rate: 1.02, fmt: 'full', reduce: false, scam: true, daily: 500, perPay: 250, holdAbove: 20, trusted: ['@tolu', '@ade'], preferredReceivingCurrency: 'USDC' }
+export const DEFAULTS: Settings = { voice: false, rate: 1.02, fmt: 'full', reduce: false, scam: true, daily: 500, perPay: 250, holdAbove: 20, trusted: ['@tolu', '@ade'], preferredReceivingCurrency: 'USDC' }
 const KEY = 'ori-settings'
 export function loadSettings(): Settings { try { const o = JSON.parse(localStorage.getItem(KEY) || '{}'); if (!o.voiceOptIn) o.voice = false; return { ...DEFAULTS, ...o } } catch { return DEFAULTS } }
 export function useSettings(): [Settings, (p: Partial<Settings>) => void] {
@@ -22,8 +23,22 @@ export const usd = (n: number) => FMT === 'compact' ? n.toLocaleString('en-US', 
 // spend ledger (simulated) for daily cap, per local day
 const SKEY = 'ori-spent'
 const today = () => new Date().toDateString()
-export function spentToday(): number { try { const o = JSON.parse(localStorage.getItem(SKEY) || '{}'); return o.d === today() ? o.v : 0 } catch { return 0 } }
-export function addSpent(v: number) { localStorage.setItem(SKEY, JSON.stringify({ d: today(), v: spentToday() + v })) }
+// a corrupt/tampered ledger returns NaN so decideLimit fails closed instead of treating it as $0 spent
+export function spentToday(): number { try { const raw = localStorage.getItem(SKEY); if (!raw) return 0; const o = JSON.parse(raw); if (o?.d !== today()) return 0; return typeof o.v === 'number' && Number.isFinite(o.v) && o.v >= 0 ? o.v : NaN } catch { return NaN } }
+export function addSpent(v: number) { const cur = spentToday(); localStorage.setItem(SKEY, JSON.stringify({ d: today(), v: (Number.isFinite(cur) ? cur : 0) + v })) }
+// Spend holds: a live payment/swap reserves its USD value once the deposit is broadcast and releases it once,
+// only if the provider REFUNDS or the chain reports failure. Keyed by id so repeat calls are no-ops and other spends are untouched.
+const HKEY = 'ori-spend-holds'
+type Holds = Record<string, { d: string; v: number }>
+const holds = (): Holds => { try { const o = JSON.parse(localStorage.getItem(HKEY) || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
+export function reserveSpend(id: string, v: number) { const h = holds(); if (h[id] || !(v > 0)) return; addSpent(v); h[id] = { d: today(), v }; localStorage.setItem(HKEY, JSON.stringify(h)) }
+export function releaseSpend(id: string) {
+  const h = holds(), e = h[id]; if (!e) return
+  delete h[id]; localStorage.setItem(HKEY, JSON.stringify(h))
+  if (e.d !== today()) return // yesterday's ledger already rolled over
+  const cur = spentToday(); if (!Number.isFinite(cur)) return // never repair a tampered ledger by subtraction
+  localStorage.setItem(SKEY, JSON.stringify({ d: today(), v: Math.max(0, cur - e.v) }))
+}
 // blocked attempts log
 export type Blocked = { at: number; what: string; why: string }
 const BKEY = 'ori-blocked'
@@ -33,13 +48,8 @@ export function logBlocked(what: string, why: string) {
   localStorage.setItem(BKEY, JSON.stringify([{ at: Date.now(), what, why }, ...l].slice(0, 30))); dispatchEvent(new Event('ori-blocked'))
   logEvent(/cap|limit/i.test(why) ? 'block' : 'flag', /cap|limit/i.test(why) ? 'Ori blocked a send over your limit' : 'Ori blocked a flagged recipient', `${what} · ${why}`)
 }
-export function limitCheck(s: Settings, amt: number): string | null {
-  if (amt > s.perPay) return `Over your per-payment cap of ${usd(s.perPay)}.`
-  const left = s.daily - spentToday()
-  if (amt > left) return `That would pass your daily cap of ${usd(s.daily)} (${usd(Math.max(left, 0))} left today).`
-  return null
-}
-export function resetLocal() { ['ori-settings', SKEY, BKEY, 'ori-feed', 'ori-revoked', 'ori-transactions', 'ori-payment-requests', 'ori-account', 'ori-usernames', 'mode', 'addrs', 'ori-intro'].forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k) }); ['ori-guest', 'ori-account-prompted'].forEach(k => sessionStorage.removeItem(k)) }
+export function limitCheck(s: Settings, amt: number): string | null { return decideLimit(s, amt, spentToday()) }
+export function resetLocal() { ['ori-settings', SKEY, BKEY, 'ori-feed', 'ori-revoked', 'ori-transactions', 'ori-payment-requests', 'ori-account', 'ori-known-profiles', 'ori-usernames', 'mode', 'addrs', 'ori-intro'].forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k) }); ['ori-guest', 'ori-account-prompted'].forEach(k => sessionStorage.removeItem(k)) }
 // Ori activity feed (local). Real policy events are appended; a few demo entries are seeded.
 export type FeedKind = 'flag' | 'block' | 'approve' | 'revoke' | 'info'
 export type FeedItem = { at: number; kind: FeedKind; text: string; sub?: string; demo?: boolean }

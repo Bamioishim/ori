@@ -74,6 +74,35 @@ export function OriSprite({ pose, face = 1, moving = false, look = { x: 0, y: 0 
 
 type Props = { hidden: boolean; reduced: boolean; screen: string; onTap: () => void; balance?: number | null; chat?: boolean }
 const HOVER = ['Hi there.', 'Need something? Click me.', 'I’m watching your back.', 'Double-click me. Go on.', 'Ask me about prices.']
+// Ori must never cover financial figures: nudge a target box off any money element.
+const NUMBERS_SEL = '.money, .total, .mh-bal'
+function offNumbers(tx: number, ty: number): number {
+  const pad = 6, rs = Array.from(document.querySelectorAll<HTMLElement>(NUMBERS_SEL)).map(e => e.getBoundingClientRect()).filter(r => r.width && r.height)
+  for (let i = 0; i < 4; i++) {
+    const hit = rs.find(r => tx < r.right + pad && tx + S > r.left - pad && ty < r.bottom + pad && ty + S > r.top - pad)
+    if (!hit) break
+    const below = hit.bottom + pad, above = hit.top - S - pad
+    ty = below + S <= innerHeight - 4 && (above < 6 || below - ty <= ty - above) ? below : above
+  }
+  return Math.max(6, Math.min(innerHeight - S - 4, ty))
+}
+// Reserved mascot zone, free of financial content. Desktop: the empty band of the sidebar
+// between the menu and the account buttons. Phone/tablet: a corner just above the bottom nav.
+type Zone = { l: number; r: number; t: number; b: number }
+function dockZone(off: number, vw: number): Zone {
+  const side = document.querySelector<HTMLElement>('aside.side')
+  if (side) {
+    const sr = side.getBoundingClientRect(), items = side.querySelectorAll<HTMLElement>('.side-item')
+    const top = items.length ? items[items.length - 1].getBoundingClientRect().bottom + 16 : sr.top + 120
+    const bottom = (side.querySelector<HTMLElement>('.side-account')?.getBoundingClientRect().top ?? sr.bottom - 160) - S - 16
+    const l = sr.left + 10, r = Math.max(l, sr.right - S - 10)
+    return bottom > top ? { l, r, t: top, b: bottom } : { l, r, t: Math.max(6, bottom), b: Math.max(6, bottom) }
+  }
+  const navTop = document.querySelector<HTMLElement>('nav')?.getBoundingClientRect().top ?? innerHeight - 72
+  const x = off + vw - S - 10, y = Math.max(6, navTop - S - 8)
+  return { l: x, r: x, t: y, b: y }
+}
+const overlapsNumbers = (r: DOMRect) => Array.from(document.querySelectorAll<HTMLElement>(NUMBERS_SEL)).some(e => { const n = e.getBoundingClientRect(); return n.width && n.height && r.left < n.right + 4 && r.right > n.left - 4 && r.top < n.bottom + 4 && r.bottom > n.top - 4 })
 const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, onTap, balance = null }, ref) {
   const vw = () => innerWidth >= 1024 ? innerWidth : Math.min(innerWidth, innerWidth >= 768 ? 760 : 480), off = () => (innerWidth - vw()) / 2
   const x = useMotionValue(off() + vw() - 80), y = useMotionValue(innerHeight - 170)
@@ -94,7 +123,8 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
 
   const moveTo = useCallback(async (tx: number, ty: number, how: 'walk' | 'float' | 'dash' = 'walk') => {
     const minX = off() - 8, maxX = off() + vw() - S + 8
-    tx = Math.max(minX - 30, Math.min(maxX + 30, tx)); ty = Math.max(6, Math.min(innerHeight - S - 4, ty))
+    tx = Math.max(minX - 30, Math.min(maxX + 30, tx)); ty = offNumbers(tx, Math.max(6, Math.min(innerHeight - S - 4, ty)))
+    { const z = dockZone(off(), vw()); tx = Math.max(z.l, Math.min(z.r, tx)); ty = Math.max(z.t, Math.min(z.b, ty)) } // every programmatic move stays in the reserved zone
     setFace(tx < x.get() ? -1 : 1)
     if (reduced) { x.set(tx); y.set(ty); return }
     const d = Math.hypot(tx - x.get(), ty - y.get())
@@ -105,8 +135,24 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     setMoving(false)
   }, [reduced, x, y])
 
+  const zone = () => dockZone(off(), vw())
+  const toDock = (how: 'walk' | 'float' | 'dash' = 'float') => { const z = zone(); return moveTo(rand(z.l, z.r), rand(z.t, z.b), how) }
+  const oriEl = useRef<HTMLDivElement>(null)
+  useEffect(() => { const place = () => { if (busy.current) return; const z = zone(); x.set(z.r); y.set(z.b) }; const t = window.setTimeout(place, 0); addEventListener('resize', place); return () => { clearTimeout(t); removeEventListener('resize', place) } }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // live guard: checks Ori's rendered box (includes in-flight motion and transforms); if it touches a number, retreat to the dock.
+  useEffect(() => {
+    let retreating = false
+    const i = window.setInterval(() => {
+      const el = oriEl.current; if (!el || retreating || busy.current === 'drag') return
+      const b = el.getBoundingClientRect(), z = zone(), out = b.left < z.l - 12 || b.left > z.r + 12 || b.top < z.t - 12 || b.top > z.b + 12
+      if (overlapsNumbers(b) || (out && !moving)) { retreating = true; toDock('dash').finally(() => { retreating = false }) }
+    }, 120)
+    return () => clearInterval(i)
+  })
   const say = useCallback((t: string, ms = 3200) => { clearTimeout(bTimer.current); setBubble(t); bTimer.current = window.setTimeout(() => setBubble(null), Math.min(Math.max(ms, 1400), 4500)) }, [])
 
+  // keep the resting spot off the numbers after layout and screen changes (also covers reduced motion)
+  useEffect(() => { const t = window.setTimeout(() => { if (!busy.current) toDock() }, 700); return () => clearTimeout(t) }, [screen, hidden]) // eslint-disable-line react-hooks/exhaustive-deps
   // roaming brain
   useEffect(() => {
     if (reduced) return
@@ -114,22 +160,9 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     const loop = async () => {
       await sleep(900)
       while (alive) {
-        if (!busy.current) {
-          const r = Math.random()
-          const els = [...document.querySelectorAll<HTMLElement>('.row, .asset, .arow, section, header')].map(e => e.getBoundingClientRect()).filter(b => b.bottom > 90 && b.bottom < innerHeight - 110)
-          const total = document.querySelector('.total')?.getBoundingClientRect()
-          if (r < 0.22 && total && total.top > 60 && total.top < innerHeight - 200) { // sit on the balance
-            await moveTo(total.left + total.width * 0.62, total.top - S + 10, 'float'); if (!busy.current) setPose('sit'); await sleep(2600)
-          } else if (r < 0.5 && els.length) { // climb onto a hairline
-            const b = els[Math.floor(Math.random() * els.length)]
-            await moveTo(x.get(), b.bottom - S - 2, 'float'); await moveTo(rand(off() + 10, off() + vw() - S - 10), b.bottom - S - 2, 'walk'); if (!busy.current) setPose('idle'); await sleep(rand(1200, 2200))
-          } else if (r < 0.68) { // peek from an edge
-            const left = Math.random() < .5
-            await moveTo(left ? off() - 30 : off() + vw() - S + 30, rand(140, innerHeight - 220), 'float')
-            if (!busy.current) { setFace(left ? 1 : -1); setPose('peek') } await sleep(1800)
-          } else { // free wander / float
-            await moveTo(rand(off() + 10, off() + vw() - S - 10), rand(90, innerHeight - 190), Math.random() < .5 ? 'float' : 'walk'); if (!busy.current) setPose('idle'); await sleep(rand(900, 1800))
-          }
+        if (!busy.current) { // roam only inside the reserved zone, never over content
+          const z = zone(); await moveTo(rand(z.l, z.r), rand(z.t, z.b), Math.random() < .5 ? 'float' : 'walk')
+          if (!busy.current) { setPose(Math.random() < .3 ? 'sit' : 'idle'); setFace(Math.random() < .5 ? 1 : -1) } await sleep(rand(1400, 3200))
         } else await sleep(300)
       }
     }
@@ -139,9 +172,9 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
   // follow scroll: drift with the page, then settle
   useEffect(() => {
     let last = scrollY
-    const f = () => { const d = scrollY - last; last = scrollY; if (busy.current || reduced) return; y.set(Math.max(6, Math.min(innerHeight - S - 4, y.get() - d * 0.6))); setPose('float') }
+    const f = () => { const d = scrollY - last; last = scrollY; if (busy.current || reduced || !d) return; setPose('float') } // fixed dock: no drifting across content
     addEventListener('scroll', f, { passive: true }); return () => removeEventListener('scroll', f)
-  }, [reduced, y])
+  }, [reduced, x, y])
 
   // dodge taps near him
   useEffect(() => {
@@ -149,7 +182,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
       if ((e.target as HTMLElement).closest('.ori')) return
       if (busy.current) return
       const cx = x.get() + S / 2, cy = y.get() + S / 2
-      if (Math.hypot(e.clientX - cx, e.clientY - cy) < 70) { const dx = cx - e.clientX || 1; moveTo(x.get() + Math.sign(dx) * 90, y.get() - 30, 'dash') }
+      if (Math.hypot(e.clientX - cx, e.clientY - cy) < 70) { const dx = cx - e.clientX || 1; void dx; toDock('dash') }
     }
     addEventListener('pointerdown', f); return () => removeEventListener('pointerdown', f)
   }, [moveTo, x, y])
@@ -188,7 +221,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     if (prev == null || balance == null || Math.abs(balance - prev) < 0.005 || busy.current) return
     const t = document.querySelector('.total, .money')?.getBoundingClientRect()
     busy.current = 'peekbal'
-    ;(async () => { if (t && t.top > 40 && t.top < innerHeight - 120) await moveTo(t.right - 10, t.top - S + 8, 'float'); setPose('peek'); setExpr(balance > prev ? 'happy' : 'worried', 2200); await sleep(2200); if (busy.current === 'peekbal') { busy.current = null; setPose('idle') } })()
+    ;(async () => { void t; setPose('peek'); setExpr(balance > prev ? 'happy' : 'worried', 2200); await sleep(2200); if (busy.current === 'peekbal') { busy.current = null; setPose('idle') } })()
   }, [balance])
   const spin = () => { if (!hop.current) return; setExpr('happy', 1400); say(['Wheee.', 'Again?', 'Ta-da.'][Math.floor(Math.random() * 3)], 1400); if (!reduced) animate(hop.current, { rotate: [0, 360], y: [0, -34, 0] }, { duration: .8, ease: [0.3, 0, 0.2, 1] }) }
   // touch tap-through: if Ori is sitting on a control, a touch on Ori goes to that control and Ori moves aside
@@ -199,7 +232,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     return (n?.closest('button,a,input,select,textarea,label,[role=button],[role=tab]') as HTMLElement | null) || null }
   const passDown = (e: React.PointerEvent) => { const c = under(e); through.current = c; if (c) { e.stopPropagation(); if (/^(INPUT|TEXTAREA|SELECT)$/.test(c.tagName)) c.focus() } }
   const passUp = (e: React.PointerEvent) => { const c = through.current; if (!c) return; e.stopPropagation(); if (!/^(INPUT|TEXTAREA|SELECT)$/.test(c.tagName)) c.click(); else c.focus()
-    setTimeout(() => { through.current = null }, 50); moveTo(rand(off() + 10, off() + vw() - S - 10), 90, 'float') }
+    setTimeout(() => { through.current = null }, 50); toDock() }
   const tap = () => { if (through.current) return; lastAct.current = Date.now(); if (busy.current === 'nap') return; if (tapT.current) { clearTimeout(tapT.current); tapT.current = 0; spin(); return } onTap(); tapT.current = window.setTimeout(() => { tapT.current = 0 }, 260) } // open now: focus must happen inside the gesture on iOS
 
   useImperativeHandle(ref, () => ({
@@ -270,9 +303,9 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     raf = requestAnimationFrame(place); return () => cancelAnimationFrame(raf)
   }, [bubble, x, y])
   return <>
-    <motion.div className="ori" style={{ x, y }} drag dragMomentum={false} onPointerDownCapture={passDown} onPointerUpCapture={passUp}
+    <motion.div ref={oriEl} className="ori" style={{ x, y }} drag dragMomentum={false} onPointerDownCapture={passDown} onPointerUpCapture={passUp}
       onDragStart={() => { busy.current = 'drag'; setPose('float') }}
-      onDragEnd={() => { busy.current = null; setPose('idle') }}
+      onDragEnd={() => { busy.current = null; setPose('idle'); window.setTimeout(() => { if (!busy.current) toDock() }, 600) }}
       onTap={tap} onHoverStart={() => { setHover(true); if (!busy.current && !bubble && Math.random() < 0.6) say(HOVER[Math.floor(Math.random() * HOVER.length)], 1800) }} onHoverEnd={() => setHover(false)}
       whileHover={reduced ? undefined : { scale: 1.08 }} aria-label="Ori, your ORI agent. Click to talk, double-click to spin." role="button">
       <div ref={hop}><motion.div animate={reduced || moving ? {} : { y: pose === 'float' ? [0, -4, 0] : [0, -1.5, 0] }} transition={{ repeat: Infinity, duration: pose === 'float' ? 1.8 : 2.6 }}>

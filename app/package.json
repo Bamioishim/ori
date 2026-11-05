@@ -7,9 +7,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:activation": "node scripts/check-click-activation.mjs",
+    "test": "node --import ./tests/register.mjs --test tests/*.test.ts && node scripts/check-click-activation.mjs"
   },
   "dependencies": {
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.99.0",
     "@types/nodemailer": "^8.0.2",
     "lenis": "^1.3.27",
     "motion": "^14.6.0",

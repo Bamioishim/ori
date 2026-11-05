@@ -79,7 +79,7 @@ nav button.on{color:var(--white)}nav i{position:absolute;top:-11px;left:22%;righ
 section{padding:30px 0}
 
 /* Ori */
-.ori{position:fixed;left:0;top:0;z-index:45;cursor:grab;touch-action:none;width:56px;height:56px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
+.ori{position:fixed;user-select:none;-webkit-user-select:none;left:0;top:0;z-index:45;cursor:grab;touch-action:none;width:56px;height:56px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
 .ori:active{cursor:grabbing}
 .ori svg{display:block;margin:-6px 0 0 -6px}
 .legs.walking .lg1{animation:step .32s ease-in-out infinite alternate;transform-origin:50px 92px}
@@ -94,6 +94,7 @@ section{padding:30px 0}
 .bubble .mono{display:block;margin-bottom:3px;color:#7DF5D8;letter-spacing:.1em;font-size:9.5px}
 .mic{display:flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--line);border-radius:20px;cursor:pointer;color:var(--dim)}
 .mic svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.mic .dot{width:6px;height:6px;border-radius:50%;background:#7DF5D8;flex:none}
 .mic.listening{color:var(--white);border-color:rgba(125,245,216,.6);box-shadow:0 0 12px rgba(125,245,216,.25)}
 .mic.listening svg{stroke:#7DF5D8}
 .heard{position:fixed;top:58px;left:50%;transform:translateX(-50%);z-index:44;padding:6px 10px;border:1px solid var(--line);background:rgba(11,11,11,.9);color:var(--grey);white-space:nowrap}
@@ -338,6 +339,7 @@ header{align-items:center}
 /* mobile home */
 .mh{padding-top:18px}
 .mh-addr{display:inline-flex;align-items:center;gap:8px;color:var(--dim);font-size:13px;padding:8px 0;cursor:pointer;min-height:40px}
+.mh-profile{position:relative;display:inline-block}.mh-menu{position:absolute;left:0;top:100%;z-index:30;min-width:180px;display:flex;flex-direction:column;background:rgba(10,10,10,.96);border:1px solid var(--line);border-radius:12px;padding:6px}.mh-menu button{text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;min-height:44px}.mh-menu button:hover{background:rgba(255,255,255,.06)}
 .mh-addr .copied{color:#6FE3C2;font-size:11px;letter-spacing:.08em}
 .mh-bal{display:block;text-align:left;cursor:pointer;margin-top:2px}
 .money.big{font-size:52px;font-weight:300;letter-spacing:-.04em;line-height:1.05}
@@ -371,3 +373,5 @@ header{align-items:center}
 html,main,.pg{scroll-padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 .drawer{max-height:calc(100dvh - 96px);overflow-y:auto;overscroll-behavior:contain;scroll-padding-bottom:120px}
 .hbtn{min-height:44px;min-width:44px;padding:0 10px}
+
+.asset-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 0 12px 44px}.asset-actions.compact{padding:0;justify-content:flex-end;flex-wrap:nowrap}.asset-actions .ghost{min-height:36px;padding:6px 12px}.asset-actions .ghost:disabled{opacity:.4;cursor:not-allowed}

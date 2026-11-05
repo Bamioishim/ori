@@ -1,0 +1,36 @@
+# ORI core requirements (from Bamio, Nov 5 2026)
+
+Canonical list of product requirements. Status is honest: IMPLEMENTED (code + mocked/unit tests, not verified with real wallets or on-chain) / PARTIAL / OPEN / BLOCKED. Nothing here has been verified with a live signature or payment. See HANDOVER.md for blockers.
+
+1. **Native Send & Receive** — every supported asset in the portfolio has direct Send and Receive to/from external blockchain wallets using real network addresses; the other side does not need ORI. Includes: copy address, paste address, network-aware address validation, network selection, fee estimates, transaction review, wallet authorization, transaction status and history.
+   - NEAR Intents powers **cross-chain** operations only. Same-chain transfers are ordinary transfers (SOL → Solana wallet = normal Solana transaction; EVM → EVM = normal transfer). No cross-chain detour.
+   - Unsupported signing must be shown as disabled, never as success.
+   - Status — IMPLEMENTED (mocked tests only): Home Receive tile + Receive screen (real connected/added addresses, copy, network select, preferred currency); per-asset Send/Receive on Home (mobile rows + desktop table); Send screen with paste, network-aware validation, chain-RPC fee estimate, review, balance+fee+cap re-check right before signing, wallet signature, receipt-based status + history. Assets: ETH and USDC on Ethereum and Base (EIP-1193 wallet), SOL on Solana (Phantom `signAndSendTransaction`, SystemProgram transfer), USDC and USDT on Solana (@solana/spl-token `transferChecked`, pinned mints, 6 decimals, recipient token account created idempotently only when missing, rent + fee shown in review). All same-chain, no NEAR Intents.
+   - OPEN: other SPL mints, other EVM chains, NEAR (no NEAR wallet connector; shown as unavailable, never simulated).
+2. **Gmail registration + emailed login code.** Status: IMPLEMENTED, BLOCKED in production. Registration and login both require a one-time Gmail code; no account is created without a verified `register` code; guest mode stays. Codes are one-time (replay-protected), expire in 10 min, 5 verify attempts, send rate limits per email and IP. These protections need a **durable server store** (`api/auth/_store.ts` `AuthStore`); none is configured, so the endpoints fail closed (503) until Bamio picks/approves one (e.g. a KV/Redis/DB). Gmail OAuth2 delivery is also unverified. Profiles stay device-local: no cross-device restore and no global username registry. Log out keeps the profile on the device and never touches wallets.
+3. **Profile control on Home** replaces the EVM address above the portfolio (profile, account, log out) — IMPLEMENTED (static/unit tests; browser-checked by parent on desktop, phone not checked).
+4. **Swaps on all actually supported chains/tokens**, discovered dynamically from the provider; a route is only executable when ORI can sign on that network. Status: IMPLEMENTED for quotes: the Swap screen lists every token in the live public `/v0/tokens` catalog (215 tokens, ~40 chains on Nov 5), marks non-signable origins "quote only"; the server validates every quote against the trusted catalog, executable-origin adapters (ETH/ERC-20 on Ethereum+Base, native SOL) and per-chain address formats. Execution: IMPLEMENTED (mocked tests only), see the swap section below. Executable origins: ETH and ERC-20 on Ethereum and Base, native SOL, pinned USDC/USDT SPL. The token-list size is not proof of support.
+5. **Fees:** no app-added fee (quote sets no `appFees`); show network/provider fee and output separately; same-chain uses direct transfer. No invented gas targets. The 1Click JWT stays server-side; the unauthenticated (+0.25%) fallback needs Bamio's decision. Status: PARTIAL — Send shows the chain's network fee (gas × gas price / Solana fee per signature) and states ORI adds no fee; swap quote shows provider fee/spread separately.
+6. **Quote settlement time** comes from `quote.timeEstimate` (seconds after deposit confirms); missing → "Time unavailable"; latest request wins; refresh every 30 s. Status: IMPLEMENTED (unit tests; live response not re-traced: 1Click dry quotes were timing out on Nov 5).
+7. **Spending-limit enforcement disclosure** — limits are checked in the ORI browser app only (cards + signing boundary, fail-closed); no backend, NEAR contract or Chain Signatures enforcement; external wallets are not governed. Status: IMPLEMENTED (disclosed + unit tests).
+8. **Hey ORI is click activation only** (product doc v2). Status: IMPLEMENTED (static check).
+
+
+## Live swap execution — IMPLEMENTED (mocked tests only)
+- Applies only with `VITE_ORI_SETTLEMENT_MODE=live`. At review, the server fetches a fresh dry:false quote. The recipient is the user's own wallet on the destination chain and refundTo is the user's own source wallet; if either is missing, the button stays blocked.
+- `src/swapExec.ts` `checkSwapQuote` binds the following to the review: route, exact amountIn, recipient, refund, minAmountOut (at least 99.5% of reviewed), deposit-address format for the origin chain, no memo, and a deadline more than 30 s away. Limits and the account are re-checked.
+- Then one direct deposit is made: native, ERC-20 `transfer`, or SPL `transferChecked`. Approvals are never used.
+- `/api/status` is polled. History is set to completed only on SUCCESS; REFUNDED, FAILED and pending stay as reported. A wallet refusal marks the entry cancelled.
+- Example mode (settlement off) simulates, labelled "EXAMPLE · SIMULATED". Quote-only origins can't be confirmed.
+
+## Pay hardening (review fixes, Nov 5)
+IMPLEMENTED, behavior-tested with mocks only (`app/tests/pay.test.ts`).
+- **Live vs example:** in live mode the Pay review is built by `preparePay` (`src/payExec.ts`) and shows "LIVE · YOUR WALLET SIGNS" together with the exact plan: route, account, deposit address, recipient, refund address, minimum received and expiry. With settlement off, the sheet says "EXAMPLE · SIMULATED". Live `doPay` signs only the reviewed plan; there is no fresh re-quote after review.
+- **Quote binding:** `checkSwapQuote` checks the origin and destination asset IDs, the exact amount, recipient, refund address, minAmountOut of at least the reviewed floor, a deadline more than 30 s away (a missing deadline is rejected), no memo, and the Base deposit-address format. It runs at review and again at signing.
+- **Spend holds:** spend is reserved per transaction id once a deposit is broadcast. On REFUNDED or failed, the hold is released exactly once (idempotent) without touching other spends. A tampered ledger is never "repaired". REFUNDED is now its own terminal history state instead of pending. Swap uses the same holds.
+- **Signer checks:** `connectBaseWallet` re-reads the chain after switching. All Base signing (both the direct path and the Intents deposit) goes through `sendEvm`: chain re-check, account check, then a receipt poll. Only a `0x1` receipt counts as confirmed; `0x0` is failed; no receipt means pending. The broadcast-only helpers `sendBaseUSDC`/`depositBaseUSDC`/`checkDepositQuote` were removed.
+
+## Not verified (as of commit 56ae683)
+- No real 1Click dry:false quote or status response has been seen; 1Click dry quotes were timing out server-side on Nov 5.
+- No live wallet signature, payment or on-chain transfer.
+- No phone/mobile check.

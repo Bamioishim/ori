@@ -16,7 +16,7 @@ function Num({ v, onChange, step = 10 }: { v: number; onChange: (n: number) => v
 }
 type P = { s: Settings; set: (p: Partial<Settings>) => void }
 
-export function SettingsScreen({ s, set, mode, setMode, watch, speechOk }: P & { mode: 'example' | 'live'; setMode: (m: 'example' | 'live') => void; watch: React.ReactNode; speechOk: boolean }) {
+export function SettingsScreen({ s, set, mode, setMode, watch }: P & { mode: 'example' | 'live'; setMode: (m: 'example' | 'live') => void; watch: React.ReactNode }) {
   const [sure, setSure] = useState(false)
   return <div className="pg">
     <section className="pad-top"><Label>SETTINGS · STORED ON THIS DEVICE</Label><h2 className="big2">Your ORI,<br /><span className="dim">your rules.</span></h2>
@@ -29,7 +29,7 @@ export function SettingsScreen({ s, set, mode, setMode, watch, speechOk }: P & {
       <div className="mono xs dim">ORI will not assume that every token or network is available through NEAR Intents.</div></section>
     <section><Label>VOICE</Label>
       <div className="row"><span className="grow">Ori speaks replies<br /><span className="mono xs dim">Off by default. Opt in to hear chat replies read aloud</span></span><Toggle on={s.voice} onChange={v => set({ voice: v, voiceOptIn: true })} label="Voice" /></div>
-      <div className="row"><span className="grow">“Hey Ori” wake word<br /><span className="mono xs dim">{speechOk ? 'Listens only while the mic button is on' : 'Not supported in this browser. Click Ori to type instead'}</span></span><Toggle on={s.wake} onChange={v => set({ wake: v })} label="Wake word" /></div>
+      <div className="row"><span className="grow">“Hey ORI”<br /><span className="mono xs dim">Click or tap Hey ORI to open the chat and type. No microphone or wake word is used.</span></span></div>
       <div className="row col"><span className="grow">Ori voice speed <b className="num">{s.rate.toFixed(2)}×</b></span><input type="range" min={0.7} max={1.6} step={0.01} value={s.rate} onChange={e => set({ rate: +e.target.value })} /></div></section>
     <section><Label>DISPLAY</Label>
       <div className="row"><span className="grow">Currency display<br /><span className="mono xs dim">{usd(2857.69)}</span></span><Seg<Fmt> v={s.fmt} opts={[['full', '$1,234.56'], ['nocents', '$1,235'], ['compact', '$1.2K']]} onChange={v => set({ fmt: v })} /></div>
@@ -51,7 +51,8 @@ export function SecurityScreen({ s, set }: P) {
   return <div className="pg">
     <section className="pad-top"><Label>SECURITY</Label><h2 className="big2">Nothing leaves<br /><span className="dim">without passing here.</span></h2>
       <div className="row"><span className="grow">Scam check on every payment<br /><span className="mono xs dim">GoPlus address security, live · {s.scam ? 'ON · recommended' : 'OFF · payments go unchecked'}</span></span><Toggle on={s.scam} onChange={v => set({ scam: v })} label="Scam check" /></div></section>
-    <section><Label>SPENDING LIMITS · ENFORCED</Label>
+    <section><Label>SPENDING LIMITS · IN-APP</Label>
+      <div className="mono xs dim">Checked in this ORI app right before it asks your wallet to sign, for payments and swaps started in ORI. Not enforced on a server, NEAR contract or Chain Signatures, and stored on this device, so clearing site data resets it. Limits do not govern your external wallet: anything signed outside ORI is not covered.</div>
       <div className="row"><span className="grow">Daily cap<br /><span className="mono xs dim">{usd(spent)} used today (simulated) · {usd(Math.max(0, s.daily - spent))} left</span></span><Num v={s.daily} onChange={v => set({ daily: v })} step={50} /></div>
       <div className="meter"><i style={{ width: Math.min(100, spent / (s.daily || 1) * 100) + '%' }} /></div>
       <div className="row"><span className="grow">Per-payment cap</span><Num v={s.perPay} onChange={v => set({ perPay: v })} step={25} /></div>
@@ -77,7 +78,7 @@ const FAQ: [string, string][] = [
   ['Is my money at risk in this preview?', 'No. The preview holds no keys and signs nothing. Payments and swaps are simulated. Quotes are dry runs, so no deposit address is ever created.'],
   ['Where do balances come from?', 'In Example mode they’re made-up numbers. In Live mode ORI reads the public addresses you add in Settings through public RPCs. It’s read-only.'],
   ['What does the scam check do?', 'Before a payment, the recipient goes through GoPlus address security, live. Flagged addresses are blocked and logged in Security.'],
-  ['How do the spending limits work?', 'A per-payment cap and a daily cap are enforced on the payment and swap cards. Above your hold threshold you must press and hold to confirm. Ori warns you before you hit a cap.'],
+  ['How do the spending limits work?', 'A per-payment cap and a daily cap are checked inside the ORI app, on the payment and swap cards and again right before ORI asks your wallet to sign. They are not on-chain and do not cover transactions you sign outside ORI. Above your hold threshold you must press and hold to confirm. Ori warns you before you hit a cap.'],
   ['Can Ori move money on his own?', 'No. Ori prepares a card, and you confirm it. Every action needs your tap or hold.'],
   ['Does Ori use an AI model?', 'Not in this preview. Ori runs a local rule-based assistant that answers from your app state, live prices and quotes. No API keys are used, and nothing you type leaves the browser except price and quote lookups.'],
 ]
