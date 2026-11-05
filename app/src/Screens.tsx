@@ -29,7 +29,7 @@ export function SettingsScreen({ s, set, mode, setMode, watch }: P & { mode: 'ex
       <div className="mono xs dim">ORI will not assume that every token or network is available through NEAR Intents.</div></section>
     <section><Label>VOICE</Label>
       <div className="row"><span className="grow">Ori speaks replies<br /><span className="mono xs dim">Off by default. Opt in to hear chat replies read aloud</span></span><Toggle on={s.voice} onChange={v => set({ voice: v, voiceOptIn: true })} label="Voice" /></div>
-      <div className="row"><span className="grow">“Hey ORI”<br /><span className="mono xs dim">Click or tap Hey ORI to open the chat and type. No microphone or wake word is used.</span></span></div>
+      <div className="row"><span className="grow">“Hey ORI”<br /><span className="mono xs dim">Tap Hey ORI to open chat and speak for that gesture only. There is no always-on wake word. You can type if voice isn’t available; spoken replies stay opt-in. Support varies, especially on iOS Safari.</span></span></div>
       <div className="row col"><span className="grow">Ori voice speed <b className="num">{s.rate.toFixed(2)}×</b></span><input type="range" min={0.7} max={1.6} step={0.01} value={s.rate} onChange={e => set({ rate: +e.target.value })} /></div></section>
     <section><Label>DISPLAY</Label>
       <div className="row"><span className="grow">Currency display<br /><span className="mono xs dim">{usd(2857.69)}</span></span><Seg<Fmt> v={s.fmt} opts={[['full', '$1,234.56'], ['nocents', '$1,235'], ['compact', '$1.2K']]} onChange={v => set({ fmt: v })} /></div>

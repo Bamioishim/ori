@@ -1,4 +1,4 @@
-// Ori's voice output only (opt-in text-to-speech). ORI never uses the microphone: Hey ORI is click activation.
+// Ori's voice output only (opt-in text-to-speech). Microphone capture lives in listen.ts and starts only after a Hey ORI tap.
 // Ori's voice: a small character — tiny but clear (bright voice, moderate pitch lift, not chipmunk).
 const PREFERRED = ['Google UK English Female', 'Samantha', 'Microsoft Aria Online (Natural)', 'Microsoft Jenny Online (Natural)', 'Microsoft Aria', 'Microsoft Jenny', 'Karen', 'Moira', 'Tessa', 'Serena', 'Victoria', 'Microsoft Zira', 'Google US English']
 let voice: SpeechSynthesisVoice | null = null

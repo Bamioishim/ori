@@ -63,9 +63,11 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 - The former "Pay" tile is now **Receive**. A **profile control** (profile, account, log out) replaces the EVM address shown above the portfolio.
 
 ### Receive
-- Shows only **real addresses**: wallets you connected or addresses you added to watch. Nothing is generated or invented.
-- Copy address, choose the network, and see your **preferred receiving currency**.
-- **Watch-only** means ORI reads public balances for an address you typed. It cannot sign or move anything from it.
+- Always lists **Base, Ethereum, Solana and NEAR**. A row shows a connected or watch-only address you can copy, or **Not connected** / **No address added** (those cannot be copied).
+- ORI never invents addresses or keys. **Watch-only** means you pasted a public address; ORI does not verify that you own it, and it cannot sign or move anything from it.
+- The same EVM address can appear on both Base and Ethereum; send the matching asset on the network you pick.
+- You can connect a wallet on the existing Wallets screen or add an existing address, including a NEAR account. Receiving to NEAR works; sending from ORI on NEAR is not available yet.
+- Copy one row, or copy only the populated addresses. See your **preferred receiving currency**.
 
 ### Send (same-chain, direct)
 - Paste or type a recipient. Validation knows each network's address format.
@@ -85,8 +87,11 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 - A Solana recipient goes USDC on Base → USDC on Solana via NEAR Intents. A Base address gets a direct USDC transfer on Base.
 
 ### Hey ORI
-- Hey ORI works by **click only**: clicking it opens and focuses the chat. There is no microphone, wake word or speech recognition. The chat is a local rule-based assistant, not an AI model. Optional text-to-speech replies are kept.
-- A static check enforces this: `npm run check:activation`.
+- Tap or click **Hey ORI** to open chat and, where the browser supports it, start speech recognition for that gesture only. There is **no always-on wake word** (nothing like Hey Siri). A second tap, Stop, Close, or leaving the screen ends listening. Recognition does not restart itself.
+- What you say is transcribed into the chat box for you to send or clear. Understanding goes through the existing local chat assistant (not an AI model), which still asks before any payment or swap. ORI will not sign or spend from a voice command alone.
+- Spoken replies stay **opt-in** (Settings → Ori speaks replies).
+- Support varies by browser. iOS Safari in particular is limited, and speech input was not verified on a physical iPhone; you can always type.
+- A static check enforces user-initiated listening only: `npm run check:activation`.
 
 ### Security Center / Policy
 - You can set limits for a single payment and per day, plus an approval threshold where you have to hold to confirm.

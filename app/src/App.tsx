@@ -31,6 +31,7 @@ import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
 import { TOKEN_LOGOS, CHAIN_LOGOS } from './tokenLogos'
+import { startTapToTalk, speechSupported } from './listen'
 import WalletsScreen from './Wallets'
 
 type Screen = 'home' | 'send' | 'receive' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
@@ -520,6 +521,9 @@ export default function App() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
   const [chat, setChat] = useState(false)
+  const stopTalk = useRef<() => void>(() => {})
+  const [listenSt, setListenSt] = useState<'off' | 'listening' | 'unsupported' | 'denied' | 'error'>('off')
+  const [listenHint, setListenHint] = useState('')
   const [burst, setBurst] = useState<{ x: number; y: number } | null>(null)
   const [stage, skipIntro] = useIntro()
   const wide = useWide()
@@ -591,8 +595,26 @@ export default function App() {
   const openChat = () => { setChat(true); askIn.current?.focus({ preventScroll: true }) }
   useEffect(() => { if (!chat) askIn.current?.blur() }, [chat])
   const ask = (q?: string) => { openChat(); if (q) command(q) }
-  // Hey ORI is click activation only (product doc v2): open and focus the chat. No microphone, no wake phrase.
-  const heyOri = () => openChat()
+  const haltTalk = () => { try { stopTalk.current() } catch { } ; stopTalk.current = () => {} }
+  const beginTalk = () => {
+    haltTalk()
+    if (!speechSupported()) {
+      setListenSt('unsupported')
+      setListenHint('Voice input isn’t available in this browser. Type below instead. Support varies, especially on iOS Safari.')
+      return
+    }
+    stopTalk.current = startTapToTalk({
+      onListening: () => { setListenSt('listening'); setListenHint('Listening… tap Hey ORI or Stop when you’re done.') },
+      onInterim: t => setInput(t),
+      onFinal: t => { setInput(t); setListenHint('Review what I heard, then send or clear. ORI will not sign or spend from a voice command alone.') },
+      onError: (k, m) => { setListenSt(k); setListenHint(m) },
+      onEnd: () => { setListenSt(st => st === 'listening' ? 'off' : st); stopTalk.current = () => {} },
+    })
+  }
+  const heyOri = () => { openChat(); listenSt === 'listening' ? (haltTalk(), setListenSt('off'), setListenHint('Stopped. You can type or tap Hey ORI again.')) : beginTalk() }
+  useEffect(() => { if (!chat) { haltTalk(); setListenSt(st => st === 'off' ? st : 'off') } }, [chat])
+  useEffect(() => { haltTalk() }, [screen])
+  useEffect(() => () => { haltTalk() }, [])
   const celebrate = async (r: DOMRect, set: (v: 'idle' | 'running' | 'done' | 'sent') => void) => { set('running'); await ori.current?.run(r); set('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 700); set('sent'); setTimeout(() => setBurst(null), reduced ? 300 : 900); ori.current?.mood('happy') }
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
@@ -683,13 +705,13 @@ export default function App() {
       <button className="side-ask" onClick={() => ask()}><span className="dot" />Ask Ori anything<span className="mono xs dim">CLICK</span></button>
       <p className="mono xs dim side-foot">Preview · {mode === 'live' ? 'live watch-only' : 'example data'} · nothing is signed</p>
     </aside>}
-    {wide && <button className="mic top-mic" onClick={heyOri} aria-label="Hey ORI: open chat" title="Click to ask Ori. No microphone is used.">
+    {wide && <button className="mic top-mic" onClick={heyOri} aria-label={listenSt === 'listening' ? 'Stop listening' : 'Open chat and talk to Ori'} title={listenSt === 'listening' ? 'Listening — click to stop' : 'Click to talk to Ori. Not always listening.'} aria-pressed={listenSt === 'listening'}>
         <span className="dot" aria-hidden />
-        <span className="mono xs">HEY ORI · CLICK</span></button>}
+        <span className="mono xs">{listenSt === 'listening' ? 'HEY ORI · LISTENING' : listenSt === 'denied' ? 'HEY ORI · MIC BLOCKED' : listenSt === 'unsupported' ? 'HEY ORI · TYPE' : 'HEY ORI · CLICK'}</span></button>}
     {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}
-      <button className="mic" onClick={heyOri} aria-label="Hey ORI: open chat" title="Tap to ask Ori. No microphone is used.">
+      <button className="mic" onClick={heyOri} aria-label={listenSt === 'listening' ? 'Stop listening' : 'Open chat and talk to Ori'} title={listenSt === 'listening' ? 'Listening — tap to stop' : 'Tap to talk to Ori. Not always listening.'} aria-pressed={listenSt === 'listening'}>
         <span className="dot" aria-hidden />
-        <span className="mono xs">HEY ORI · TAP</span></button>
+        <span className="mono xs">{listenSt === 'listening' ? 'HEY ORI · LISTENING' : listenSt === 'denied' ? 'HEY ORI · MIC BLOCKED' : listenSt === 'unsupported' ? 'HEY ORI · TYPE' : 'HEY ORI · TAP'}</span></button>
       {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
@@ -697,7 +719,7 @@ export default function App() {
         {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'send' && <SendScreen key={sendPreset ? sendPreset.sym + sendPreset.net : 'send'} cfg={cfg} preset={sendPreset} openWallets={() => goTo('wallets')} />}
-        {screen === 'receive' && <ReceiveScreen watched={addrs} live={mode === 'live'} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} />}
+        {screen === 'receive' && <ReceiveScreen watched={addrs} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} onAddWatch={a => { const t = a.trim(); if (!t || addrs.some(x => x.toLowerCase() === t.toLowerCase())) return; setAddrs([...addrs, t]) }} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
         {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
         {screen === 'wallets' && <WalletsScreen />}
@@ -723,7 +745,7 @@ export default function App() {
         <div className="grab" />
         <p className="mono xs dim">MORE</p>
         <button className="drow account-menu" onClick={() => setAccountOpen(true)}><span className="dl">{account ? `@${account.username}` : 'Sign in / Login'}<small>{account ? 'Gmail account · saved conversations on' : 'Guest session · save conversations and memory'}</small></span><span className="arr">→</span></button>
-        {([['receive', 'Receive', 'Your real addresses, copy and network'], ['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['request', 'Request', 'Ask someone to pay you'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label, sub], i) =>
+        {([['receive', 'Receive', 'Copy addresses on Base, Ethereum, Solana and NEAR'], ['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['request', 'Request', 'Ask someone to pay you'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
             onClick={() => goTo(k)}>
             <span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
@@ -738,6 +760,11 @@ export default function App() {
           {m.who === 'ori' && m.chips && i === msgs.length - 1 && !thinking && <div className="chips">{m.chips.map(c => <button key={c} className="mono xs" onClick={() => command(c)}>{c}</button>)}</div>}
         </motion.div> })}
           {thinking && <div className="msg bot thinking"><Dots size={5} label="Ori is thinking" /></div>}<div ref={msgsEnd} /></div>
+        {(listenSt !== 'off' || listenHint) && <div className="mono xs dim why" role="status">
+          {listenHint || (listenSt === 'listening' ? 'Listening…' : '')}
+          {listenSt === 'listening' && <button type="button" className="ghost" onClick={() => { haltTalk(); setListenSt('off'); setListenHint('Stopped. You can type or tap Hey ORI again.') }}>Stop</button>}
+          {input.trim() && <button type="button" className="ghost" onClick={() => setInput('')}>Clear</button>}
+        </div>}
         <form onSubmit={e => { e.preventDefault(); if (input.trim() && !thinking) { command(input); setInput('') } }} className="ask">
           <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" ref={askIn} enterKeyHint="send" tabIndex={chat ? 0 : -1} /><button className="mono xs" disabled={thinking}>SEND</button></form>
       </motion.div>
