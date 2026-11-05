@@ -422,3 +422,13 @@ html,main,.pg{scroll-padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 }
 .hl-tabs.ptabs{border:0;padding:0;gap:18px}.hl-tabs.ptabs button{font-size:15px;padding:8px 0}.hl-tabs.ptabs button.on{color:var(--white)}
 .hl-tabs.ptabs i{top:auto;height:1.5px;bottom:2px;background:var(--white)}
+.toksearch{position:relative;min-width:0}
+.toksearch-btn{width:100%;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toksearch-pop{position:absolute;z-index:30;right:0;top:calc(100% + 4px);width:min(320px,78vw);background:var(--surface);border:1px solid var(--line);padding:8px;box-shadow:0 12px 40px rgba(0,0,0,.45)}
+.toksearch-q{margin-bottom:6px}
+.toksearch-list{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.toksearch-opt{text-align:left;padding:8px 10px;cursor:pointer;color:var(--white);border:1px solid transparent}
+.toksearch-opt:hover,.toksearch-opt.on{border-color:var(--line);background:rgba(255,255,255,.03)}
+.toksearch.off{opacity:.5;pointer-events:none}
+.maxbtn{margin-left:8px;padding:2px 8px;font-size:10px}
+.money.masked{letter-spacing:.04em} /* leftover unused; blur path restored */

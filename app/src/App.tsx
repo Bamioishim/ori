@@ -1,5 +1,5 @@
 import { LogoH } from './Logo'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { motion, AnimatePresence } from 'motion/react'
 import { APP_NAME, isHiddenScreen } from './config'
@@ -24,9 +24,8 @@ import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
-import { CopyButton, PillTabs, PriceFlow } from './ui'
-import { MaskCtx, useMask, usePeekHandlers } from './mask'
-import { countProgress, maskDigits } from './uiLogic'
+import { CopyButton, PillTabs, PriceFlow, TokenSearch } from './ui'
+import { countProgress, spendableAmount, type HeldBal } from './uiLogic'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
 import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
@@ -86,10 +85,8 @@ function useCount(target: number) {
   return REDUCED ? target : v
 }
 function Money({ v, cls = '' }: { v: number; cls?: string }) {
-  const { masked } = useMask()
-  const [w, c] = v.toFixed(2).split('.'); const whole = (+w).toLocaleString('en-US')
-  if (masked) return <span className={'money masked ' + cls + (w.length >= 9 ? ' l9' : w.length >= 7 ? ' l7' : '')} aria-label="Hidden amount"><span className="cur">$</span><span aria-hidden>{maskDigits(whole)}</span><span className="cents" aria-hidden>.••</span></span>
-  return <span className={'money ' + cls + (w.length >= 9 ? ' l9' : w.length >= 7 ? ' l7' : '')}><span className="cur">$</span>{whole}<span className="cents">.{c}</span></span>
+  const [w, c] = v.toFixed(2).split('.')
+  return <span className={'money ' + cls + (w.length >= 9 ? ' l9' : w.length >= 7 ? ' l7' : '')}><span className="cur">$</span>{(+w).toLocaleString('en-US')}<span className="cents">.{c}</span></span>
 }
 export type Mode = 'example' | 'live'
 export type LiveState = { loading: boolean; holdings: Holding[]; errors: string[]; at: number | null }
@@ -117,11 +114,10 @@ function Home({ profile, hidden, setHidden, extra, mode, setMode, live, addrs, s
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
-  const peekMobile = usePeekHandlers(() => setHidden(!hidden))
   if (wide) return <HomeDesk {...{ profile, hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
     {profile}
-    <button className={'mh-bal' + (isLive && live.loading && !live.at ? ' loading' : '')} {...peekMobile}><Money v={v} cls="big" /></button>
+    <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
     <div className="mh-chg">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `Live · ${addrs.length} address${addrs.length === 1 ? '' : 'es'}` : 'Add an address in Settings'}</span> : <><span className="up">▲ 1.37%</span><span className="dim">+$38.62 · 24h</span><Example /></>}</div>
     <Tiles go={go!} />
     <Promo go={go!} />
@@ -174,7 +170,7 @@ function Promo({ go }: { go: (s: Screen) => void }) {
       <button className="promo-go" onClick={() => go('policy')}>Open Policy</button></div>
     <img src="/ori-mark.svg" alt="" className="promo-art" /></motion.div>}</AnimatePresence>
 }
-function HoldList({ rows, chainRows, sum, sel, setSel, go }: any) {
+function HoldList({ rows, chainRows, sum, hide, sel, setSel, go }: any) {
   const [open, setOpen] = useState<number | null>(null)
   const [tab, setTab] = useState<'tokens' | 'chains'>('tokens')
   return <section className="hl">
@@ -182,23 +178,22 @@ function HoldList({ rows, chainRows, sum, sel, setSel, go }: any) {
     {tab === 'tokens' ? rows.map((a: any, i: number) => <Fragment key={i}><div className="trow" role="button" tabIndex={0} aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}><Glyph s={a.sym} />
       <span className="grow"><b>{NAMES[a.sym] || a.sym}</b><span className="sub">{a.sym} · {a.chain}</span></span>
       <Mini seed={a.sym} up={(a.d24 ?? 0) >= 0} />
-      <span className="r"><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>{open === i && go && <AssetActions sym={a.sym} chain={a.chain} go={go} />}</Fragment>)
+      <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>{open === i && go && <AssetActions sym={a.sym} chain={a.chain} go={go} />}</Fragment>)
     : <><div className="alloc">{chainRows.map((c: any) => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
       {chainRows.map((c: any) => <button className={'arow trow' + (sel === c.name ? ' sel' : '')} key={c.name} onClick={() => setSel(sel === c.name ? null : c.name)}>
         <span className="dot" style={{ background: chainCol(c.name) }} /><span className="grow"><b>{c.name}</b><span className="sub">{(c.usd / (sum || 1) * 100).toFixed(1)}% of balance</span></span>
-        <Mini seed={c.name} up={true} /><span className="r"><Money v={c.usd} cls="sm" /></span></button>)}</>}
+        <Mini seed={c.name} up={true} /><span className={'r' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></span></button>)}</>}
   </section>
 }
 
 function HomeDesk(p: any) {
-  const peekDesk = usePeekHandlers(() => p.setHidden(!p.hidden))
-  const { profile, hidden: hide, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
+  const { profile, hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
   const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
   return <div className="dash">
     <section className="d-card d-hero">
       <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
       {profile}
-      <button className={'total' + (isLive && live.loading && !live.at ? ' loading' : '')} {...peekDesk}><Money v={v} /></button>
+      <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
       <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
         : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">click to hide</span></>}</div>
       {!isLive && <div className="d-chart"><Spark range={range} />
@@ -220,16 +215,16 @@ function HomeDesk(p: any) {
       <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th><th className="rt">Actions</th></tr></thead><tbody>
         {chainRows.map((c: any) => <tr key={c.name} className={sel === c.name ? 'sel' : ''} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)}>
           <td><span className="dot" style={{ background: chainCol(c.name) }} /> {c.name}</td><td className="sharec"><i style={{ width: (c.usd / (sum || 1) * 100) + '%', background: chainCol(c.name) }} /></td>
-          <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className="rt"><Money v={c.usd} cls="sm" /></td></tr>)}
+          <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className={'rt' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></td></tr>)}
       </tbody></table>
     </section>}
     {!empty && <section className="d-card d-assets">
       <div className="sechead"><Label>ASSETS</Label><span className="label">SPEND ORDER</span></div>
       <table className="tbl"><thead><tr><th>Asset</th><th>Chain</th><th>Role</th><th className="rt">Amount</th><th className="rt">24h</th><th className="rt">Value</th></tr></thead><tbody>
         {rows.map((a: any, i: number) => <tr key={i}><td><span className="tcell"><Glyph s={a.sym} /><b>{a.sym}</b></span></td><td className="dim">{a.chain}</td><td className="dim">{a.role}</td>
-          <td className="rt mono">{hide ? <span aria-label="Hidden amount">{maskDigits(a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 }))}</span> : a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+          <td className={'rt mono' + (hide ? ' blurred' : '')}>{a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
           <td className={'rt mono' + (a.d24 !== null && a.d24 < 0 ? ' neg' : '')}>{a.d24 === null ? '—' : (a.d24 > 0 ? '+' : '') + a.d24.toFixed(1) + '%'}</td>
-          <td className="rt"><Money v={a.usd} cls="sm" /></td><td className="rt"><AssetActions sym={a.sym} chain={a.chain} go={go} compact /></td></tr>)}
+          <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td><td className="rt"><AssetActions sym={a.sym} chain={a.chain} go={go} compact /></td></tr>)}
       </tbody></table>
     </section>}
     <section className="d-card d-feed">
@@ -249,9 +244,11 @@ function useQuote(args: Parameters<typeof quote>[0] | null, dep: string) {
   useEffect(() => {
     if (!args) { setSt({ q: null, loading: false, err: null }); return }
     // each request gets an id; only the latest may write (no stale-route ETA), and the quote refreshes once it ages out
-    let dead = false; const id = ++quoteSeq.current; setSt({ q: null, loading: true, err: null })
-    const run = () => quote(args).then(q => !dead && id === quoteSeq.current && setSt({ q, loading: false, err: null })).catch(e => !dead && id === quoteSeq.current && setSt({ q: null, loading: false, err: e.message }))
-    const t = setTimeout(run, 450), r = setInterval(() => { setSt(s => ({ ...s, loading: true })); run() }, QUOTE_MAX_AGE_MS)
+    let dead = false; const id = ++quoteSeq.current
+    // First request for a new dep clears the previous route's quote (avoid stale ETA). Soft refreshes keep the last good quote visible.
+    setSt({ q: null, loading: true, err: null })
+    const run = (soft = false) => quote(args).then(q => !dead && id === quoteSeq.current && setSt({ q, loading: false, err: null })).catch(e => !dead && id === quoteSeq.current && setSt(s => ({ q: soft ? s.q : null, loading: false, err: e.message })))
+    const t = setTimeout(() => run(false), 450), r = setInterval(() => { setSt(s => ({ ...s, loading: !s.q })); run(true) }, QUOTE_MAX_AGE_MS)
     return () => { dead = true; clearTimeout(t); clearInterval(r) }
   }, [dep])
   return st
@@ -282,11 +279,12 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     return () => { dead = true; clearTimeout(t) } }, [to, cfg.scam])
   const [resolvedRecipient, setResolvedRecipient] = useState<string | null>(null)
   const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolvedExample, setResolvedExample] = useState(false)
   useEffect(() => {
-    const value = to.trim(); setResolvedRecipient(null); setResolveError(null)
-    if (!isSettlementEnabled() || kindOf(value) === 'sol' || !value.startsWith('@')) return
+    const value = to.trim(); setResolvedRecipient(null); setResolveError(null); setResolvedExample(false)
+    if (kindOf(value) === 'sol' || kindOf(value) === 'evm' || !value.startsWith('@')) return
     let dead = false
-    resolveHandle(value).then(r => { if (!dead) setResolvedRecipient(r.address) }).catch(e => { if (!dead) setResolveError((e as Error).message) })
+    resolveHandle(value).then(r => { if (!dead) { setResolvedRecipient(r.address); setResolvedExample(!!r.example) } }).catch(e => { if (!dead) setResolveError((e as Error).message) })
     return () => { dead = true }
   }, [to])
   const local = cfg.scam && FLAGGED.test(to)
@@ -323,11 +321,11 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.` : resolveError || 'Resolving handle to a verified Solana address…'} />
+      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? `${resolvedExample ? 'EXAMPLE handle' : 'Verified handle'} ${to} → ${short(resolvedRecipient)}${resolvedExample ? ' · dry quotes only until ORI_HANDLE_DIRECTORY has a real address' : ''}` : resolveError || 'Resolving handle…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
-      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{resolveError || (resolvedRecipient ? `${to} → ${short(resolvedRecipient)}` : !cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source)}</span></span><span className={'mono xs' + ((flagged && checked) || resolveError ? ' bad' : '')}>{resolveError ? 'UNRESOLVED' : resolvedRecipient ? 'RESOLVED · LIVE' : !cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
+      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{resolveError || (resolvedRecipient ? `${resolvedExample ? 'EXAMPLE · ' : ''}${to} → ${short(resolvedRecipient)}` : !cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source)}</span></span><span className={'mono xs' + ((flagged && checked) || resolveError ? ' bad' : '')}>{resolveError ? 'UNRESOLVED' : resolvedRecipient ? (resolvedExample ? 'RESOLVED · EXAMPLE' : 'RESOLVED') : !cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
       <div className="row"><span className="grow">Token contract</span><span className="mono xs">{checked ? 'USDC · CANONICAL' : 'CHECKING…'}</span></div>
       <div className="row"><span className="grow">Drainer / approval risk</span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{st('NO APPROVAL NEEDED')}</span></div>
       <div className="row"><span className="grow">Spending limits</span><span className={'mono xs' + (limit ? ' bad' : '')}>{limit ? 'OVER CAP' : `${usd(Math.max(0, cfg.daily - spentToday()))} LEFT TODAY`}</span></div>
@@ -343,7 +341,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement?.kind === 'direct' ? 'Your connected wallet' : settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? 'Handle unresolved' : isSettlementEnabled() && !liveRecipient ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
+      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? `Handle unresolved: ${resolveError}` : to.trim().startsWith('@') && !resolvedRecipient && !evmTo && !solTo ? 'Resolving handle…' : isSettlementEnabled() && resolvedExample ? `${to.trim()} is an example handle · add a verified Solana address in ORI_HANDLE_DIRECTORY to pay for real` : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
         onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
@@ -355,12 +353,6 @@ function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: 
   if (q.err) return <div className="mono xs err why">Live quote unavailable: {q.err}. Nothing was sent.</div>
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : extra || 'Enter an amount for a live quote.'}</div>
   return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {formatEta(q.q.eta)} after deposit · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
-}
-function TokenPick({ value, cat, onChange, disabled, label, chainLabel, origin = false }: { value: string; cat: CatalogToken[]; onChange: (v: string) => void; disabled: boolean; label: string; chainLabel: (b: string) => string; origin?: boolean }) {
-  const groups = useMemo(() => { const m = new Map<string, CatalogToken[]>(); for (const t of cat) { const k = t.blockchain; if (!m.has(k)) m.set(k, []); m.get(k)!.push(t) } return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([k, ts]) => [k, ts.toSorted((x, y) => x.symbol.localeCompare(y.symbol))] as const) }, [cat])
-  return <select className="history-filter token-pick" value={value} onChange={e => onChange(e.target.value)} disabled={disabled || !cat.length} aria-label={label}>
-    {!cat.length && <option value={value}>Loading tokens…</option>}
-    {groups.map(([b, ts]) => <optgroup key={b} label={chainLabel(b)}>{ts.map(t => <option key={t.assetId} value={t.assetId}>{t.symbol} · {chainLabel(t.blockchain)}{origin && !originAdapter(t) ? ' · quote only' : ''}</option>)}</optgroup>)}</select>
 }
 export type SwapPlan = { review: SwapReview; asset: AssetDef; settlement: SettlementQuote; label: string; lines: [string, string][] }
 function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null, plan?: SwapPlan) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
@@ -393,6 +385,10 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
   const [sent, setSent] = useState<{ q: Quote; n: number; from: string; to: string } | null>(null)
   const busy = status !== 'idle'
   const live = isSettlementEnabled()
+  // Example holdings from the Home mock (or live watch-only rows when mode is live). Used only to rank/search and cap the amount — not as a signing balance.
+  const held: HeldBal[] = assets.map(a => ({ sym: a.sym, chain: a.chain, amt: a.amt }))
+  const spendable = from.t ? spendableAmount(held, from.s, from.b) : null
+  const overBal = spendable != null && n > spendable
   const { list: wl } = useManagedWallets()
   const ownFor = (b: string) => EVM_CATALOG_CHAINS.has(b) ? wl.find(w => w.chain === 'evm')?.address : b === 'sol' ? wl.find(w => w.chain === 'sol')?.address : undefined
   const srcAcct = ownFor(from.b), dstAcct = ownFor(to.b)
@@ -418,14 +414,15 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
       <Label>SWAP · ONE TAP {px && <span className="live-tag">LIVE PRICES</span>}</Label>
       <div className="swapbox">
         <span className="mono xs dim">SEND</span>
-        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenPick value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} origin /></div>
+        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenSearch value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} origin held={held} /></div>
         {from.t && !exec && <span className="qo-chip mono xs" title="ORI cannot sign a deposit from this asset; you can see the quote but not swap.">QUOTE ONLY</span>}
-        <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}</span>
+        <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}{spendable != null ? ` · available ${spendable.toLocaleString('en-US', { maximumFractionDigits: from.d === 9 ? 4 : 6 })} ${from.s}` : ''}{overBal ? ' · over available' : ''}</span>
+        {spendable != null && spendable > 0 && <button type="button" className="ghost maxbtn" disabled={busy} onClick={() => setAmt(String(spendable))}>MAX</button>}
         <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label={`Swap direction: currently ${from.s} to ${to.s}`} title="Swap direction">⇅</motion.button>
       </div>
       <div className="swapbox">
         <span className="mono xs dim">RECEIVE</span>
-        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? <PriceFlow className="" text={fmtOut(out)} /> : '—'}</span><TokenPick value={to.id} cat={cat} onChange={setToId} disabled={busy} label="Receive asset" chainLabel={chainLabel} /></div>
+        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? <PriceFlow className="" text={fmtOut(out)} /> : '—'}</span><TokenSearch value={to.id} cat={cat} onChange={setToId} disabled={busy} label="Receive asset" chainLabel={chainLabel} held={held} /></div>
         <span className="mono xs dim">{q.q ? usd(q.q.amountOutUsd) : ' '}{limit && <span className="limitnote"> · {limit}</span>}</span>
       </div>
     </section>
@@ -446,7 +443,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
         <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · {live ? 'live' : 'simulated'} · {formatEta(sent.q.eta)}</span></div>
         <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)}{live ? '' : ' · dry run'}</span></div>
       </motion.div>
-      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (!(n > 0) ? 'Enter an amount' : !canQuote ? (routeNote || 'No quote for this route') : q.loading ? 'Waiting for a live quote' : q.err ? 'Live quote unavailable' : 'Waiting for a live quote') : liveBlock || (prep && prep.startsWith('Getting') ? prep : null)} limit={limit} status={status} busyLabel="Ori is swapping"
+      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!(n > 0) ? 'Enter an amount' : overBal ? `Only ${spendable!.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${from.s} available` : !canQuote ? (routeNote || 'No quote for this route') : q.err && !q.q ? 'Live quote unavailable' : !q.q ? (q.loading ? 'Waiting for a live quote' : 'No live quote yet · try again') : liveBlock || (prep && prep.startsWith('Getting') ? prep : null)} limit={limit} status={status} busyLabel="Ori is swapping"
         onGo={r => { if (!q.q) return; if (live) { void reviewLive(r); return } nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
     {prep && !prep.startsWith('Getting') && <div className="mono xs err why">{prep}</div>}
   </div>
@@ -511,8 +508,6 @@ export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
   const [hidden, setHidden] = useState(false)
-  const [peeking, setPeeking] = useState(false)
-  const maskValue = useMemo(() => ({ masked: hidden && !peeking, hidden, peek: setPeeking }), [hidden, peeking])
   const [extra, setExtra] = useState(0)
   const [mode, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
@@ -631,7 +626,7 @@ export default function App() {
     sheetAction.current = 'idle'
     if (!isSettlementEnabled()) { setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, run: () => doPay(r, amt, to) }); return }
     try { // live: build the exact plan the wallet will sign, and show it
-      const plan = await preparePay(amt, to, { resolve: async h => (await resolveHandle(h)).address, connect: connectBaseWallet, quote: createSettlementQuote })
+      const plan = await preparePay(amt, to, { resolve: async h => { const r = await resolveHandle(h); if (r.example) throw new Error(`${h} is an example handle only. Set ORI_HANDLE_DIRECTORY with a verified Solana address to pay them for real.`); return r.address }, connect: connectBaseWallet, quote: createSettlementQuote })
       saveWallet({ address: plan.account, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
       const lines: [string, string][] = plan.kind === 'direct'
         ? [['Route', 'Direct USDC transfer on Base (no NEAR Intents)'], ['From account', short(plan.account)], ['Recipient address', short(plan.to)], ['Approvals', 'None']]
@@ -698,7 +693,7 @@ export default function App() {
   const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
 
 
-  return <MaskCtx.Provider value={maskValue}><LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
+  return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
     <Nebula reduce={reduced} dim={wide ? 1 : 0.9} active={screen === 'home' || thinking} />
     {wide && <aside className="side">
@@ -785,7 +780,7 @@ export default function App() {
     <TransactionDetail tx={selectedTransaction} onClose={() => setSelectedTransaction(null)} />
     <AccountSheet open={accountOpen} guestId={guestId} account={account} onClose={() => setAccountOpen(false)} onSignedIn={(a) => { setAccount(a); if (a) oriSay(`Signed in as @${a.username}. Saved conversations and memory are now enabled.`); else { localStorage.removeItem('ori-chat'); setMsgs([{ who: 'ori', t: 'You’re back in a limited guest session. Sign in again to save conversations.', chips: DEFAULT_CHIPS }]); oriSay('Signed out. You are back in a limited guest session.') } }} />
     <Intro stage={stage} skip={skipIntro} />
-  </div></LayoutGroup></MaskCtx.Provider>
+  </div></LayoutGroup>
 }
 
 function QR({ text }: { text: string }) {
@@ -822,7 +817,7 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
     <section><Label>REQUESTS ON THIS DEVICE · {requests.length}</Label>{requests.length ? requests.map(r => <button className="tx-row" key={r.id} onClick={() => setSelected(r)}><span className="tx-icon">↓</span><span className="grow"><b>{r.amount} {r.asset}</b><span className="sub">{r.network} · from {r.target}</span></span><span className="tx-right"><small>{r.status}</small></span></button>) : <div className="mono xs dim">No requests yet.</div>}</section>
   </div>
 }
-function Profile({ sum }: { sum: number; hide?: boolean }) {
+function Profile({ sum, hide }: { sum: number; hide: boolean }) {
   const [qr, setQr] = useState<string | null>(null)
   const bal = (c: string) => chains.find(x => x.name === c)?.usd || 0
   const scale = sum / (total || 1)
@@ -832,12 +827,12 @@ function Profile({ sum }: { sum: number; hide?: boolean }) {
       {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
         <ChainMark chain={a.chain} />
         <span className="grow"><b>{a.chain === 'Base' ? 'Base · EVM' : a.chain}</b><span className="sub mono">{a.addr.length > 20 ? short(a.addr) : a.addr}</span></span>
-        <span className="num"><Money v={bal(a.chain) * scale} cls="sm" /></span>
+        <span className={'num' + (hide ? ' blurred' : '')}><Money v={bal(a.chain) * scale} cls="sm" /></span>
         <CopyButton text={a.addr} label="" className="picon" aria={'Copy ' + a.chain + ' address'} />
         <button className="picon" aria-label={'Show ' + a.chain + ' QR'} onClick={() => setQr(qr === a.chain ? null : a.chain)}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" /></svg></button>
         <AnimatePresence>{qr === a.chain && <motion.div className="pqr" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring}><QR text={a.addr} /><span className="mono xs dim">Demo address · don’t send real funds</span></motion.div>}</AnimatePresence>
       </div>)}
-      <div className="ptotal"><span className="grow">All addresses feed one balance</span><span className="num"><Money v={sum} cls="sm" /></span></div>
+      <div className="ptotal"><span className="grow">All addresses feed one balance</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
       <div className="mono xs dim">Example data. These are demo addresses: no keys exist and no wallet is created.</div></section>
   </div>
 }

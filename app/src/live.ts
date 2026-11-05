@@ -1,4 +1,4 @@
-import { parseTimeEstimate } from './quoteTime'
+import { parseTimeEstimate } from './quoteTime.ts'
 // Read-only live data plus an explicitly opt-in settlement boundary. The browser never sees the 1Click JWT.
 const ONECLICK = 'https://1click.chaindefuser.com/v0'
 export const RPC = { eth: 'https://ethereum-rpc.publicnode.com', base: 'https://base-rpc.publicnode.com', sol: 'https://solana-rpc.publicnode.com', solIndexed: '/rpc/sol', near: 'https://rpc.mainnet.fastnear.com' }
@@ -8,7 +8,9 @@ export const ASSET = {
   SOL: 'nep141:sol.omft.near', baseETH: 'nep141:base.omft.near',
 }
 // Placeholder addresses used ONLY inside dry quotes (dry:true never returns a deposit address, nothing can be sent).
-export const PREVIEW = { sol: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', evm: '0x0000000000000000000000000000000000000001' }
+export { PREVIEW } from './previewAddrs.ts'
+export { EXAMPLE_HANDLES, type HandleResolution } from './handles.ts'
+import { type HandleResolution as HR } from './handles.ts'
 
 export type Token = { assetId: string; symbol: string; blockchain: string; price: number; decimals: number; priceUpdatedAt: string }
 let tokP: Promise<Token[]> | null = null
@@ -97,7 +99,7 @@ export async function connectPhantomWallet(): Promise<WalletConnection> {
 
 // Pay deposits go through src/payExec.ts (bound quote + sendEvm with chain/account re-check and receipt confirmation).
 
-const settlementEnabled = import.meta.env.VITE_ORI_SETTLEMENT_MODE === 'live'
+const settlementEnabled = (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_ORI_SETTLEMENT_MODE === 'live'
 export const isSettlementEnabled = () => settlementEnabled
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -107,10 +109,9 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-export type HandleResolution = { handle: string; address: string; chain: 'solana'; label: string }
-export async function resolveHandle(handle: string): Promise<HandleResolution> {
-  const q = new URLSearchParams({ handle: handle.trim().toLowerCase() })
-  return apiJson<HandleResolution>('/api/resolve?' + q.toString())
+export async function resolveHandle(handle: string): Promise<HR> {
+  const { resolveHandleWith } = await import('./handles.ts')
+  return resolveHandleWith(fetch, handle)
 }
 
 export async function createSettlementQuote(o: { from: string; to: string; amount: bigint; recipient: string; refundTo: string }): Promise<SettlementQuote> {

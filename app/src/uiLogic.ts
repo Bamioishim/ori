@@ -47,3 +47,24 @@ export function flowParts(prev: string | null, next: string): { ch: string; chan
 // ---- Count-up progress. rAF timestamps can be EARLIER than the performance.now() taken when the animation
 // starts; an unclamped negative k made the ease extrapolate backwards (e.g. "$-88.35" flashing before $2,859.25).
 export const countProgress = (t: number, t0: number, ms: number) => Math.min(1, Math.max(0, (t - t0) / ms))
+
+// ---- Available balance for swaps (display/constraint only; never invents funds).
+export type HeldBal = { sym: string; chain: string; amt: number }
+const CHAIN_TO_NET: Record<string, string> = { eth: 'Ethereum', base: 'Base', sol: 'Solana', near: 'NEAR' }
+export const chainKey = (b: string) => CHAIN_TO_NET[b] || b
+/** Native gas reserve so a same-chain/native send still leaves room for the network fee. Tokens: 0 (fee paid in native). */
+export function gasReserve(sym: string, blockchain: string): number {
+  if (blockchain === 'sol' && sym === 'SOL') return 0.01
+  if ((blockchain === 'eth' || blockchain === 'base') && sym === 'ETH') return 0.001
+  return 0
+}
+export function heldAmount(held: HeldBal[], sym: string, blockchain: string): number | null {
+  const net = chainKey(blockchain)
+  const hits = held.filter(h => h.sym === sym && h.chain === net)
+  if (!hits.length) return null
+  return hits.reduce((a, h) => a + h.amt, 0)
+}
+export function spendableAmount(held: HeldBal[], sym: string, blockchain: string): number | null {
+  const raw = heldAmount(held, sym, blockchain); if (raw == null) return null
+  return Math.max(0, raw - gasReserve(sym, blockchain))
+}

@@ -113,8 +113,11 @@ These are UI only. None of them changes signing, limits, the review sheet or the
 
 - **Slide to confirm.** On the cards, a tap only opens the review sheet. Above the approval threshold, the review sheet replaces hold-to-confirm with a slide: the handle must travel all the way while held, and letting go early or a pointer cancel resets it. It is disabled while the action is blocked and fires once only. Keyboard and screen-reader users press Enter (or Space), release it, then press again. Holding the key or auto-repeat never confirms, and Esc or a 5 s timeout disarms it. Below the threshold, the sheet is a single tap. The wallet still asks separately: this is a UI gesture, not a security control.
 - **Copy buttons** show a check only when the browser confirms the clipboard write. Otherwise they say "Copy failed".
-- **Hidden balance** masks every digit (`•`) wherever amounts appear. Pressing and holding the balance peeks while held.
+- **Hidden balance** blurs amounts on tap (restored to the pre–digit-mask interaction). Tap again to show.
 - **Live quote numbers:** changed digits ease in (price flow). The values are never altered and get no gain/loss colouring.
+- **Searchable token picker** on Swap: type to filter the catalog; held/spendable assets rise to the top; amount is capped to available balance (native gas reserved). Quote-only origins stay labelled and are not signable.
+- **@tolu / @ade handles:** resolve for dry quotes as EXAMPLE destinations (same preview Solana address used elsewhere). Live pay still needs a verified `ORI_HANDLE_DIRECTORY` entry — ORI will not invent a real payee.
+- **Settlement times (~22s, ~37s, etc.):** come from the provider’s `quote.timeEstimate` (seconds after deposit confirms). They vary by route; they are estimates, not guarantees. Missing → “Time unavailable”. Not hardcoded in the app.
 - **Tabs and segments:** the Tokens/Chains tabs and the Settings segments share one spring tab control, with arrow-key support.
 - **Dropdowns:** styled history and token pickers. The send-asset picker groups tokens by chain and shows a "QUOTE ONLY" chip for sources ORI can't sign.
 - **Gmail code:** a single 6-digit field that handles paste and autofill. The separate 4-digit recovery PIN is labelled as device-only. Gmail login itself is still not functional (503).

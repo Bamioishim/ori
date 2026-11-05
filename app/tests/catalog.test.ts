@@ -40,5 +40,5 @@ test('backend: JWT guard kept, no appFees added, catalog validation used', () =>
 })
 test('swap UI uses the catalog, not a hardcoded pair', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8'); const sw = app.slice(app.indexOf('function Swap('), app.indexOf('function Swap(') + 12000)
-  assert.match(sw, /normalizeTokens\(ts\)/); assert.match(sw, /<TokenPick /); assert.doesNotMatch(sw, /flip \? \{ s: 'USDC'/)
+  assert.match(sw, /normalizeTokens\(ts\)/); assert.match(sw, /<TokenSearch /); assert.doesNotMatch(sw, /flip \? \{ s: 'USDC'/)
 })

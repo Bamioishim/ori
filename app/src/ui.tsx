@@ -1,6 +1,6 @@
 // ORI micro-interactions. Original implementations of generic patterns (slide-to-confirm, copy check, masked
 // balance, price digit flow, spring tabs, OTP, inline field errors). No third-party component code is included.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { copyText, flowParts, sanitizeOtp, SLIDE_IDLE, slideStep, type SlideEvent } from './uiLogic'
 
@@ -82,3 +82,62 @@ export function OtpInput({ value, onChange, length = 6, label }: { value: string
   </span>
 }
 
+
+import { originAdapter, type CatalogToken } from '../api/_catalog.ts'
+import { heldAmount, type HeldBal } from './uiLogic'
+
+/** Searchable token picker. Held/spendable assets float to the top; quote-only origins stay labelled. */
+export function TokenSearch({ value, cat, onChange, disabled, label, chainLabel, origin = false, held = [] }: {
+  value: string; cat: CatalogToken[]; onChange: (v: string) => void; disabled: boolean; label: string
+  chainLabel: (b: string) => string; origin?: boolean; held?: HeldBal[]
+}) {
+  const [open, setOpen] = useState(false), [q, setQ] = useState('')
+  const box = useRef<HTMLDivElement>(null), input = useRef<HTMLInputElement>(null)
+  const selected = cat.find(t => t.assetId === value)
+  const ranked = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    const score = (t: CatalogToken) => {
+      const hold = heldAmount(held, t.symbol, t.blockchain)
+      const exec = origin ? !!originAdapter(t) : true
+      let s = 0
+      if (hold != null && hold > 0) s += 1000 + Math.min(hold, 999)
+      if (exec) s += 100
+      if (needle) {
+        const hay = `${t.symbol} ${chainLabel(t.blockchain)} ${t.blockchain} ${t.assetId}`.toLowerCase()
+        if (!hay.includes(needle) && !t.symbol.toLowerCase().startsWith(needle)) return -1
+        if (t.symbol.toLowerCase() === needle) s += 50
+      }
+      return s
+    }
+    return cat.map(t => ({ t, s: score(t) })).filter(x => x.s >= 0).sort((a, b) => b.s - a.s || a.t.symbol.localeCompare(b.t.symbol)).map(x => x.t)
+  }, [cat, held, q, origin, chainLabel])
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    addEventListener('mousedown', close); addEventListener('keydown', esc)
+    return () => { removeEventListener('mousedown', close); removeEventListener('keydown', esc) }
+  }, [open])
+  const openPicker = () => { if (disabled) return; setQ(''); setOpen(true); queueMicrotask(() => input.current?.focus()) }
+  const pick = (id: string) => { onChange(id); setOpen(false) }
+  return <div className={'toksearch' + (open ? ' open' : '') + (disabled ? ' off' : '')} ref={box}>
+    <button type="button" className="toksearch-btn history-filter" disabled={disabled || !cat.length} aria-haspopup="listbox" aria-expanded={open} aria-label={label}
+      onClick={() => open ? setOpen(false) : openPicker()}>
+      {selected ? `${selected.symbol} · ${chainLabel(selected.blockchain)}${origin && !originAdapter(selected) ? ' · quote only' : ''}` : cat.length ? 'Pick a token' : 'Loading tokens…'}
+    </button>
+    {open && <div className="toksearch-pop" role="listbox" aria-label={label}>
+      <input ref={input} className="field toksearch-q" value={q} onChange={e => setQ(e.target.value)} placeholder="Search symbol or chain…" aria-label={`Search ${label}`}
+        onKeyDown={e => { if (e.key === 'Enter' && ranked[0]) { e.preventDefault(); pick(ranked[0].assetId) } }} />
+      <div className="toksearch-list">
+        {ranked.length === 0 && <div className="mono xs dim why">No tokens match “{q}”.</div>}
+        {ranked.slice(0, 80).map(t => {
+          const hold = heldAmount(held, t.symbol, t.blockchain)
+          const qo = origin && !originAdapter(t)
+          return <button type="button" role="option" aria-selected={t.assetId === value} key={t.assetId} className={'toksearch-opt' + (t.assetId === value ? ' on' : '')} onClick={() => pick(t.assetId)}>
+            <span className="grow"><b>{t.symbol}</b> · {chainLabel(t.blockchain)}{qo ? ' · quote only' : ''}{hold != null ? <span className="mono xs dim"> · have {hold.toLocaleString('en-US', { maximumFractionDigits: 6 })}</span> : null}</span>
+          </button>
+        })}
+      </div>
+    </div>}
+  </div>
+}
