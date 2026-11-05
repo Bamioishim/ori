@@ -15,14 +15,17 @@ test('routable ≠ executable: only ETH/ERC-20 on Ethereum+Base and native SOL h
   assert.deepEqual(originAdapter(cat.find(t => t.assetId === id('USDC', 'base'))!), { net: 'Base', kind: 'erc20', token: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' })
   assert.equal(originAdapter(cat.find(t => t.assetId === id('ETH', 'eth'))!)!.kind, 'native')
   assert.equal(originAdapter(cat.find(t => t.assetId === id('SOL', 'sol'))!)!.kind, 'native')
-  assert.equal(originAdapter(cat.find(t => t.assetId === id('USDC', 'sol'))!), null) // SPL deposit not implemented
+  { const u = cat.find(t => t.assetId === id('USDC', 'sol')); if (u) assert.deepEqual(originAdapter(u), u.contractAddress === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' ? { net: 'Solana', kind: 'spl', token: u.contractAddress } : null) }
+  assert.equal(originAdapter(cat.find(t => t.symbol === '$WIF')!), null) // untrusted SPL mint stays quote-only
+  assert.equal(originAdapter({ ...cat.find(t => t.assetId === id('SOL', 'sol'))!, symbol: 'USDC', contractAddress: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm', decimals: 6 }), null) // wrong mint posing as USDC
   assert.equal(originAdapter(cat.find(t => t.blockchain === 'btc')!), null); assert.equal(originAdapter(cat.find(t => t.blockchain === 'near')!), null)
 })
 test('server route validation is strict against the trusted catalog', () => {
   const ok = validateRoute(cat, { originAsset: id('ETH', 'base'), destinationAsset: id('SOL', 'sol'), amount: '1000', recipient: SOL, refundTo: EVM })
   assert.equal(typeof ok, 'object')
   assert.match(validateRoute(cat, { originAsset: 'nep141:evil.near', destinationAsset: id('SOL', 'sol'), amount: '1', recipient: SOL, refundTo: EVM }) as string, /not in the NEAR Intents token list/)
-  assert.match(validateRoute(cat, { originAsset: id('USDC', 'sol'), destinationAsset: id('ETH', 'base'), amount: '1', recipient: EVM, refundTo: SOL }) as string, /cannot sign/)
+  assert.equal(typeof validateRoute(cat, { originAsset: id('USDC', 'sol'), destinationAsset: id('ETH', 'base'), amount: '1', recipient: EVM, refundTo: SOL }), 'object') // trusted SPL origin
+  assert.match(validateRoute(cat, { originAsset: cat.find(t => t.symbol === '$WIF')!.assetId, destinationAsset: id('ETH', 'base'), amount: '1', recipient: EVM, refundTo: SOL }) as string, /cannot sign/)
   assert.match(validateRoute(cat, { originAsset: id('ETH', 'base'), destinationAsset: id('SOL', 'sol'), amount: '1', recipient: EVM, refundTo: EVM }) as string, /Recipient/)
   assert.match(validateRoute(cat, { originAsset: id('ETH', 'base'), destinationAsset: id('SOL', 'sol'), amount: '-1', recipient: SOL, refundTo: EVM }) as string, /positive/)
   assert.match(validateRoute(cat, { originAsset: id('ETH', 'base'), destinationAsset: id('ETH', 'base'), amount: '1', recipient: EVM, refundTo: EVM }) as string, /direct transfer/)
@@ -36,6 +39,6 @@ test('backend: JWT guard kept, no appFees added, catalog validation used', () =>
   assert.doesNotMatch(s, /appFees|ALLOWED_ASSETS/); assert.match(s, /await validateQuoteInput/)
 })
 test('swap UI uses the catalog, not a hardcoded pair', () => {
-  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8'); const sw = app.slice(app.indexOf('function Swap('), app.indexOf('function Swap(') + 4000)
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8'); const sw = app.slice(app.indexOf('function Swap('), app.indexOf('function Swap(') + 12000)
   assert.match(sw, /normalizeTokens\(ts\)/); assert.match(sw, /<TokenPick /); assert.doesNotMatch(sw, /flip \? \{ s: 'USDC'/)
 })

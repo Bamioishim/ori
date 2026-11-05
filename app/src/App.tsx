@@ -24,6 +24,9 @@ import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
+import { executeSwap, type SwapReview } from './swapExec'
+import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
+import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
 import { TOKEN_LOGOS } from './tokenLogos'
@@ -346,7 +349,8 @@ function TokenPick({ value, cat, onChange, disabled, label, chainLabel }: { valu
     {!cat.length && <option value={value}>Loading tokens…</option>}
     {opts.map(t => <option key={t.assetId} value={t.assetId}>{t.symbol} · {chainLabel(t.blockchain)}{originAdapter(t) ? '' : ' · quote only'}</option>)}</select>
 }
-function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
+export type SwapPlan = { review: SwapReview; asset: AssetDef; settlement: SettlementQuote; label: string; lines: [string, string][] }
+function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null, plan?: SwapPlan) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [flip, setFlip] = useState(preset.flip)
   const [amt, setAmt] = useState(preset.amt)
   useEffect(() => { setFlip(preset.flip); setAmt(preset.amt) }, [preset.k])
@@ -364,7 +368,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
   const to = tk(toId) || { s: '…', c: '', b: '', id: toId, d: 6, p: undefined, t: null }
   const previewAddr = (b: string) => EVM_CATALOG_CHAINS.has(b) ? (refundEvm || PREVIEW.evm) : b === 'sol' ? PREVIEW.sol : b === 'near' ? 'preview.near' : null
   const exec = from.t ? originAdapter(from.t) : null
-  const routeNote = !cat.length ? 'Token list unavailable.' : from.id === to.id ? 'Pick two different assets.' : from.b === to.b && from.s === to.s ? 'Same asset on the same chain: use Send (direct transfer).' : !previewAddr(to.b) ? `ORI can't validate ${to.c} addresses yet, so no quote.` : !exec ? `Quote only: ORI can't sign a deposit from ${from.s} on ${from.c} yet.` : null
+  const routeNote = !cat.length ? 'Token list unavailable.' : from.id === to.id ? 'Same asset on the same chain: use Send (direct transfer).' : from.b === to.b && from.s === to.s ? 'Same asset on the same chain: use Send (direct transfer).' : !previewAddr(to.b) ? `ORI can't validate ${to.c} addresses yet, so no quote.` : !exec ? `Quote only: ORI can't sign a deposit from ${from.s} on ${from.c} yet.` : null
   const n = +amt || 0
   const units = from.t ? toUnits(amt, from.d) : null
   const canQuote = n > 0 && units && from.t && to.t && from.id !== to.id && !(from.b === to.b && from.s === to.s) && previewAddr(to.b) && previewAddr(from.b)
@@ -375,6 +379,27 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
   const limit = usdv > 0 ? limitCheck(cfg, usdv) : null
   const [sent, setSent] = useState<{ q: Quote; n: number; from: string; to: string } | null>(null)
   const busy = status !== 'idle'
+  const live = isSettlementEnabled()
+  const { list: wl } = useManagedWallets()
+  const ownFor = (b: string) => EVM_CATALOG_CHAINS.has(b) ? wl.find(w => w.chain === 'evm')?.address : b === 'sol' ? wl.find(w => w.chain === 'sol')?.address : undefined
+  const srcAcct = ownFor(from.b), dstAcct = ownFor(to.b)
+  const liveBlock = !live ? null : !exec ? 'Quote only · ORI cannot sign this deposit' : !srcAcct ? `Connect your ${from.c} wallet to swap` : !dstAcct ? `Connect your own ${to.c} wallet to receive` : null
+  const [prep, setPrep] = useState('')
+  const reviewLive = async (r: DOMRect) => {
+    if (!q.q || !exec || !srcAcct || !dstAcct || !units || !from.t || !to.t) return
+    setPrep('Getting a binding quote…')
+    try {
+      const st = await createSettlementQuote({ from: from.id, to: to.id, amount: units, recipient: dstAcct, refundTo: srcAcct })
+      const mo = String(st.quote.minAmountOut ?? st.quote.amountOut)
+      const review: SwapReview = { originAsset: from.id, destinationAsset: to.id, units, recipient: dstAcct, refundTo: srcAcct, originNet: exec.net, account: srcAcct, minOutUnits: BigInt(mo) * 995n / 1000n }
+      const asset: AssetDef = { sym: from.s, net: exec.net, decimals: from.d, kind: exec.kind, token: exec.token }
+      const outN = +st.quote.amountOut / 10 ** to.d, minN = +mo / 10 ** to.d
+      const label = `${n} ${from.s} → ${fmtOut(outN)} ${to.s}`
+      const lines: [string, string][] = [['Route', `${from.s} · ${from.c} → ${to.s} · ${to.c} (NEAR Intents)`], ['From account', short(srcAcct)], ['Deposit to', short(st.quote.depositAddress)], ['Recipient (yours)', short(dstAcct)], ['Refund to', short(srcAcct)], ['Minimum received', `${fmtOut(minN)} ${to.s}`], ['Provider fees', st.quote.amountInUsd && st.quote.amountOutUsd ? usd(+st.quote.amountInUsd - +st.quote.amountOutUsd) : '—'], ['Quote expires', st.quote.deadline ? fmtT(st.quote.deadline) : 'unknown · cannot send'], ['Approvals', 'None · direct transfer to the deposit address']]
+      setPrep(''); nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s })
+      onConfirm(r, q.q.amountInUsd, label, q.q.fee, { review, asset, settlement: st, label, lines })
+    } catch (e) { setPrep(`No binding quote: ${(e as Error).message}`) }
+  }
   return <div className="split swap-split">
     <section className="pad-top sa">
       <Label>SWAP · ONE TAP {px && <span className="live-tag">LIVE PRICES</span>}</Label>
@@ -396,19 +421,20 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
       <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? formatEta(q.q.eta) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
       <div className="row"><span className="grow">Minimum received</span><span className="num">{q.q ? fmtOut(q.q.minOut) + ' ' + to.s : '—'}</span></div>
-      <QuoteMeta q={q} extra={routeNote || 'Network fee is paid in your wallet; the total fee above is the provider spread/fees from the quote. ORI adds no app fee. Confirming runs a simulation with these live numbers. Nothing is signed or sent.'} />
+      <QuoteMeta q={q} extra={routeNote || 'Network fee is paid in your wallet; the total fee above is the provider spread/fees from the quote. ORI adds no app fee. ' + (live ? 'Review fetches a binding quote; your wallet signs one direct deposit. No token approvals.' : 'EXAMPLE mode: confirming simulates with these live numbers. Nothing is signed or sent.')} />
     </section>
     {status === 'sent' && sent
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>SWAP RECEIPT <span className="example">SIMULATED</span></Label>
+        <Label>SWAP RECEIPT <span className="example">{live ? 'SEE HISTORY FOR STATUS' : 'EXAMPLE · SIMULATED'}</span></Label>
         <div className="money-r">{sent.n} {sent.from} <span className="dim">→ {fmtOut(sent.q.amountOut)} {sent.to}</span></div>
         <div className="row"><span className="grow">Value in</span><span className="num">{usd(sent.q.amountInUsd)}</span></div>
         <div className="row"><span className="grow">Quoted fee</span><span className="num">{usd(sent.q.fee)}</span></div>
-        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · simulated · {formatEta(sent.q.eta)}</span></div>
-        <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)} · dry run</span></div>
+        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · {live ? 'live' : 'simulated'} · {formatEta(sent.q.eta)}</span></div>
+        <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)}{live ? '' : ' · dry run'}</span></div>
       </motion.div>
-      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"
-        onGo={r => { if (!q.q) return; nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
+      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (!(n > 0) ? 'Enter an amount' : !canQuote ? (routeNote || 'No quote for this route') : q.loading ? 'Waiting for a live quote' : q.err ? 'Live quote unavailable' : 'Waiting for a live quote') : liveBlock || (prep && prep.startsWith('Getting') ? prep : null)} limit={limit} status={status} busyLabel="Ori is swapping"
+        onGo={r => { if (!q.q) return; if (live) { void reviewLive(r); return } nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
+    {prep && !prep.startsWith('Getting') && <div className="mono xs err why">{prep}</div>}
   </div>
 }
 
@@ -565,7 +591,7 @@ export default function App() {
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
   const paymentInFlight = useRef(false)
   const confirm = (r: DOMRect, amt: number, to: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, run: () => doPay(r, amt, to) }) }
-  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, run: () => doSwap(r, v, detail) }) }
+  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null, plan?: SwapPlan) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: plan ? short(plan.review.recipient) + ' (yours)' : 'Your ORI wallet', amount: detail, usdv: v, chain: plan ? plan.lines[0][1] : /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: !!plan, lines: plan?.lines, run: () => doSwap(r, v, detail, plan) }) }
   const doPay = async (r: DOMRect, amt: number, to: string) => {
     if (paymentInFlight.current) return
     { const why = limitCheck(cfg, amt); if (why) { overLimit(r, why, `Payment of ${usd(amt)} to ${to}`); return } } // re-check at the signing boundary, not only on the card
@@ -607,7 +633,32 @@ export default function App() {
       }
     } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} No transaction was submitted.`) } } finally { paymentInFlight.current = false }
   }
-  const doSwap = async (r: DOMRect, v: number, detail: string) => { { const why = limitCheck(cfg, v); if (why) { overLimit(r, why, `Swap of ${usd(v)}`); return } } await celebrate(r, setSwapSt); addSpent(v); oriSay(`Swapped ${detail}, simulated at the live quote. Nothing was signed.`) }
+  const swapInFlight = useRef(false)
+  const doSwap = async (r: DOMRect, v: number, detail: string, plan?: SwapPlan) => {
+    { const why = limitCheck(cfg, v); if (why) { overLimit(r, why, `Swap of ${usd(v)}`); return } }
+    if (!plan) {
+      if (isSettlementEnabled()) { oriSay('No binding quote was reviewed, so nothing was sent.'); return } // live mode never falls back to a fake success
+      await celebrate(r, setSwapSt); addSpent(v); oriSay(`EXAMPLE: swapped ${detail}, simulated at the live quote. Nothing was signed.`); return
+    }
+    if (swapInFlight.current) return; swapInFlight.current = true
+    const w = window as unknown as { ethereum?: EvmProvider & { selectedAddress?: string }; solana?: SolProvider }
+    const tx = logTransaction({ kind: 'swap', status: 'submitted', amount: `-${detail}`, asset: plan.asset.sym, network: plan.lines[0][1], to: plan.review.recipient, note: 'Waiting for your wallet to sign the deposit' })
+    setSwapSt('running')
+    try {
+      const res = await executeSwap(plan.review, plan.asset, {
+        quote: async () => plan.settlement,
+        limit: () => limitCheck(cfg, v),
+        currentAccount: () => plan.asset.net === 'Solana' ? w.solana?.publicKey?.toString() ?? null : plan.review.account, // EVM account is re-verified inside sendEvm
+        deposit: (a, to, u) => a.net === 'Solana' ? (w.solana ? (a.kind === 'spl' ? sendSpl(w.solana, a, plan.review.account, to, u) : sendSol(w.solana, plan.review.account, to, u)) : Promise.reject(new Error('No Solana wallet found.'))) : (w.ethereum ? sendEvm(w.ethereum, a, plan.review.account, to, u) : Promise.reject(new Error('No EVM wallet found.'))),
+        status: dep => settlementStatus(dep),
+        onUpdate: (st, i) => { updateTransaction(tx.id, st === 'deposited' ? { status: 'pending', txHash: i.tx, note: `Deposit sent to ${short(i.depositAddress || '')}; waiting for NEAR Intents` } : { status: st === 'complete' ? 'completed' : st, note: st === 'complete' ? 'Provider reported SUCCESS' : st === 'refunded' ? 'Provider refunded the deposit to your wallet' : st === 'failed' ? 'Provider or chain reported failure' : 'Still processing; check history later' }) },
+      })
+      addSpent(v)
+      setSwapSt(res.state === 'complete' ? 'sent' : 'idle')
+      oriSay(res.state === 'complete' ? `Swap complete: ${detail}. Verified by the provider.` : res.state === 'refunded' ? 'The swap was refunded to your wallet.' : res.state === 'failed' ? 'The swap failed. Check history.' : 'Deposit sent; settlement still pending. I will not mark it complete until the provider confirms.')
+    } catch (e) { updateTransaction(tx.id, { status: 'cancelled', note: 'Not sent: ' + ((e as Error).message || 'wallet refused') }); setSwapSt('idle'); oriSay(((e as Error).message || 'The wallet did not sign.') + ' Nothing was sent.') }
+    finally { swapInFlight.current = false }
+  }
   const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
 
 

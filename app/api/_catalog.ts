@@ -26,11 +26,20 @@ export function validAddressFor(blockchain: string, a: string): boolean {
   return false
 }
 // Origins ORI can actually sign a deposit for, using its EVM (Ethereum/Base) and Solana wallet adapters.
-export type Executable = { net: 'Ethereum' | 'Base' | 'Solana'; kind: 'native' | 'erc20'; token?: string }
+export type Executable = { net: 'Ethereum' | 'Base' | 'Solana'; kind: 'native' | 'erc20' | 'spl'; token?: string }
+export const TRUSTED_SPL: Record<string, { sym: string; decimals: number }> = {
+  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: { sym: 'USDC', decimals: 6 },
+  Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: { sym: 'USDT', decimals: 6 },
+}
 export function originAdapter(t: CatalogToken): Executable | null {
   const net = t.blockchain === 'eth' ? 'Ethereum' : t.blockchain === 'base' ? 'Base' : t.blockchain === 'sol' ? 'Solana' : null
   if (!net) return null
-  if (net === 'Solana') return t.symbol === 'SOL' && !t.contractAddress ? { net, kind: 'native' } : null // SPL deposits not implemented yet
+  if (net === 'Solana') {
+    if (t.symbol === 'SOL' && !t.contractAddress) return { net, kind: 'native' }
+    // SPL deposits only for mints ORI pins (catalog symbol must also agree); anything else is quote-only.
+    const m = t.contractAddress && TRUSTED_SPL[t.contractAddress]
+    return m && m.sym === t.symbol && m.decimals === t.decimals ? { net, kind: 'spl', token: t.contractAddress! } : null
+  }
   if (!t.contractAddress) return t.symbol === 'ETH' ? { net, kind: 'native' } : null
   return /^0x[0-9a-fA-F]{40}$/.test(t.contractAddress) ? { net, kind: 'erc20', token: t.contractAddress.toLowerCase() } : null
 }

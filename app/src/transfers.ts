@@ -4,7 +4,7 @@
 import { decideLimit, type Caps } from './limits.ts'
 
 export type Net = 'Ethereum' | 'Base' | 'Solana' | 'NEAR'
-export type AssetDef = { sym: string; net: Net; decimals: number; kind: 'native' | 'erc20' | 'unsupported'; token?: string }
+export type AssetDef = { sym: string; net: Net; decimals: number; kind: 'native' | 'erc20' | 'spl' | 'unsupported'; token?: string }
 export const EVM_CHAINS: Record<'Ethereum' | 'Base', { chainId: string; rpc: string; explorer: string }> = {
   Ethereum: { chainId: '0x1', rpc: 'https://ethereum-rpc.publicnode.com', explorer: 'https://etherscan.io/tx/' },
   Base: { chainId: '0x2105', rpc: 'https://base-rpc.publicnode.com', explorer: 'https://basescan.org/tx/' },
@@ -17,6 +17,9 @@ export const ASSETS: AssetDef[] = [
   { sym: 'USDC', net: 'Ethereum', decimals: 6, kind: 'erc20', token: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' },
   { sym: 'USDC', net: 'Base', decimals: 6, kind: 'erc20', token: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' },
   { sym: 'SOL', net: 'Solana', decimals: 9, kind: 'native' },
+  // Trusted SPL mints (match the 1Click catalog contractAddress). transferChecked re-validates mint+decimals on-chain.
+  { sym: 'USDC', net: 'Solana', decimals: 6, kind: 'spl', token: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
+  { sym: 'USDT', net: 'Solana', decimals: 6, kind: 'spl', token: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB' },
   { sym: 'NEAR', net: 'NEAR', decimals: 24, kind: 'unsupported' },
 ]
 export const findAsset = (sym: string, net: string) => ASSETS.find(a => a.sym === sym && a.net === net) || null
@@ -59,6 +62,10 @@ export async function estimateFee(a: AssetDef, from: string, to: string, units: 
     const g = BigInt(gas), p = BigInt(price)
     return { feeUnits: g * p, feeSym: 'ETH', feeDecimals: 18, detail: `${g} gas × ${fromUnits(p, 9, 3)} gwei (network fee, from ${a.net} RPC; your wallet may adjust)` }
   }
+  if (a.net === 'Solana' && a.kind === 'spl') {
+    const plan = await splPlan(a, from, to, units, rpc)
+    return { feeUnits: plan.fee + plan.rent, feeSym: 'SOL', feeDecimals: 9, detail: plan.rent > 0n ? `Solana network fee + ${fromUnits(plan.rent, 9)} SOL rent to create the recipient's ${a.sym} token account (from RPC)` : 'Solana network fee (from RPC getFeeForMessage); recipient token account already exists' }
+  }
   if (a.net === 'Solana') {
     // a plain SOL transfer has 1 signature; base fee per signature from the chain's fee calculator
     const fee = await solTransferFee(from, to, units, rpc)
@@ -67,6 +74,46 @@ export async function estimateFee(a: AssetDef, from: string, to: string, units: 
   throw new Error(unsupportedReason(a) || 'Unsupported network.')
 }
 
+// SPL same-chain transfer: source/recipient associated token accounts (ATA) derived from the TRUSTED mint,
+// idempotent ATA creation if the recipient has none (payer = sender, rent shown), then transferChecked.
+export async function splInstructions(a: AssetDef, from: string, to: string, units: bigint, createAta: boolean) {
+  if (a.kind !== 'spl' || !a.token) throw new Error('Not an SPL asset.')
+  const { PublicKey } = await import('@solana/web3.js')
+  const spl = await import('@solana/spl-token')
+  const mint = new PublicKey(a.token), owner = new PublicKey(from), dest = new PublicKey(to)
+  const srcAta = spl.getAssociatedTokenAddressSync(mint, owner, false), dstAta = spl.getAssociatedTokenAddressSync(mint, dest, false)
+  const ix = [] as any[]
+  if (createAta) ix.push(spl.createAssociatedTokenAccountIdempotentInstruction(owner, dstAta, dest, mint))
+  ix.push(spl.createTransferCheckedInstruction(srcAta, mint, dstAta, owner, units, a.decimals))
+  return { ix, srcAta: srcAta.toBase58(), dstAta: dstAta.toBase58() }
+}
+export async function splPlan(a: AssetDef, from: string, to: string, units: bigint, rpc: Rpc = rpcFetch) {
+  const { PublicKey, TransactionMessage } = await import('@solana/web3.js')
+  const probe = await splInstructions(a, from, to, units, false)
+  const info = await rpc(SOL_RPC, 'getAccountInfo', [probe.dstAta, { encoding: 'base64' }])
+  const createAta = !info?.value
+  const { ix } = await splInstructions(a, from, to, units, createAta)
+  const [bh, rentMin] = await Promise.all([rpc(SOL_RPC, 'getLatestBlockhash', [{ commitment: 'finalized' }]), createAta ? rpc(SOL_RPC, 'getMinimumBalanceForRentExemption', [165]) : Promise.resolve(0)])
+  const msg = new TransactionMessage({ payerKey: new PublicKey(from), recentBlockhash: bh.value.blockhash, instructions: ix }).compileToV0Message()
+  const r = await rpc(SOL_RPC, 'getFeeForMessage', [btoa(String.fromCharCode(...msg.serialize())), { commitment: 'processed' }])
+  if (r?.value == null) throw new Error('Solana fee unavailable right now.')
+  return { createAta, rent: BigInt(rentMin), fee: BigInt(r.value), srcAta: probe.srcAta, dstAta: probe.dstAta }
+}
+export async function sendSpl(p: SolProvider, a: AssetDef, from: string, to: string, units: bigint, rpc: Rpc = rpcFetch, pollMs = 2000, polls = 40): Promise<SendResult> {
+  if (p.publicKey?.toString() !== from) throw new Error('The Solana wallet account changed. Review the transfer again.')
+  const { PublicKey, Transaction } = await import('@solana/web3.js')
+  const plan = await splPlan(a, from, to, units, rpc)
+  const { ix } = await splInstructions(a, from, to, units, plan.createAta)
+  const bh = await rpc(SOL_RPC, 'getLatestBlockhash', [{ commitment: 'finalized' }])
+  const tx = new Transaction({ feePayer: new PublicKey(from), recentBlockhash: bh.value.blockhash }).add(...ix)
+  const { signature } = await p.signAndSendTransaction(tx)
+  return pollSol(signature, rpc, pollMs, polls)
+}
+async function pollSol(signature: string, rpc: Rpc, pollMs: number, polls: number): Promise<SendResult> {
+  const explorer = 'https://solscan.io/tx/' + signature
+  for (let i = 0; i < polls; i++) { const r = await rpc(SOL_RPC, 'getSignatureStatuses', [[signature]]).catch(() => null); const s = r?.value?.[0]; if (s) { if (s.err) return { hash: signature, explorer, status: 'failed' }; if (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized') return { hash: signature, explorer, status: 'confirmed' } } await sleep(pollMs) }
+  return { hash: signature, explorer, status: 'pending' }
+}
 async function solTransferFee(from: string, to: string, lamports: bigint, rpc: Rpc): Promise<bigint> {
   const { PublicKey, SystemProgram, TransactionMessage } = await import('@solana/web3.js')
   const bh = await rpc(SOL_RPC, 'getLatestBlockhash', [{ commitment: 'finalized' }])
@@ -94,6 +141,11 @@ export async function balanceOf(a: AssetDef, owner: string, rpc: Rpc = rpcFetch)
     if (a.kind === 'native') return { asset: native, native }
     const raw = await rpc(c.rpc, 'eth_call', [{ to: a.token, data: '0x70a08231' + pad32(owner) }, 'latest'])
     return { asset: BigInt(raw === '0x' ? 0 : raw), native }
+  }
+  if (a.net === 'Solana' && a.kind === 'spl') {
+    const { srcAta } = await splInstructions(a, owner, owner, 1n, false)
+    const [nat, tb] = await Promise.all([rpc(SOL_RPC, 'getBalance', [owner]), rpc(SOL_RPC, 'getTokenAccountBalance', [srcAta]).catch(() => null)])
+    return { asset: BigInt(tb?.value?.amount ?? 0), native: BigInt(nat?.value ?? nat) }
   }
   if (a.net === 'Solana') { const r = await rpc(SOL_RPC, 'getBalance', [owner]); const v = BigInt(r?.value ?? r); return { asset: v, native: v } }
   throw new Error(unsupportedReason(a) || 'Unsupported network.')

@@ -4,7 +4,7 @@ export type Transaction = {
   id: string
   kind: 'send' | 'receive' | 'swap' | 'create'
   at: number
-  status: 'completed' | 'submitted' | 'pending' | 'failed' | 'cancelled'
+  status: 'completed' | 'submitted' | 'pending' | 'failed' | 'cancelled' | 'refunded'
   amount: string
   asset: string
   network: string

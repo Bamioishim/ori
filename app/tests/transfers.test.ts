@@ -17,7 +17,7 @@ test('same-chain transfers are direct (native value / ERC-20 transfer), never an
   const usdc = evmTxFor(findAsset('USDC', 'Ethereum')!, ME, YOU, 5n); assert.equal(usdc.to, '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'); assert.ok(usdc.data!.startsWith('0xa9059cbb' + '0'.repeat(24) + '22'.repeat(20)))
 })
 test('NEAR and unknown assets are explicitly unsupported (no fake success)', () => {
-  assert.match(unsupportedReason(findAsset('NEAR', 'NEAR'))!, /no NEAR wallet connector/); assert.ok(unsupportedReason(findAsset('USDT', 'Solana')))
+  assert.match(unsupportedReason(findAsset('NEAR', 'NEAR'))!, /no NEAR wallet connector/); assert.equal(unsupportedReason(findAsset('USDT', 'Solana')), null); assert.ok(!findAsset('DOGE', 'Solana'))
   assert.throws(() => evmTxFor(findAsset('NEAR', 'NEAR')!, ME, YOU, 1n))
 })
 test('EVM fee estimate comes from chain RPC (gas × gasPrice)', async () => {
