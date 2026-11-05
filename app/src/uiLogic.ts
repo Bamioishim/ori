@@ -43,3 +43,7 @@ export function flowParts(prev: string | null, next: string): { ch: string; chan
   const p = prev ?? next, off = next.length - p.length
   return [...next].map((ch, i) => ({ ch, changed: prev !== null && p[i - off] !== ch }))
 }
+
+// ---- Count-up progress. rAF timestamps can be EARLIER than the performance.now() taken when the animation
+// starts; an unclamped negative k made the ease extrapolate backwards (e.g. "$-88.35" flashing before $2,859.25).
+export const countProgress = (t: number, t0: number, ms: number) => Math.min(1, Math.max(0, (t - t0) / ms))

@@ -26,7 +26,7 @@ import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { CopyButton, PillTabs, PriceFlow } from './ui'
 import { MaskCtx, useMask, usePeekHandlers } from './mask'
-import { maskDigits } from './uiLogic'
+import { countProgress, maskDigits } from './uiLogic'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
 import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
@@ -82,7 +82,7 @@ const REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduce
 function useCount(target: number) {
   const [v, setV] = useState(0)
   const from = useRef(0)
-  useEffect(() => { if (REDUCED) { from.current = target; return } let r = 0; const t0 = performance.now(), a = from.current; const f = (t: number) => { const k = Math.min((t - t0) / 1400, 1); const nv = a + (target - a) * (1 - Math.pow(1 - k, 4)); from.current = nv; setV(nv); if (k < 1) r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => cancelAnimationFrame(r) }, [target])
+  useEffect(() => { if (REDUCED) { from.current = target; return } let r = 0; const t0 = performance.now(), a = from.current; const f = (t: number) => { const k = countProgress(t, t0, 1400); const nv = a + (target - a) * (1 - Math.pow(1 - k, 4)); from.current = nv; setV(nv); if (k < 1) r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => cancelAnimationFrame(r) }, [target])
   return REDUCED ? target : v
 }
 function Money({ v, cls = '' }: { v: number; cls?: string }) {

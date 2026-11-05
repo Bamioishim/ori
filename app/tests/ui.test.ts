@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { copyText, flowParts, maskDigits, sanitizeOtp, SLIDE_IDLE, slideStep, type SlideEvent, type SlideState } from '../src/uiLogic.ts'
+import { countProgress, copyText, flowParts, maskDigits, sanitizeOtp, SLIDE_IDLE, slideStep, type SlideEvent, type SlideState } from '../src/uiLogic.ts'
 const run = (evs: SlideEvent[], disabled = false, s0: SlideState = SLIDE_IDLE) => { let s = s0, fires = 0; for (const e of evs) { const r = slideStep(s, e, disabled); s = r.s; if (r.fire) fires++ } return { s, fires } }
 test('slide: only a full travel while held confirms, exactly once', () => {
   assert.deepEqual(run([{ t: 'down' }, { t: 'move', frac: .5 }, { t: 'move', frac: .99 }]).fires, 1)
@@ -43,3 +43,9 @@ test('price flow is display-only: text is unchanged, only differing chars flagge
   assert.equal(flowParts('9.99', '10.01').map(x => x.ch).join(''), '10.01')
 })
 test('masked balance keeps layout, hides every digit', () => { assert.equal(maskDigits('1,234'), '•,•••'); assert.equal(maskDigits('0.0042'), '•.••••') })
+test('count-up never extrapolates: rAF time before start clamps to 0, so values stay between start and target', () => {
+  const ease = (a: number, b: number, t: number, t0: number) => { const k = countProgress(t, t0, 1400); return a + (b - a) * (1 - Math.pow(1 - k, 4)) }
+  assert.equal(countProgress(990, 1000, 1400), 0); assert.equal(countProgress(5000, 1000, 1400), 1)
+  for (const t of [960, 990, 1000, 1300, 2400, 9000]) { const v = ease(0, 2859.25, t, 1000); assert.ok(v >= 0 && v <= 2859.25, String(v)) }
+  assert.ok(ease(0, 2859.25, 984, 1000) === 0) // the old formula gave about -130 here
+})
