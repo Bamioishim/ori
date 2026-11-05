@@ -79,7 +79,7 @@ nav button.on{color:var(--white)}nav i{position:absolute;top:-11px;left:22%;righ
 section{padding:30px 0}
 
 /* Ori */
-.ori{position:fixed;left:0;top:0;z-index:45;cursor:grab;touch-action:none;width:56px;height:56px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
+.ori{position:fixed;user-select:none;-webkit-user-select:none;left:0;top:0;z-index:45;cursor:grab;touch-action:none;width:56px;height:56px;filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
 .ori:active{cursor:grabbing}
 .ori svg{display:block;margin:-6px 0 0 -6px}
 .legs.walking .lg1{animation:step .32s ease-in-out infinite alternate;transform-origin:50px 92px}

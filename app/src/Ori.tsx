@@ -124,6 +124,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
   const moveTo = useCallback(async (tx: number, ty: number, how: 'walk' | 'float' | 'dash' = 'walk') => {
     const minX = off() - 8, maxX = off() + vw() - S + 8
     tx = Math.max(minX - 30, Math.min(maxX + 30, tx)); ty = offNumbers(tx, Math.max(6, Math.min(innerHeight - S - 4, ty)))
+    { const z = dockZone(off(), vw()); tx = Math.max(z.l, Math.min(z.r, tx)); ty = Math.max(z.t, Math.min(z.b, ty)) } // every programmatic move stays in the reserved zone
     setFace(tx < x.get() ? -1 : 1)
     if (reduced) { x.set(tx); y.set(ty); return }
     const d = Math.hypot(tx - x.get(), ty - y.get())
@@ -143,7 +144,8 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     let retreating = false
     const i = window.setInterval(() => {
       const el = oriEl.current; if (!el || retreating || busy.current === 'drag') return
-      if (overlapsNumbers(el.getBoundingClientRect())) { retreating = true; toDock('dash').finally(() => { retreating = false }) }
+      const b = el.getBoundingClientRect(), z = zone(), out = b.left < z.l - 12 || b.left > z.r + 12 || b.top < z.t - 12 || b.top > z.b + 12
+      if (overlapsNumbers(b) || (out && !moving)) { retreating = true; toDock('dash').finally(() => { retreating = false }) }
     }, 120)
     return () => clearInterval(i)
   })
@@ -303,7 +305,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
   return <>
     <motion.div ref={oriEl} className="ori" style={{ x, y }} drag dragMomentum={false} onPointerDownCapture={passDown} onPointerUpCapture={passUp}
       onDragStart={() => { busy.current = 'drag'; setPose('float') }}
-      onDragEnd={() => { busy.current = null; setPose('idle') }}
+      onDragEnd={() => { busy.current = null; setPose('idle'); window.setTimeout(() => { if (!busy.current) toDock() }, 600) }}
       onTap={tap} onHoverStart={() => { setHover(true); if (!busy.current && !bubble && Math.random() < 0.6) say(HOVER[Math.floor(Math.random() * HOVER.length)], 1800) }} onHoverEnd={() => setHover(false)}
       whileHover={reduced ? undefined : { scale: 1.08 }} aria-label="Ori, your ORI agent. Click to talk, double-click to spin." role="button">
       <div ref={hop}><motion.div animate={reduced || moving ? {} : { y: pose === 'float' ? [0, -4, 0] : [0, -1.5, 0] }} transition={{ repeat: Infinity, duration: pose === 'float' ? 1.8 : 2.6 }}>
