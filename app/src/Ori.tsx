@@ -74,6 +74,18 @@ export function OriSprite({ pose, face = 1, moving = false, look = { x: 0, y: 0 
 
 type Props = { hidden: boolean; reduced: boolean; screen: string; onTap: () => void; balance?: number | null; chat?: boolean }
 const HOVER = ['Hi there.', 'Need something? Click me.', 'I’m watching your back.', 'Double-click me. Go on.', 'Ask me about prices.']
+// Ori must never cover financial figures: nudge a target box off any money element.
+const NUMBERS_SEL = '.money, .total, .mh-bal'
+function offNumbers(tx: number, ty: number): number {
+  const pad = 6, rs = Array.from(document.querySelectorAll<HTMLElement>(NUMBERS_SEL)).map(e => e.getBoundingClientRect()).filter(r => r.width && r.height)
+  for (let i = 0; i < 4; i++) {
+    const hit = rs.find(r => tx < r.right + pad && tx + S > r.left - pad && ty < r.bottom + pad && ty + S > r.top - pad)
+    if (!hit) break
+    const below = hit.bottom + pad, above = hit.top - S - pad
+    ty = below + S <= innerHeight - 4 && (above < 6 || below - ty <= ty - above) ? below : above
+  }
+  return Math.max(6, Math.min(innerHeight - S - 4, ty))
+}
 const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, onTap, balance = null }, ref) {
   const vw = () => innerWidth >= 1024 ? innerWidth : Math.min(innerWidth, innerWidth >= 768 ? 760 : 480), off = () => (innerWidth - vw()) / 2
   const x = useMotionValue(off() + vw() - 80), y = useMotionValue(innerHeight - 170)
@@ -94,7 +106,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
 
   const moveTo = useCallback(async (tx: number, ty: number, how: 'walk' | 'float' | 'dash' = 'walk') => {
     const minX = off() - 8, maxX = off() + vw() - S + 8
-    tx = Math.max(minX - 30, Math.min(maxX + 30, tx)); ty = Math.max(6, Math.min(innerHeight - S - 4, ty))
+    tx = Math.max(minX - 30, Math.min(maxX + 30, tx)); ty = offNumbers(tx, Math.max(6, Math.min(innerHeight - S - 4, ty)))
     setFace(tx < x.get() ? -1 : 1)
     if (reduced) { x.set(tx); y.set(ty); return }
     const d = Math.hypot(tx - x.get(), ty - y.get())
@@ -107,6 +119,8 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
 
   const say = useCallback((t: string, ms = 3200) => { clearTimeout(bTimer.current); setBubble(t); bTimer.current = window.setTimeout(() => setBubble(null), Math.min(Math.max(ms, 1400), 4500)) }, [])
 
+  // keep the resting spot off the numbers after layout and screen changes (also covers reduced motion)
+  useEffect(() => { const t = window.setTimeout(() => { if (!busy.current) y.set(offNumbers(x.get(), y.get())) }, 700); return () => clearTimeout(t) }, [screen, hidden, x, y])
   // roaming brain
   useEffect(() => {
     if (reduced) return
@@ -118,8 +132,8 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
           const r = Math.random()
           const els = [...document.querySelectorAll<HTMLElement>('.row, .asset, .arow, section, header')].map(e => e.getBoundingClientRect()).filter(b => b.bottom > 90 && b.bottom < innerHeight - 110)
           const total = document.querySelector('.total')?.getBoundingClientRect()
-          if (r < 0.22 && total && total.top > 60 && total.top < innerHeight - 200) { // sit on the balance
-            await moveTo(total.left + total.width * 0.62, total.top - S + 10, 'float'); if (!busy.current) setPose('sit'); await sleep(2600)
+          if (r < 0.22 && total && total.top > 60 && total.top < innerHeight - 200) { // sit just below the balance, never on it
+            await moveTo(total.left + total.width * 0.62, total.bottom + 8, 'float'); if (!busy.current) setPose('sit'); await sleep(2600)
           } else if (r < 0.5 && els.length) { // climb onto a hairline
             const b = els[Math.floor(Math.random() * els.length)]
             await moveTo(x.get(), b.bottom - S - 2, 'float'); await moveTo(rand(off() + 10, off() + vw() - S - 10), b.bottom - S - 2, 'walk'); if (!busy.current) setPose('idle'); await sleep(rand(1200, 2200))
@@ -139,9 +153,9 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
   // follow scroll: drift with the page, then settle
   useEffect(() => {
     let last = scrollY
-    const f = () => { const d = scrollY - last; last = scrollY; if (busy.current || reduced) return; y.set(Math.max(6, Math.min(innerHeight - S - 4, y.get() - d * 0.6))); setPose('float') }
+    const f = () => { const d = scrollY - last; last = scrollY; if (busy.current || reduced) return; y.set(offNumbers(x.get(), Math.max(6, Math.min(innerHeight - S - 4, y.get() - d * 0.6)))); setPose('float') }
     addEventListener('scroll', f, { passive: true }); return () => removeEventListener('scroll', f)
-  }, [reduced, y])
+  }, [reduced, x, y])
 
   // dodge taps near him
   useEffect(() => {
@@ -188,7 +202,7 @@ const Ori = forwardRef<OriApi, Props>(function Ori({ hidden, reduced, screen, on
     if (prev == null || balance == null || Math.abs(balance - prev) < 0.005 || busy.current) return
     const t = document.querySelector('.total, .money')?.getBoundingClientRect()
     busy.current = 'peekbal'
-    ;(async () => { if (t && t.top > 40 && t.top < innerHeight - 120) await moveTo(t.right - 10, t.top - S + 8, 'float'); setPose('peek'); setExpr(balance > prev ? 'happy' : 'worried', 2200); await sleep(2200); if (busy.current === 'peekbal') { busy.current = null; setPose('idle') } })()
+    ;(async () => { if (t && t.top > 40 && t.top < innerHeight - 120) await moveTo(t.right + 8, t.bottom + 8, 'float'); setPose('peek'); setExpr(balance > prev ? 'happy' : 'worried', 2200); await sleep(2200); if (busy.current === 'peekbal') { busy.current = null; setPose('idle') } })()
   }, [balance])
   const spin = () => { if (!hop.current) return; setExpr('happy', 1400); say(['Wheee.', 'Again?', 'Ta-da.'][Math.floor(Math.random() * 3)], 1400); if (!reduced) animate(hop.current, { rotate: [0, 360], y: [0, -34, 0] }, { duration: .8, ease: [0.3, 0, 0.2, 1] }) }
   // touch tap-through: if Ori is sitting on a control, a touch on Ori goes to that control and Ori moves aside
