@@ -4,7 +4,7 @@ export default async function handler(request: Request) {
   if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405)
   let body: unknown
   try { body = await request.json() } catch { return json({ error: 'Invalid JSON body.' }, 400) }
-  const input = validateQuoteInput(body)
+  const input = await validateQuoteInput(body)
   if (typeof input === 'string') return json({ error: input }, 400)
   return oneClick('/quote', {
     method: 'POST',

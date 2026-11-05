@@ -18,7 +18,8 @@ import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUS
 import { speak } from './voice'
 import { ReceiveScreen } from './Receive'
 import { SendScreen } from './Send'
-import { findAsset, unsupportedReason } from './transfers'
+import { findAsset, toUnits, unsupportedReason } from './transfers'
+import { EVM_CHAINS as EVM_CATALOG_CHAINS, normalizeTokens, originAdapter, type CatalogToken } from '../api/_catalog.ts'
 import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
@@ -339,16 +340,35 @@ function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: 
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : extra || 'Enter an amount for a live quote.'}</div>
   return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {formatEta(q.q.eta)} after deposit · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
+function TokenPick({ value, cat, onChange, disabled, label, chainLabel }: { value: string; cat: CatalogToken[]; onChange: (v: string) => void; disabled: boolean; label: string; chainLabel: (b: string) => string }) {
+  const opts = [...cat].sort((a, b) => a.blockchain.localeCompare(b.blockchain) || a.symbol.localeCompare(b.symbol))
+  return <select className="history-filter" value={value} onChange={e => onChange(e.target.value)} disabled={disabled || !cat.length} aria-label={label}>
+    {!cat.length && <option value={value}>Loading tokens…</option>}
+    {opts.map(t => <option key={t.assetId} value={t.assetId}>{t.symbol} · {chainLabel(t.blockchain)}{originAdapter(t) ? '' : ' · quote only'}</option>)}</select>
+}
 function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [flip, setFlip] = useState(preset.flip)
   const [amt, setAmt] = useState(preset.amt)
   useEffect(() => { setFlip(preset.flip); setAmt(preset.amt) }, [preset.k])
-  const [px, setPx] = useState<{ sol: number; usdc: number } | null>(null)
-  useEffect(() => { tokens().then(ts => setPx({ sol: ts.find(t => t.assetId === ASSET.SOL)!.price, usdc: ts.find(t => t.assetId === ASSET.baseUSDC)!.price })).catch(() => { }) }, [])
+  // Token choices come from the live 1Click catalog (normalized + validated), not a hardcoded pair.
+  const [cat, setCat] = useState<CatalogToken[]>([])
+  useEffect(() => { tokens().then(ts => setCat(normalizeTokens(ts))).catch(() => setCat([])) }, [])
+  const px = cat.length ? true : null
+  const [ids, setIds] = useState<[string, string]>([ASSET.SOL, ASSET.baseUSDC])
+  useEffect(() => { if (preset.flip) setIds([ASSET.baseUSDC, ASSET.SOL]) }, [preset.k]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [fromId, toId] = flip ? [ids[1], ids[0]] : ids
+  const setFromId = (v: string) => setIds(flip ? [ids[0], v] : [v, ids[1]]), setToId = (v: string) => setIds(flip ? [v, ids[1]] : [ids[0], v])
+  const chainLabel = (b: string) => ({ eth: 'Ethereum', base: 'Base', sol: 'Solana', near: 'NEAR', arb: 'Arbitrum', op: 'Optimism', pol: 'Polygon', bsc: 'BNB Chain', avax: 'Avalanche', btc: 'Bitcoin' } as Record<string, string>)[b] || b
+  const tk = (id: string) => { const t = cat.find(x => x.assetId === id); return t ? { s: t.symbol, c: chainLabel(t.blockchain), b: t.blockchain, id: t.assetId, d: t.decimals, p: t.price || undefined, t } : null }
+  const from = tk(fromId) || { s: '…', c: '', b: '', id: fromId, d: 9, p: undefined, t: null }
+  const to = tk(toId) || { s: '…', c: '', b: '', id: toId, d: 6, p: undefined, t: null }
+  const previewAddr = (b: string) => EVM_CATALOG_CHAINS.has(b) ? (refundEvm || PREVIEW.evm) : b === 'sol' ? PREVIEW.sol : b === 'near' ? 'preview.near' : null
+  const exec = from.t ? originAdapter(from.t) : null
+  const routeNote = !cat.length ? 'Token list unavailable.' : from.id === to.id ? 'Pick two different assets.' : from.b === to.b && from.s === to.s ? 'Same asset on the same chain: use Send (direct transfer).' : !previewAddr(to.b) ? `ORI can't validate ${to.c} addresses yet, so no quote.` : !exec ? `Quote only: ORI can't sign a deposit from ${from.s} on ${from.c} yet.` : null
   const n = +amt || 0
-  const from = flip ? { s: 'USDC', c: 'Base', id: ASSET.baseUSDC, d: 6, p: px?.usdc } : { s: 'SOL', c: 'Solana', id: ASSET.SOL, d: 9, p: px?.sol }
-  const to = flip ? { s: 'SOL', c: 'Solana', id: ASSET.SOL, d: 9, p: px?.sol } : { s: 'USDC', c: 'Base', id: ASSET.baseUSDC, d: 6, p: px?.usdc }
-  const q = useQuote(n > 0 ? { from: from.id, to: to.id, amount: BigInt(Math.round(n * 10 ** from.d)), recipient: to.c === 'Base' ? refundEvm : PREVIEW.sol, refundTo: from.c === 'Base' ? refundEvm : PREVIEW.sol, outDecimals: to.d } : null, `${n}|${flip}`)
+  const units = from.t ? toUnits(amt, from.d) : null
+  const canQuote = n > 0 && units && from.t && to.t && from.id !== to.id && !(from.b === to.b && from.s === to.s) && previewAddr(to.b) && previewAddr(from.b)
+  const q = useQuote(canQuote ? { from: from.id, to: to.id, amount: units!, recipient: previewAddr(to.b)!, refundTo: previewAddr(from.b)!, outDecimals: to.d } : null, `${amt}|${from.id}|${to.id}`)
   const out = q.q ? q.q.amountOut : null
   const fmtOut = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: to.d === 9 ? 4 : 2 })
   const usdv = q.q ? q.q.amountInUsd : n * (from.p || 0)
@@ -360,13 +380,13 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
       <Label>SWAP · ONE TAP {px && <span className="live-tag">LIVE PRICES</span>}</Label>
       <div className="swapbox">
         <span className="mono xs dim">SEND</span>
-        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><span>{from.s}<br /><span className="mono xs dim">{from.c}</span></span></div>
+        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenPick value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} /></div>
         <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}</span>
         <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label="Flip direction">⇅</motion.button>
       </div>
       <div className="swapbox">
         <span className="mono xs dim">RECEIVE</span>
-        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? fmtOut(out) : '—'}</span><span>{to.s}<br /><span className="mono xs dim">{to.c}</span></span></div>
+        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? fmtOut(out) : '—'}</span><TokenPick value={to.id} cat={cat} onChange={setToId} disabled={busy} label="Receive asset" chainLabel={chainLabel} /></div>
         <span className="mono xs dim">{q.q ? usd(q.q.amountOutUsd) : ' '}{limit && <span className="limitnote"> · {limit}</span>}</span>
       </div>
     </section>
@@ -376,7 +396,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
       <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? formatEta(q.q.eta) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
       <div className="row"><span className="grow">Minimum received</span><span className="num">{q.q ? fmtOut(q.q.minOut) + ' ' + to.s : '—'}</span></div>
-      <QuoteMeta q={q} extra="Confirming runs a simulation with these live numbers. Nothing is signed or sent." />
+      <QuoteMeta q={q} extra={routeNote || 'Network fee is paid in your wallet; the total fee above is the provider spread/fees from the quote. ORI adds no app fee. Confirming runs a simulation with these live numbers. Nothing is signed or sent.'} />
     </section>
     {status === 'sent' && sent
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
