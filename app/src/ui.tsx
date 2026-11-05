@@ -24,13 +24,13 @@ export function SlideConfirm({ label, disabled, onConfirm }: { label: string; di
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { send({ t: 'cancel' }); return }
     if (e.key !== 'Enter' && e.key !== ' ') return
-    e.preventDefault(); const s = send({ t: 'key' })
+    e.preventDefault(); const s = send({ t: 'key', repeat: e.repeat })
     clearTimeout(armT.current); if (s.phase === 'armed') armT.current = window.setTimeout(() => send({ t: 'timeout' }), 5000)
   }
-  const hint = disabled ? label : st.phase === 'armed' ? 'Press Enter again to confirm · Esc cancels' : st.phase === 'done' ? 'Confirmed' : label
+  const hint = disabled ? label : st.phase === 'armed' ? 'Release, then press Enter again to confirm · Esc cancels' : st.phase === 'done' ? 'Confirmed' : label
   return <div ref={track} className={'slide' + (disabled ? ' off' : '') + (st.phase === 'armed' ? ' armed' : '') + (st.phase === 'done' ? ' done' : '')}
     role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled} aria-label={disabled ? label : `${label}. Slide the handle all the way right, or press Enter twice.`}
-    onKeyDown={onKey} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => send({ t: 'up' })} onPointerCancel={() => send({ t: 'cancel' })} onLostPointerCapture={() => send({ t: 'up' })} onContextMenu={e => e.preventDefault()}>
+    onKeyDown={onKey} onKeyUp={e => { if (e.key === 'Enter' || e.key === ' ') send({ t: 'keyup' }) }} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => send({ t: 'up' })} onPointerCancel={() => send({ t: 'cancel' })} onLostPointerCapture={() => send({ t: 'up' })} onContextMenu={e => e.preventDefault()}>
     <span className={'slide-fill' + (st.phase === 'drag' || reduce ? '' : ' ease')} style={{ width: `calc(52px + (100% - 56px) * ${st.frac})` }} />
     <span className="slide-label" aria-live="polite">{hint}</span>
     <span className={'slide-knob' + (st.phase === 'drag' || reduce ? '' : ' ease')} aria-hidden style={{ left: `calc(4px + (100% - 56px) * ${st.frac})` }}>{st.phase === 'done' ? '✓' : '→'}</span>

@@ -111,7 +111,7 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 ### UI micro-interactions (original ORI code, Nov 5)
 These are UI only. None of them changes signing, limits, the review sheet or the wallet's own approval.
 
-- **Slide to confirm.** It replaces hold-to-confirm above the approval threshold, on the confirm sheet and on the card buttons. The handle must travel all the way while held. Letting go early or a pointer cancel resets it. It is disabled while the action is blocked and fires once only. Keyboard and screen-reader users press Enter twice; Esc or a 5 s timeout disarms it. The wallet still asks separately: this is a UI gesture, not a security control.
+- **Slide to confirm.** On the cards, a tap only opens the review sheet. Above the approval threshold, the review sheet replaces hold-to-confirm with a slide: the handle must travel all the way while held, and letting go early or a pointer cancel resets it. It is disabled while the action is blocked and fires once only. Keyboard and screen-reader users press Enter (or Space), release it, then press again. Holding the key or auto-repeat never confirms, and Esc or a 5 s timeout disarms it. Below the threshold, the sheet is a single tap. The wallet still asks separately: this is a UI gesture, not a security control.
 - **Copy buttons** show a check only when the browser confirms the clipboard write. Otherwise they say "Copy failed".
 - **Hidden balance** masks every digit (`•`) wherever amounts appear. Pressing and holding the balance peeks while held.
 - **Live quote numbers:** changed digits ease in (price flow). The values are never altered and get no gain/loss colouring.

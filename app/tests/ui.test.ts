@@ -13,14 +13,21 @@ test('slide: partial travel, release, pointer cancel all reset without confirmin
   assert.equal(run([{ t: 'down' }, { t: 'move', frac: NaN }]).s.frac, 0)
 })
 test('slide: disabled ignores everything and resets', () => {
-  assert.equal(run([{ t: 'down' }, { t: 'move', frac: 1 }, { t: 'key' }, { t: 'key' }], true).fires, 0)
+  assert.equal(run([{ t: 'down' }, { t: 'move', frac: 1 }, { t: 'key' }, { t: 'keyup' }, { t: 'key' }], true).fires, 0)
   assert.deepEqual(run([{ t: 'move', frac: 1 }], true, { phase: 'drag', frac: .8 }).s, SLIDE_IDLE)
 })
 test('slide keyboard: needs two explicit presses; timeout or Esc disarms', () => {
   assert.equal(run([{ t: 'key' }]).fires, 0); assert.equal(run([{ t: 'key' }]).s.phase, 'armed')
-  assert.equal(run([{ t: 'key' }, { t: 'key' }]).fires, 1)
-  assert.equal(run([{ t: 'key' }, { t: 'timeout' }, { t: 'key' }]).fires, 0)
-  assert.equal(run([{ t: 'key' }, { t: 'cancel' }, { t: 'key' }]).fires, 0)
+  assert.equal(run([{ t: 'key' }, { t: 'keyup' }, { t: 'key' }]).fires, 1)
+  assert.equal(run([{ t: 'key' }, { t: 'key' }]).fires, 0) // second keydown without a release (held key) never confirms
+  assert.equal(run([{ t: 'key' }, { t: 'keyup' }, { t: 'timeout' }, { t: 'key' }]).fires, 0)
+  assert.equal(run([{ t: 'key' }, { t: 'keyup' }, { t: 'cancel' }, { t: 'key' }]).fires, 0)
+})
+test('slide keyboard: held Enter auto-repeat never confirms', () => {
+  const held = [{ t: 'key' }, ...Array.from({ length: 30 }, () => ({ t: 'key', repeat: true }))] as SlideEvent[]
+  assert.equal(run(held).fires, 0); assert.equal(run(held).s.phase, 'armed')
+  assert.equal(run([...held, { t: 'keyup' }, { t: 'key', repeat: true }]).fires, 0) // a stray repeat after release still does not count
+  assert.equal(run([...held, { t: 'keyup' }, { t: 'key' }]).fires, 1)
 })
 test('OTP sanitization: digits only, capped, paste with spaces/dashes', () => {
   assert.equal(sanitizeOtp('12 34-56'), '123456'); assert.equal(sanitizeOtp('1234567890'), '123456'); assert.equal(sanitizeOtp('ab'), ''); assert.equal(sanitizeOtp('98765', 4), '9876'); assert.equal(sanitizeOtp(undefined as any), '')

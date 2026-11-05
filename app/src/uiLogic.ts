@@ -2,8 +2,8 @@
 
 // ---- Slide to confirm: deliberate full travel, once-only, keyboard two-step with the same explicit intent.
 export type SlidePhase = 'idle' | 'drag' | 'armed' | 'done'
-export type SlideState = { phase: SlidePhase; frac: number }
-export type SlideEvent = { t: 'down' } | { t: 'move'; frac: number } | { t: 'up' } | { t: 'cancel' } | { t: 'key' } | { t: 'timeout' }
+export type SlideState = { phase: SlidePhase; frac: number; released?: boolean }
+export type SlideEvent = { t: 'down' } | { t: 'move'; frac: number } | { t: 'up' } | { t: 'cancel' } | { t: 'key'; repeat?: boolean } | { t: 'keyup' } | { t: 'timeout' }
 export const SLIDE_COMMIT = 0.98 // must reach (almost) the very end of the track while the pointer is still down
 export const SLIDE_IDLE: SlideState = { phase: 'idle', frac: 0 }
 export function slideStep(s: SlideState, e: SlideEvent, disabled: boolean): { s: SlideState; fire: boolean } {
@@ -17,7 +17,11 @@ export function slideStep(s: SlideState, e: SlideEvent, disabled: boolean): { s:
       return f >= SLIDE_COMMIT ? { s: { phase: 'done', frac: 1 }, fire: true } : { s: { phase: 'drag', frac: f }, fire: false }
     }
     case 'up': case 'cancel': return { s: s.phase === 'drag' ? SLIDE_IDLE : s.phase === 'armed' && e.t === 'cancel' ? SLIDE_IDLE : s, fire: false }
-    case 'key': return s.phase === 'armed' ? { s: { phase: 'done', frac: 1 }, fire: true } : s.phase === 'idle' ? { s: { phase: 'armed', frac: 0 }, fire: false } : { s, fire: false }
+    case 'key': // two distinct presses: auto-repeat is ignored and the key must be released in between
+      if (e.repeat) return { s, fire: false }
+      if (s.phase === 'armed') return s.released ? { s: { phase: 'done', frac: 1 }, fire: true } : { s, fire: false }
+      return s.phase === 'idle' ? { s: { phase: 'armed', frac: 0, released: false }, fire: false } : { s, fire: false }
+    case 'keyup': return { s: s.phase === 'armed' ? { ...s, released: true } : s, fire: false }
     case 'timeout': return { s: s.phase === 'armed' ? SLIDE_IDLE : s, fire: false }
   }
 }

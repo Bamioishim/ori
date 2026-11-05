@@ -28,7 +28,7 @@ export function PolicyScreen({ s, set }: P) {
     <section><Label>APPROVAL THRESHOLD</Label>
       <div className="row"><span className="grow">Extra confirmation above<br /><span className="mono xs dim">Above this, you slide the handle all the way across (or press Enter twice) on the confirmation sheet. Below it, one tap.</span></span><Num v={s.holdAbove} onChange={v => set({ holdAbove: v })} step={5} /></div>
       <div className="policy-sum mono xs">
-        <span>≤ {usd(s.holdAbove)} · TAP</span><span>≤ {usd(s.perPay)} · HOLD</span><span className="bad">&gt; {usd(s.perPay)} · BLOCKED</span></div></section>
+        <span>≤ {usd(s.holdAbove)} · TAP</span><span>≤ {usd(s.perPay)} · SLIDE</span><span className="bad">&gt; {usd(s.perPay)} · BLOCKED</span></div></section>
     <section className="pg-wide"><Label>RECIPIENT ALLOWLIST · {s.trusted.length}</Label>
       <AnimatePresence initial={false}>{s.trusted.map(t => <motion.div layout className="row" key={t} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={spring}>
         <span className="grow">{t.length > 24 ? short(t) : t}</span><span className="mono xs ok-tag">ALLOWLISTED</span>

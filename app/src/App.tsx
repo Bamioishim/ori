@@ -24,7 +24,7 @@ import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
-import { CopyButton, PillTabs, PriceFlow, SlideConfirm } from './ui'
+import { CopyButton, PillTabs, PriceFlow } from './ui'
 import { MaskCtx, useMask, usePeekHandlers } from './mask'
 import { maskDigits } from './uiLogic'
 import { executeSwap, type SwapReview } from './swapExec'
@@ -260,12 +260,10 @@ const fmtT = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: 
 
 export type Draft = { to: string; amt: string; k: number }
 const FLAGGED = /drain|scam|claim-airdrop/i // local demo heuristic for handles; real addresses go to GoPlus
-function ConfirmBtn({ label, need, blocked, limit, status, busyLabel, onGo, onLimit, btn }: { label: string; need: boolean; blocked: string | null; limit: string | null; status: string; busyLabel: string; onGo: (r: DOMRect) => void; onLimit: (r: DOMRect, why: string) => void; btn?: React.RefObject<HTMLButtonElement | null> }) {
-  const own = useRef<HTMLButtonElement>(null); const cta = btn || own; const wrap = useRef<HTMLDivElement>(null)
-  const go = () => { const r = (cta.current || wrap.current)!.getBoundingClientRect(); if (limit) { onLimit(r, limit); return } onGo(r) }
-  // Above the approval threshold the review is opened by a deliberate full slide (or Enter twice), never a tap.
-  const [round, setRound] = useState(0) // remount after a confirm so a cancelled review can be slid again
-  if (need && !blocked && !limit && status === 'idle') return <div ref={wrap} className="sa2"><SlideConfirm key={round} label={'Slide to ' + label} disabled={false} onConfirm={() => { go(); window.setTimeout(() => setRound(n => n + 1), 700) }} /></div>
+function ConfirmBtn({ label, blocked, limit, status, busyLabel, onGo, onLimit, btn }: { label: string; need: boolean; blocked: string | null; limit: string | null; status: string; busyLabel: string; onGo: (r: DOMRect) => void; onLimit: (r: DOMRect, why: string) => void; btn?: React.RefObject<HTMLButtonElement | null> }) {
+  const own = useRef<HTMLButtonElement>(null); const cta = btn || own
+  const go = () => { const r = cta.current!.getBoundingClientRect(); if (limit) { onLimit(r, limit); return } onGo(r) }
+  // A tap only opens the review sheet; above the approval threshold the sheet itself requires the full slide.
   return <button ref={cta} className={'cta hold sa2 mint' + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'} onClick={() => { if (!blocked && status === 'idle') go() }}>
     <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : 'Tap to ' + label}</button>
 }
@@ -313,7 +311,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
       <Label>PAY · TO @HANDLE OR ADDRESS · RECEIVE {cfg.preferredReceivingCurrency} {trusted && <span className="live-tag">TRUSTED</span>}</Label>
       <input className="field" value={to} onChange={e => setTo(e.target.value)} disabled={status !== 'idle'} />
       <div className="amount"><span>$</span><input value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" disabled={status !== 'idle'} /></div>
-      <div className="mono dim xs">They receive USDC on Solana · their choice of chain{limit ? <><br /><span className="limitnote">{limit}</span></> : n > cfg.holdAbove ? ` · hold required above ${usd(cfg.holdAbove)}` : ''}</div>
+      <div className="mono dim xs">They receive USDC on Solana · their choice of chain{limit ? <><br /><span className="limitnote">{limit}</span></> : n > cfg.holdAbove ? ` · slide to confirm above ${usd(cfg.holdAbove)}` : ''}</div>
     </section>
     <div className="sbw">
     <section className="sb">

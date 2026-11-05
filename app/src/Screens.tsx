@@ -76,11 +76,11 @@ export function SecurityScreen({ s, set }: P) {
 }
 
 const FAQ: [string, string][] = [
-  ['Is my money at risk in this preview?', 'No. The preview holds no keys and signs nothing. Payments and swaps are simulated. Quotes are dry runs, so no deposit address is ever created.'],
+  ['Is my money at risk in this preview?', 'ORI holds no keys. In example mode, payments and swaps are simulated. In live mode, direct sends and payments ask your own wallet to sign real transactions, so only sign what you mean to send.'],
   ['Where do balances come from?', 'In Example mode they’re made-up numbers. In Live mode ORI reads the public addresses you add in Settings through public RPCs. It’s read-only.'],
   ['What does the scam check do?', 'Before a payment, the recipient goes through GoPlus address security, live. Flagged addresses are blocked and logged in Security.'],
   ['How do the spending limits work?', 'A per-payment cap and a daily cap are checked inside the ORI app, on the payment and swap cards and again right before ORI asks your wallet to sign. They are not on-chain and do not cover transactions you sign outside ORI. Above your hold threshold you must slide all the way across to confirm (or press Enter twice). Ori warns you before you hit a cap.'],
-  ['Can Ori move money on his own?', 'No. Ori prepares a card, and you confirm it. Every action needs your tap or hold.'],
+  ['Can Ori move money on his own?', 'No. Ori prepares a card, and you confirm it. Every action needs you: a tap opens the review, and above your threshold you slide to confirm. Your wallet still asks you to sign.'],
   ['Does Ori use an AI model?', 'Not in this preview. Ori runs a local rule-based assistant that answers from your app state, live prices and quotes. No API keys are used, and nothing you type leaves the browser except price and quote lookups.'],
 ]
 export function HelpScreen({ ask }: { ask: (q?: string) => void }) {
