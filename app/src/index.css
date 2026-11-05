@@ -94,6 +94,7 @@ section{padding:30px 0}
 .bubble .mono{display:block;margin-bottom:3px;color:#7DF5D8;letter-spacing:.1em;font-size:9.5px}
 .mic{display:flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid var(--line);border-radius:20px;cursor:pointer;color:var(--dim)}
 .mic svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.mic .dot{width:6px;height:6px;border-radius:50%;background:#7DF5D8;flex:none}
 .mic.listening{color:var(--white);border-color:rgba(125,245,216,.6);box-shadow:0 0 12px rgba(125,245,216,.25)}
 .mic.listening svg{stroke:#7DF5D8}
 .heard{position:fixed;top:58px;left:50%;transform:translateX(-50%);z-index:44;padding:6px 10px;border:1px solid var(--line);background:rgba(11,11,11,.9);color:var(--grey);white-space:nowrap}

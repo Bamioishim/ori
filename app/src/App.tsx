@@ -15,7 +15,7 @@ import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, sendBaseUSDC, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
-import { handleHeard, requestMicrophoneAccess, speak, speechSupported, startListening } from './voice'
+import { speak } from './voice'
 import AccountSheet, { type Account } from './Account'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
@@ -394,11 +394,10 @@ function Earn() {
 }
 
 function Privacy({ hidden, setHidden }: { hidden: boolean; setHidden: (v: boolean) => void }) {
-  const [s, setS] = useState({ unlink: true, tee: true, stealth: true, analytics: false })
+  const [s, setS] = useState({ unlink: true, stealth: true, analytics: false })
   const items: [keyof typeof s, string, string][] = [
     ['unlink', 'Unlinkable addresses', 'Each chain address is derived separately via Chain Signatures; no public link between them.'],
     ['stealth', 'Fresh deposit address per payment', 'Incoming payments never reuse an address.'],
-    ['tee', 'Private AI (TEE)', 'Route + scam reasoning runs in NEAR AI Cloud confidential compute. Attestation verifiable.'],
     ['analytics', 'Share anonymous usage', 'Off by default.'],
   ]
   return <>
@@ -408,6 +407,7 @@ function Privacy({ hidden, setHidden }: { hidden: boolean; setHidden: (v: boolea
       <div className="row"><span className="grow">Hide balance on screen</span><Toggle on={hidden} onChange={setHidden} /></div>
       {items.map(([k, t, d]) => <div className="row" key={k}><span className="grow">{t}<br /><span className="mono xs dim">{d}</span></span>
         <Toggle on={s[k]} onChange={v => setS({ ...s, [k]: v })} /></div>)}
+      <div className="row"><span className="grow">Private AI (NEAR AI Cloud)<br /><span className="mono xs dim">Not connected yet, planned. Ori’s chat currently runs a local rule-based assistant on this device; no AI model or TEE attestation is used.</span></span><span className="mono xs dim">PLANNED</span></div>
     </section>
     <section>
       <Label>WHAT THE PUBLIC SEES <Example /></Label>
@@ -459,10 +459,7 @@ export default function App() {
   const msgsEnd = useRef<HTMLDivElement>(null)
   useEffect(() => { msgsEnd.current?.scrollIntoView({ block: 'end' }) }, [msgs.length, thinking, chat])
   const [input, setInput] = useState('')
-  const [mic, setMic] = useState<'off' | 'requesting' | 'listening' | 'unsupported' | 'denied'>('off')
-  const [heard, setHeard] = useState<string | null>(null)
   const ori = useRef<OriApi>(null)
-  const stopMic = useRef<() => void>(() => { })
   const reduced = cfg.reduce || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
   useEffect(() => { if (reduced) return; const l = new Lenis({ lerp: 0.12 }); let r = 0; const f = (t: number) => { l.raf(t); r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => { cancelAnimationFrame(r); l.destroy() } }, [reduced])
   useEffect(() => { document.title = APP_NAME }, [])
@@ -518,11 +515,8 @@ export default function App() {
   const openChat = () => { setChat(true); askIn.current?.focus({ preventScroll: true }) }
   useEffect(() => { if (!chat) askIn.current?.blur() }, [chat])
   const ask = (q?: string) => { openChat(); if (q) command(q) }
-  const wake = (src: string) => { if (!cfg.wake) return; ori.current?.listen(); setHeard(src === 'simulated' ? '“Hey Ori” · simulated' : '“Hey Ori”'); oriSay('Hey! What do you need?', true) }
-  // single entry for speech results (real mic and the demo simulation both call this)
-  const heardCb = { onWake: wake, onCommand: (t: string, src: string) => { setHeard(`“${t}”${src === 'simulated' ? ' · simulated' : ''}`); command(t, src) }, onState: (s: string) => setMic(s as any) }
-  useEffect(() => { (window as any).__ori = { hear: (t: string) => handleHeard(t, heardCb, 'simulated') } })
-  const toggleMic = async () => { if (!cfg.wake) { oriSay('The “Hey Ori” wake word is off. Turn it on in Settings, or click me to type.'); return } if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } setMic('requesting'); const access = await requestMicrophoneAccess(); if (access === 'unsupported') { setMic('unsupported'); oriSay('This browser does not provide microphone access. Tap Ori to type instead.'); return } if (access === 'denied') { setMic('denied'); oriSay('Microphone access is blocked. Allow Microphone for this site in your browser permissions, then tap the mic again.'); return } stopMic.current = startListening(heardCb) }
+  // Hey ORI is click activation only (product doc v2): open and focus the chat. No microphone, no wake phrase.
+  const heyOri = () => openChat()
   const celebrate = async (r: DOMRect, set: (v: 'idle' | 'running' | 'done' | 'sent') => void) => { set('running'); await ori.current?.run(r); set('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 700); set('sent'); setTimeout(() => setBurst(null), reduced ? 300 : 900); ori.current?.mood('happy') }
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
@@ -586,15 +580,14 @@ export default function App() {
       <button className="side-ask" onClick={() => ask()}><span className="dot" />Ask Ori anything<span className="mono xs dim">CLICK</span></button>
       <p className="mono xs dim side-foot">Preview · {mode === 'live' ? 'live watch-only' : 'example data'} · nothing is signed</p>
     </aside>}
-    {wide && <button className={'mic top-mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
-        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{!cfg.wake ? 'WAKE OFF' : mic === 'listening' ? 'HEY ORI · ON' : mic === 'requesting' ? 'MIC ACCESS…' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>}
+    {wide && <button className="mic top-mic" onClick={heyOri} aria-label="Hey ORI: open chat" title="Click to ask Ori. No microphone is used.">
+        <span className="dot" aria-hidden />
+        <span className="mono xs">HEY ORI · CLICK</span></button>}
     {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}
-      <button className={'mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
-        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'requesting' ? 'MIC ACCESS…' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>
+      <button className="mic" onClick={heyOri} aria-label="Hey ORI: open chat" title="Tap to ask Ori. No microphone is used.">
+        <span className="dot" aria-hidden />
+        <span className="mono xs">HEY ORI · TAP</span></button>
       {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
-    <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
         {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
@@ -603,7 +596,7 @@ export default function App() {
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
         {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
         {screen === 'wallets' && <WalletsScreen />}
-        {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} speechOk={speechSupported()} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
+        {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
         {screen === 'security' && <SecurityScreen s={cfg} set={setCfg} />}
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
         {screen === 'scan' && !isHiddenScreen('scan') && <ScanScreen />}
