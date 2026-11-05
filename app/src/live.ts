@@ -64,8 +64,6 @@ type EthereumProvider = { request: (args: { method: string; params?: unknown[] }
 export type WalletConnection = { address: string; chain: 'evm' | 'sol'; network: string; provider: string }
 type SolanaProvider = { connect: () => Promise<{ publicKey?: { toString: () => string } }>; publicKey?: { toString: () => string } }
 const BASE_CHAIN_ID = '0x2105'
-const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
-const pad32 = (value: string) => value.replace(/^0x/, '').padStart(64, '0')
 
 function provider(): EthereumProvider {
   const p = (window as Window & { ethereum?: EthereumProvider }).ethereum
@@ -80,6 +78,8 @@ export async function connectBaseWallet(): Promise<string> {
     try { await p.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID }] }) }
     catch (e: any) { throw new Error(e?.code === 4902 ? 'Add the Base network to your wallet first.' : 'Switch your wallet to Base to continue.') }
   }
+  const after = String(await p.request({ method: 'eth_chainId' })).toLowerCase()
+  if (after !== BASE_CHAIN_ID) throw new Error('Your wallet is not on Base. Nothing was sent.')
   const accounts = await p.request({ method: 'eth_requestAccounts' }) as string[]
   const account = accounts?.[0]
   if (!account || kindOf(account) !== 'evm') throw new Error('No EVM wallet account was selected.')
@@ -95,27 +95,7 @@ export async function connectPhantomWallet(): Promise<WalletConnection> {
   return { address, chain: 'sol', network: 'Solana', provider: 'Phantom / EIP-1193-compatible' }
 }
 
-// Bind the deposit to what the user reviewed: exact input amount, quote not expired, EVM deposit address.
-export function checkDepositQuote(settlement: SettlementQuote, expectedUnits: bigint, now = Date.now()): string | null {
-  const q = settlement?.quote; if (!q) return '1Click returned no quote.'
-  if (!/^\d+$/.test(String(q.amountIn)) || BigInt(q.amountIn) !== expectedUnits) return 'The quote amount does not match what you reviewed. Nothing was sent.'
-  if (!/^0x[0-9a-fA-F]{40}$/.test(String(q.depositAddress))) return '1Click returned an invalid deposit address. Nothing was sent.'
-  if (q.deadline && !(Date.parse(q.deadline) > now + 30_000)) return 'The quote expired. Review a fresh quote.'
-  return null
-}
-export async function depositBaseUSDC(account: string, settlement: SettlementQuote, expectedUnits: bigint): Promise<string> {
-  const bad = checkDepositQuote(settlement, expectedUnits); if (bad) throw new Error(bad)
-  const amount = settlement.quote.amountIn
-  return sendBaseUSDC(account, settlement.quote.depositAddress, BigInt(amount))
-}
-
-export async function sendBaseUSDC(account: string, recipient: string, amount: bigint): Promise<string> {
-  const p = provider()
-  if (kindOf(recipient) !== 'evm') throw new Error('Base USDC transfers require an EVM recipient address.')
-  if (amount <= 0n) throw new Error('Transfer amount must be positive.')
-  const data = '0xa9059cbb' + pad32(recipient) + pad32(amount.toString(16))
-  return String(await p.request({ method: 'eth_sendTransaction', params: [{ from: account, to: BASE_USDC, data }] }))
-}
+// Pay deposits go through src/payExec.ts (bound quote + sendEvm with chain/account re-check and receipt confirmation).
 
 const settlementEnabled = import.meta.env.VITE_ORI_SETTLEMENT_MODE === 'live'
 export const isSettlementEnabled = () => settlementEnabled

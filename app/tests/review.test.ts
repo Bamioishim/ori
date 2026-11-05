@@ -24,8 +24,7 @@ test('Send: rejected/failed-before-broadcast history entry becomes cancelled', (
 })
 test('Live Intents deposit is bound to the reviewed quote and uses exact units', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8'), live = readFileSync(new URL('../src/live.ts', import.meta.url), 'utf8')
-  assert.doesNotMatch(app, /Math\.round\(amt \* 1e6\)/); assert.match(app, /depositBaseUSDC\(wallet, settlementQuote, units\)/)
-  assert.match(live, /BigInt\(q\.amountIn\) !== expectedUnits/); assert.match(live, /quote expired/)
+  assert.doesNotMatch(app, /Math\.round\(amt \* 1e6\)/); assert.doesNotMatch(live, /eth_sendTransaction/) // all Base signing goes through sendEvm (behavior tested in pay.test.ts)
 })
 test('no user-controlled provider URL (SSRF): 1Click host is a constant', () => {
   const api = ['api/_oneclick.ts', 'api/quote.ts', 'api/status.ts'].map(f => readFileSync(new URL('../' + f, import.meta.url), 'utf8')).join('\n')

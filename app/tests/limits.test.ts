@@ -24,7 +24,7 @@ test('mock signer is never invoked when over limit', () => {
 test('signing boundary re-checks limits in doPay and doSwap before any wallet call', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   const pay = app.slice(app.indexOf('const doPay ='), app.indexOf('const doSwap ='))
-  const iLimit = pay.indexOf('limitCheck(cfg, amt)'), iWallet = pay.indexOf('connectBaseWallet('), iSim = pay.indexOf('celebrate(')
+  const iLimit = pay.indexOf('limitCheck(cfg, amt)'), iWallet = pay.indexOf('executePay('), iSim = pay.indexOf('celebrate(')
   assert.ok(iLimit > 0 && iLimit < iWallet && iLimit < iSim, 'limit check precedes wallet connect and simulation')
   const swap = app.slice(app.indexOf('const doSwap ='), app.indexOf('const overLimit ='))
   assert.ok(swap.indexOf('limitCheck(cfg, v)') > 0 && swap.indexOf('limitCheck(cfg, v)') < swap.indexOf('celebrate('))

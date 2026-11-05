@@ -3,7 +3,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { motion, AnimatePresence } from 'motion/react'
 import { APP_NAME, isHiddenScreen } from './config'
-import { addSpent, limitCheck, logBlocked, setFmt, spentToday, usd, useSettings, type Settings } from './settings'
+import { reserveSpend, releaseSpend, addSpent, limitCheck, logBlocked, setFmt, spentToday, usd, useSettings, type Settings } from './settings'
 import { SettingsScreen, SecurityScreen, HelpScreen } from './Screens'
 import { PolicyScreen, ScanScreen, ConfirmSheet, Feed, type SheetData } from './Policy'
 import { answer, DEFAULT_CHIPS, type Act, type Reply } from './brain'
@@ -14,7 +14,7 @@ import Intro, { useIntro } from './Intro'
 import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
-import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, sendBaseUSDC, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
+import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
 import { speak } from './voice'
 import { ReceiveScreen } from './Receive'
 import { SendScreen } from './Send'
@@ -25,6 +25,7 @@ import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { executeSwap, type SwapReview } from './swapExec'
+import { executePay, preparePay, type PayPlan } from './payExec'
 import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
 import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
@@ -590,48 +591,48 @@ export default function App() {
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
   const paymentInFlight = useRef(false)
-  const confirm = (r: DOMRect, amt: number, to: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, run: () => doPay(r, amt, to) }) }
+  const confirm = async (r: DOMRect, amt: number, to: string, fee: number | null) => {
+    sheetAction.current = 'idle'
+    if (!isSettlementEnabled()) { setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, run: () => doPay(r, amt, to) }); return }
+    try { // live: build the exact plan the wallet will sign, and show it
+      const plan = await preparePay(amt, to, { resolve: async h => (await resolveHandle(h)).address, connect: connectBaseWallet, quote: createSettlementQuote })
+      saveWallet({ address: plan.account, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
+      const lines: [string, string][] = plan.kind === 'direct'
+        ? [['Route', 'Direct USDC transfer on Base (no NEAR Intents)'], ['From account', short(plan.account)], ['Recipient address', short(plan.to)], ['Approvals', 'None']]
+        : [['Route', 'USDC Base → USDC Solana (NEAR Intents)'], ['From account', short(plan.account)], ['Deposit to', short(plan.settlement.quote.depositAddress)], ['Recipient address', short(plan.review.recipient)], ['Refund to', short(plan.account)], ['Minimum received', `${(Number(plan.review.minOutUnits) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 })} USDC`], ['Quote expires', fmtT(plan.settlement.quote.deadline!)], ['Approvals', 'None · direct transfer to the deposit address']]
+      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: plan.kind === 'direct' ? 'Base' : 'Base → Solana', fee, blocked: null, live: true, lines, run: () => doPay(r, amt, to, plan) })
+    } catch (e) { oriSay(`${(e as Error).message} No transaction was submitted.`) }
+  }
   const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null, plan?: SwapPlan) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: plan ? short(plan.review.recipient) + ' (yours)' : 'Your ORI wallet', amount: detail, usdv: v, chain: plan ? plan.lines[0][1] : /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: !!plan, lines: plan?.lines, run: () => doSwap(r, v, detail, plan) }) }
-  const doPay = async (r: DOMRect, amt: number, to: string) => {
+  const doPay = async (r: DOMRect, amt: number, to: string, plan?: PayPlan) => {
     if (paymentInFlight.current) return
     { const why = limitCheck(cfg, amt); if (why) { overLimit(r, why, `Payment of ${usd(amt)} to ${to}`); return } } // re-check at the signing boundary, not only on the card
-    paymentInFlight.current = true
-    if (!isSettlementEnabled()) { await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`Delivered ${usd(amt)} to ${to}. Simulated, nothing was signed. Receipt’s on the card.`); paymentInFlight.current = false; return }
-    let recipient = to.trim()
-    if (kindOf(recipient) !== 'sol') {
-      try { recipient = (await resolveHandle(recipient)).address }
-      catch (e) { oriSay(`${(e as Error).message} No transaction was submitted.`); paymentInFlight.current = false; return }
-    }
-    setStatus('running')
-    let broadcastHash: string | null = null
+    if (!isSettlementEnabled()) { paymentInFlight.current = true; await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`EXAMPLE: delivered ${usd(amt)} to ${to}. Simulated, nothing was signed.`); paymentInFlight.current = false; return }
+    if (!plan || plan.usd !== amt) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
+    paymentInFlight.current = true; setStatus('running')
+    const dest = plan.kind === 'direct' ? plan.to : plan.review.recipient
+    const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: plan.kind === 'direct' ? 'Base' : 'Base → Solana', to: dest, note: 'Waiting for your wallet signature' })
+    let broadcast = false
+    const stMap = { complete: 'SUCCESS', refunded: 'REFUNDED', failed: 'FAILED', pending: 'PROCESSING' } as const
     try {
-      const wallet = await connectBaseWallet()
-      saveWallet({ address: wallet, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
-      if (kindOf(recipient) === 'evm') {
-        const directUnits = toUnits(String(amt), 6); if (!directUnits) throw new Error('Amount is not valid. Nothing was sent.')
-        const txHash = await sendBaseUSDC(wallet, recipient, directUnits)
-        broadcastHash = txHash
-        setSettlement({ kind: 'direct', wallet, txHash, state: 'SUCCESS', destination: recipient, network: 'Base', amount: amt })
-        logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'Base', to: recipient, txHash })
-        addSpent(amt); setExtra(e => e - amt); setStatus('sent'); oriSay(`Sent ${usd(amt)} USDC to ${short(recipient)} on Base. The wallet transaction was submitted.`); return
-      }
-      const units = toUnits(String(amt), 6); if (!units) throw new Error('Amount is not valid. Nothing was sent.')
-      const settlementQuote = await createSettlementQuote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: units, recipient, refundTo: wallet })
-      const txHash = await depositBaseUSDC(wallet, settlementQuote, units)
-      broadcastHash = txHash
-      setSettlement({ kind: 'settlement', quote: settlementQuote, wallet, txHash, state: 'BROADCAST', destination: recipient, network: 'Solana', amount: amt })
-      const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash, note: 'Deposit submitted to 1Click for settlement', explorer: `https://basescan.org/tx/${txHash}` })
-      addSpent(amt); setExtra(e => e - amt); setStatus('sent')
-      oriSay(`Deposit signed in your wallet. I’m watching 1Click for settlement. Transaction ${short(txHash)}.`)
-      for (let i = 0; i < 30; i++) {
-        await wait(4000)
-        const s = await settlementStatus(settlementQuote.quote.depositAddress, settlementQuote.quote.depositMemo)
-        setSettlement(p => p ? { ...p, state: s.status } : p)
-        const terminal = ['SUCCESS', 'REFUNDED', 'FAILED'].includes(s.status)
-        updateTransaction(tx.id, { status: s.status === 'SUCCESS' ? 'completed' : s.status === 'FAILED' ? 'failed' : 'pending', note: terminal ? `1Click settlement ${s.status.toLowerCase()}` : `1Click settlement · ${s.status.toLowerCase()}` })
-        if (terminal) { oriSay(s.status === 'SUCCESS' ? `Delivered ${usd(amt)} to ${to}. Settlement complete.` : `Settlement ended ${s.status.toLowerCase()}. Check the receipt for details.`); break }
-      }
-    } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} No transaction was submitted.`) } } finally { paymentInFlight.current = false }
+      const res = await executePay(plan, tx.id, {
+        provider: (window as unknown as { ethereum?: EvmProvider }).ethereum ?? null,
+        limit: () => limitCheck(cfg, amt), status: dep => settlementStatus(dep), reserve: reserveSpend, release: releaseSpend,
+        onUpdate: (st, i) => {
+          if (st === 'deposited') { broadcast = true; setSettlement({ kind: 'settlement', quote: plan.kind === 'intents' ? plan.settlement : undefined, wallet: plan.account, txHash: i.tx || '', state: 'BROADCAST', destination: dest, network: 'Solana', amount: amt }); updateTransaction(tx.id, { status: 'pending', txHash: i.tx, explorer: `https://basescan.org/tx/${i.tx}`, note: 'Deposit confirmed on Base; waiting for 1Click settlement' }); return }
+          broadcast = broadcast || !!i.tx
+          setSettlement(p => ({ ...(p || { kind: plan.kind === 'direct' ? 'direct' : 'settlement', wallet: plan.account, destination: dest, network: plan.kind === 'direct' ? 'Base' : 'Solana', amount: amt }), txHash: i.tx || p?.txHash || '', state: stMap[st] }))
+          updateTransaction(tx.id, { status: st === 'complete' ? 'completed' : st, txHash: i.tx, note: st === 'complete' ? (plan.kind === 'direct' ? 'Confirmed on Base' : '1Click reported SUCCESS') : st === 'refunded' ? 'Refunded to your wallet; daily spend released' : st === 'failed' ? 'Failed; daily spend released' : 'Not confirmed yet; check history later' })
+        },
+      })
+      if (res.state === 'complete' || res.state === 'pending') setExtra(e => e - amt)
+      setStatus(res.state === 'complete' ? 'sent' : 'idle')
+      oriSay(res.state === 'complete' ? `Delivered ${usd(amt)} to ${short(dest)}. Verified.` : res.state === 'refunded' ? 'The payment was refunded to your wallet.' : res.state === 'failed' ? 'The payment failed. Nothing was delivered.' : 'Submitted but not confirmed yet. I will not mark it delivered until it is.')
+    } catch (e) {
+      const error = (e as Error).message
+      if (!broadcast) updateTransaction(tx.id, { status: 'cancelled', note: 'Not sent: ' + error })
+      setStatus('idle'); oriSay(`${error} ${broadcast ? 'Your deposit was already submitted; I could not confirm settlement yet.' : 'No transaction was submitted.'}`)
+    } finally { paymentInFlight.current = false }
   }
   const swapInFlight = useRef(false)
   const doSwap = async (r: DOMRect, v: number, detail: string, plan?: SwapPlan) => {
@@ -651,9 +652,8 @@ export default function App() {
         currentAccount: () => plan.asset.net === 'Solana' ? w.solana?.publicKey?.toString() ?? null : plan.review.account, // EVM account is re-verified inside sendEvm
         deposit: (a, to, u) => a.net === 'Solana' ? (w.solana ? (a.kind === 'spl' ? sendSpl(w.solana, a, plan.review.account, to, u) : sendSol(w.solana, plan.review.account, to, u)) : Promise.reject(new Error('No Solana wallet found.'))) : (w.ethereum ? sendEvm(w.ethereum, a, plan.review.account, to, u) : Promise.reject(new Error('No EVM wallet found.'))),
         status: dep => settlementStatus(dep),
-        onUpdate: (st, i) => { updateTransaction(tx.id, st === 'deposited' ? { status: 'pending', txHash: i.tx, note: `Deposit sent to ${short(i.depositAddress || '')}; waiting for NEAR Intents` } : { status: st === 'complete' ? 'completed' : st, note: st === 'complete' ? 'Provider reported SUCCESS' : st === 'refunded' ? 'Provider refunded the deposit to your wallet' : st === 'failed' ? 'Provider or chain reported failure' : 'Still processing; check history later' }) },
+        onUpdate: (st, i) => { if (st === 'deposited') reserveSpend(tx.id, v); else if (st === 'refunded' || st === 'failed') releaseSpend(tx.id); updateTransaction(tx.id, st === 'deposited' ? { status: 'pending', txHash: i.tx, note: `Deposit sent to ${short(i.depositAddress || '')}; waiting for NEAR Intents` } : { status: st === 'complete' ? 'completed' : st, note: st === 'complete' ? 'Provider reported SUCCESS' : st === 'refunded' ? 'Provider refunded the deposit to your wallet' : st === 'failed' ? 'Provider or chain reported failure' : 'Still processing; check history later' }) },
       })
-      addSpent(v)
       setSwapSt(res.state === 'complete' ? 'sent' : 'idle')
       oriSay(res.state === 'complete' ? `Swap complete: ${detail}. Verified by the provider.` : res.state === 'refunded' ? 'The swap was refunded to your wallet.' : res.state === 'failed' ? 'The swap failed. Check history.' : 'Deposit sent; settlement still pending. I will not mark it complete until the provider confirms.')
     } catch (e) { updateTransaction(tx.id, { status: 'cancelled', note: 'Not sent: ' + ((e as Error).message || 'wallet refused') }); setSwapSt('idle'); oriSay(((e as Error).message || 'The wallet did not sign.') + ' Nothing was sent.') }

@@ -1,4 +1,4 @@
-import { decideLimit } from './limits'
+import { decideLimit } from './limits.ts'
 import { useEffect, useState } from 'react'
 // Local-only preferences. Nothing leaves the browser.
 export type Fmt = 'full' | 'nocents' | 'compact'
@@ -26,6 +26,19 @@ const today = () => new Date().toDateString()
 // a corrupt/tampered ledger returns NaN so decideLimit fails closed instead of treating it as $0 spent
 export function spentToday(): number { try { const raw = localStorage.getItem(SKEY); if (!raw) return 0; const o = JSON.parse(raw); if (o?.d !== today()) return 0; return typeof o.v === 'number' && Number.isFinite(o.v) && o.v >= 0 ? o.v : NaN } catch { return NaN } }
 export function addSpent(v: number) { const cur = spentToday(); localStorage.setItem(SKEY, JSON.stringify({ d: today(), v: (Number.isFinite(cur) ? cur : 0) + v })) }
+// Spend holds: a live payment/swap reserves its USD value once the deposit is broadcast and releases it once,
+// only if the provider REFUNDS or the chain reports failure. Keyed by id so repeat calls are no-ops and other spends are untouched.
+const HKEY = 'ori-spend-holds'
+type Holds = Record<string, { d: string; v: number }>
+const holds = (): Holds => { try { const o = JSON.parse(localStorage.getItem(HKEY) || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
+export function reserveSpend(id: string, v: number) { const h = holds(); if (h[id] || !(v > 0)) return; addSpent(v); h[id] = { d: today(), v }; localStorage.setItem(HKEY, JSON.stringify(h)) }
+export function releaseSpend(id: string) {
+  const h = holds(), e = h[id]; if (!e) return
+  delete h[id]; localStorage.setItem(HKEY, JSON.stringify(h))
+  if (e.d !== today()) return // yesterday's ledger already rolled over
+  const cur = spentToday(); if (!Number.isFinite(cur)) return // never repair a tampered ledger by subtraction
+  localStorage.setItem(SKEY, JSON.stringify({ d: today(), v: Math.max(0, cur - e.v) }))
+}
 // blocked attempts log
 export type Blocked = { at: number; what: string; why: string }
 const BKEY = 'ori-blocked'

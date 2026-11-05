@@ -49,6 +49,13 @@ All "IMPLEMENTED" items are mocked/unit/static tested only. `cd app && npm test`
 | Gmail code register/login | BLOCKED in production: the endpoints return 503 (see below) |
 | Spending limits | Browser app only, fail-closed; no backend or contract enforcement |
 
+## Pay hardening (review fixes, Nov 5)
+IMPLEMENTED, behavior-tested with mocks only (`app/tests/pay.test.ts`).
+- **Live vs example:** in live mode the Pay review is built by `preparePay` (`src/payExec.ts`) and shows "LIVE · YOUR WALLET SIGNS" together with the exact plan: route, account, deposit address, recipient, refund address, minimum received and expiry. With settlement off, the sheet says "EXAMPLE · SIMULATED". Live `doPay` signs only the reviewed plan; there is no fresh re-quote after review.
+- **Quote binding:** `checkSwapQuote` checks the origin and destination asset IDs, the exact amount, recipient, refund address, minAmountOut of at least the reviewed floor, a deadline more than 30 s away (a missing deadline is rejected), no memo, and the Base deposit-address format. It runs at review and again at signing.
+- **Spend holds:** spend is reserved per transaction id once a deposit is broadcast. On REFUNDED or failed, the hold is released exactly once (idempotent) without touching other spends. A tampered ledger is never "repaired". REFUNDED is now its own terminal history state instead of pending. Swap uses the same holds.
+- **Signer checks:** `connectBaseWallet` re-reads the chain after switching. All Base signing (both the direct path and the Intents deposit) goes through `sendEvm`: chain re-check, account check, then a receipt poll. Only a `0x1` receipt counts as confirmed; `0x0` is failed; no receipt means pending. The broadcast-only helpers `sendBaseUSDC`/`depositBaseUSDC`/`checkDepositQuote` were removed.
+
 ## Honest blockers (as of Nov 5)
 - **Gmail code auth returns 503.** The missing pieces:
   1. A durable store for `AuthStore` (`app/api/auth/_store.ts`, `getAuthStore()` currently returns null), e.g. a Redis/KV. It must provide atomic `hit` (rate limits) and `consumeOnce` (one-time codes).
