@@ -18,7 +18,7 @@ import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUS
 import { handleHeard, requestMicrophoneAccess, speak, speechSupported, startListening } from './voice'
 import AccountSheet, { type Account } from './Account'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
-import { logTransaction, type Transaction } from './transactions'
+import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
 import { TOKEN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
@@ -554,14 +554,16 @@ export default function App() {
       const txHash = await depositBaseUSDC(wallet, settlementQuote)
       broadcastHash = txHash
       setSettlement({ kind: 'settlement', quote: settlementQuote, wallet, txHash, state: 'BROADCAST', destination: recipient, network: 'Solana', amount: amt })
-      logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash })
+      const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash, note: 'Deposit submitted to 1Click for settlement', explorer: `https://basescan.org/tx/${txHash}` })
       addSpent(amt); setExtra(e => e - amt); setStatus('sent')
       oriSay(`Deposit signed in your wallet. I’m watching 1Click for settlement. Transaction ${short(txHash)}.`)
       for (let i = 0; i < 30; i++) {
         await wait(4000)
         const s = await settlementStatus(settlementQuote.quote.depositAddress, settlementQuote.quote.depositMemo)
         setSettlement(p => p ? { ...p, state: s.status } : p)
-        if (['SUCCESS', 'REFUNDED', 'FAILED'].includes(s.status)) { logTransaction({ kind: 'send', status: s.status === 'SUCCESS' ? 'completed' : s.status === 'FAILED' ? 'failed' : 'pending', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash }); oriSay(s.status === 'SUCCESS' ? `Delivered ${usd(amt)} to ${to}. Settlement complete.` : `Settlement ended ${s.status.toLowerCase()}. Check the receipt for details.`); break }
+        const terminal = ['SUCCESS', 'REFUNDED', 'FAILED'].includes(s.status)
+        updateTransaction(tx.id, { status: s.status === 'SUCCESS' ? 'completed' : s.status === 'FAILED' ? 'failed' : 'pending', note: terminal ? `1Click settlement ${s.status.toLowerCase()}` : `1Click settlement · ${s.status.toLowerCase()}` })
+        if (terminal) { oriSay(s.status === 'SUCCESS' ? `Delivered ${usd(amt)} to ${to}. Settlement complete.` : `Settlement ended ${s.status.toLowerCase()}. Check the receipt for details.`); break }
       }
     } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} No transaction was submitted.`) } } finally { paymentInFlight.current = false }
   }

@@ -27,4 +27,9 @@ function seed(): Transaction[] {
 }
 export function transactions(): Transaction[] { try { const r = JSON.parse(localStorage.getItem(KEY) || 'null'); if (Array.isArray(r)) return r } catch { /* */ } const s = seed(); localStorage.setItem(KEY, JSON.stringify(s)); return s }
 export function logTransaction(t: Omit<Transaction, 'id' | 'at'> & { id?: string; at?: number }) { const next = { ...t, id: t.id || id(), at: t.at || Date.now() }; localStorage.setItem(KEY, JSON.stringify([next, ...transactions()].slice(0, 100))); dispatchEvent(new Event('ori-transactions')); return next }
+export function updateTransaction(id: string, patch: Partial<Omit<Transaction, 'id' | 'at'>>) {
+  const next = transactions().map(t => t.id === id ? { ...t, ...patch } : t)
+  localStorage.setItem(KEY, JSON.stringify(next)); dispatchEvent(new Event('ori-transactions'))
+  return next.find(t => t.id === id) || null
+}
 export function useTransactions() { const [list, setList] = useState(transactions); useEffect(() => { const f = () => setList(transactions()); addEventListener('ori-transactions', f); return () => removeEventListener('ori-transactions', f) }, []); return list }
