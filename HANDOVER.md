@@ -23,7 +23,7 @@ Deployed as a static Vite site on Vercel (preview project `ori-preview`). Linkin
 3. **One real NEAR Intents payment** end to end, with a receipt that shows the reason/route.
 4. **Request** — ask someone for money by handle.
 5. **NEW: Invoicing** — a Request with line items; the payer pays in any asset they hold, NEAR Intents converts it, the payee receives their chosen asset, and an exportable receipt (CSV/PDF) is produced for their accountant.
-- Extra screens (Scanner, Policy, Swap extras, etc.) hidden for the submission.
+- Extra screens hidden for the submission: Scanner, Earn, Privacy are filtered out via `HIDDEN_SCREENS` in `app/src/config.ts` (nav, drawer, home links, chat "go" actions fall back to Home). Policy & limits stays visible because it holds the AI spending cap (#7).
 - Ori assistant moved off the numbers (not covering the balance).
 - Already present: spending cap for the AI (Ori can't pay above the cap without a tap) and payee-chooses-chain/asset.
 - Request slice now present: local request records with amount, token, network, handle/address, copyable `ori://` link, QR code, and local cancellation. Server persistence, notifications, and settlement are still open.
