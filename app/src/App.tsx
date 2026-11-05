@@ -20,12 +20,12 @@ import { ReceiveScreen } from './Receive'
 import { SendScreen } from './Send'
 import { findAsset, toUnits, unsupportedReason } from './transfers'
 import { EVM_CHAINS as EVM_CATALOG_CHAINS, normalizeTokens, originAdapter, type CatalogToken } from '../api/_catalog.ts'
-import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
+import { formatEta, isQuoteStale, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { CopyButton, PillTabs, PriceFlow, TokenSearch } from './ui'
-import { countProgress, spendableAmount, type HeldBal } from './uiLogic'
+import { countProgress, quoteVisible, spendableAmount, type HeldBal } from './uiLogic'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
 import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
@@ -239,19 +239,29 @@ function HomeDesk(p: any) {
 }
 
 function useQuote(args: Parameters<typeof quote>[0] | null, dep: string) {
-  const [st, setSt] = useState<{ q: Quote | null; loading: boolean; err: string | null }>({ q: null, loading: false, err: null })
+  // forKey binds the quote to the request key so a previous route's ETA can never render as current.
+  const [st, setSt] = useState<{ q: Quote | null; loading: boolean; err: string | null; forKey: string }>({ q: null, loading: false, err: null, forKey: '' })
   const quoteSeq = useRef(0)
   useEffect(() => {
-    if (!args) { setSt({ q: null, loading: false, err: null }); return }
-    // each request gets an id; only the latest may write (no stale-route ETA), and the quote refreshes once it ages out
+    if (!args) { setSt({ q: null, loading: false, err: null, forKey: dep }); return }
     let dead = false; const id = ++quoteSeq.current
-    // First request for a new dep clears the previous route's quote (avoid stale ETA). Soft refreshes keep the last good quote visible.
-    setSt({ q: null, loading: true, err: null })
-    const run = (soft = false) => quote(args).then(q => !dead && id === quoteSeq.current && setSt({ q, loading: false, err: null })).catch(e => !dead && id === quoteSeq.current && setSt(s => ({ q: soft ? s.q : null, loading: false, err: e.message })))
-    const t = setTimeout(() => run(false), 450), r = setInterval(() => { setSt(s => ({ ...s, loading: !s.q })); run(true) }, QUOTE_MAX_AGE_MS)
+    // Route/amount change: wipe the previous quote immediately (no leftover settlement ETA from the previous route).
+    setSt({ q: null, loading: true, err: null, forKey: dep })
+    const run = (soft = false) => quote(args).then(q => {
+      if (dead || id !== quoteSeq.current) return
+      setSt({ q, loading: false, err: null, forKey: dep })
+    }).catch(e => {
+      if (dead || id !== quoteSeq.current) return
+      // Soft refresh may keep the same-route quote; hard failures and route changes clear it.
+      setSt(s => ({ q: soft && s.forKey === dep ? s.q : null, loading: false, err: e.message, forKey: dep }))
+    })
+    const t = setTimeout(() => run(false), 450)
+    const r = setInterval(() => { setSt(s => s.forKey === dep ? { ...s, loading: !s.q } : s); run(true) }, QUOTE_MAX_AGE_MS)
     return () => { dead = true; clearTimeout(t); clearInterval(r) }
   }, [dep])
-  return st
+  // Only the quote that matches the current key is visible to callers.
+  const q = quoteVisible(st, dep)
+  return { q, loading: st.forKey === dep && st.loading, err: st.forKey === dep ? st.err : null, forKey: st.forKey }
 }
 const fmtT = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
@@ -318,6 +328,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
         <div className="line" />
         <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? formatEta(q.q.eta) : q.loading ? <Dots size={4} /> : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
+        {q.q && <div className="mono xs dim why">Provider timeEstimate {q.q.eta == null ? 'missing → Time unavailable' : `${q.q.eta}s (estimate after deposit confirms, not a guarantee) · quoted ${fmtT(q.q.at)}`}</div>}
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
@@ -347,7 +358,12 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
 }
 
 function LiveTag({ q }: { q: { q: Quote | null; loading: boolean; err: string | null } }) {
-  return q.q ? <span className="live-tag">LIVE QUOTE</span> : q.loading ? <span className="live-tag dimtag"><Dots size={4} label="Fetching quote" /></span> : q.err ? <span className="live-tag dimtag">OFFLINE</span> : null
+  // Dry public quotes: "PROVIDER" means the numbers came from 1Click this request, not that settlement is live.
+  if (q.q) {
+    const stale = isQuoteStale(q.q.at)
+    return <span className={'live-tag' + (stale ? ' dimtag' : '')}>{stale ? 'STALE QUOTE' : q.loading ? 'REFRESHING' : 'PROVIDER QUOTE'}</span>
+  }
+  return q.loading ? <span className="live-tag dimtag"><Dots size={4} label="Fetching quote" /></span> : q.err ? <span className="live-tag dimtag">QUOTE FAILED</span> : null
 }
 function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: string | null }; extra: string | null }) {
   if (q.err) return <div className="mono xs err why">Live quote unavailable: {q.err}. Nothing was sent.</div>
@@ -429,7 +445,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
     <section className="sb">
       <Label>QUOTE <LiveTag q={q} /></Label>
       <div className="row"><span className="grow">Rate</span>{q.q && n ? <PriceFlow text={`1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}`} /> : <span className="num">—</span>}</div>
-      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? formatEta(q.q.eta) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
+      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? (formatEta(q.q.eta) + (q.q.eta != null ? ` · quoted ${fmtT(q.q.at)}` : '')) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
       <div className="row"><span className="grow">Minimum received</span>{q.q ? <PriceFlow text={fmtOut(q.q.minOut) + ' ' + to.s} /> : <span className="num">—</span>}</div>
       <QuoteMeta q={q} extra={routeNote || 'Network fee is paid in your wallet; the total fee above is the provider spread/fees from the quote. ORI adds no app fee. ' + (live ? 'Review fetches a binding quote; your wallet signs one direct deposit. No token approvals.' : 'EXAMPLE mode: confirming simulates with these live numbers. Nothing is signed or sent.')} />

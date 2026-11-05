@@ -68,3 +68,8 @@ export function spendableAmount(held: HeldBal[], sym: string, blockchain: string
   const raw = heldAmount(held, sym, blockchain); if (raw == null) return null
   return Math.max(0, raw - gasReserve(sym, blockchain))
 }
+
+/** Visible quote for a screen: only if it was fetched for this exact request key. */
+export function quoteVisible<T>(st: { q: T | null; forKey: string }, dep: string): T | null {
+  return st.forKey === dep ? st.q : null
+}

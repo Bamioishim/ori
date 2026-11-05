@@ -28,5 +28,25 @@ test('no hardcoded ETA left in quote UI/data flow', () => {
 })
 test('latest-request-wins guard present in useQuote', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /id === quoteSeq\.current/); assert.match(app, /setSt\(\{ q: null, loading: true, err: null \}\)/)
+  assert.match(app, /quoteSeq\.current/); assert.match(app, /setSt\(\{ q: null, loading: true, err: null, forKey: dep \}\)/)
+})
+
+import { quoteVisible } from '../src/uiLogic.ts'
+
+test('ETA from a previous route key is not visible under the new key', () => {
+  const stale = { q: { eta: 37, at: new Date().toISOString() }, forKey: '1|SOL|USDC' }
+  assert.equal(quoteVisible(stale, '1|SOL|USDC')?.eta, 37)
+  assert.equal(quoteVisible(stale, '1|ETH|SOL'), null) // route changed → old ~37s must not render
+  assert.equal(quoteVisible({ q: { eta: 22 }, forKey: 'a' }, 'b'), null)
+})
+
+test('useQuote clears quote on dep change and tags PROVIDER/STALE not LIVE settlement', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const uq = app.slice(app.indexOf('function useQuote'), app.indexOf('function useQuote') + 1800)
+  assert.match(uq, /setSt\(\{ q: null, loading: true/)
+  assert.match(uq, /forKey: dep/)
+  assert.match(uq, /id !== quoteSeq\.current/)
+  assert.doesNotMatch(app, /LIVE QUOTE/) // dry quotes must not wear a LIVE settlement badge
+  assert.match(app, /PROVIDER QUOTE/)
+  assert.match(app, /STALE QUOTE/)
 })
