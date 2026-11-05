@@ -23,7 +23,7 @@ import { saveWallet } from './wallets'
 import { TOKEN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
 
-type Screen = 'home' | 'pay' | 'swap' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
+type Screen = 'home' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
@@ -424,7 +424,7 @@ export function useWide() {
 }
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 type Msg = { who: 'me' | 'ori'; t: string; chips?: string[]; pending?: Act }
-const MORE: Screen[] = ['wallets', 'history', 'policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
+const MORE: Screen[] = ['wallets', 'history', 'request', 'policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
@@ -577,7 +577,7 @@ export default function App() {
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}</div>
       <div className="side-nav">
-        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['wallets', 'Wallets'], ['history', 'History'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
+        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['request', 'Request'], ['wallets', 'Wallets'], ['history', 'History'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
           {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
           <button className={'side-item' + (screen === k ? ' on' : '') + ''} onClick={() => goTo(k as Screen)}>
             {label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
@@ -600,6 +600,7 @@ export default function App() {
         {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
         {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
         {screen === 'wallets' && <WalletsScreen />}
         {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} speechOk={speechSupported()} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
@@ -624,7 +625,7 @@ export default function App() {
         <div className="grab" />
         <p className="mono xs dim">MORE</p>
         <button className="drow account-menu" onClick={() => setAccountOpen(true)}><span className="dl">{account ? `@${account.username}` : 'Sign in / Login'}<small>{account ? 'Gmail account · saved conversations on' : 'Guest session · save conversations and memory'}</small></span><span className="arr">→</span></button>
-        {([['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
+        {([['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['request', 'Request', 'Ask someone to pay you'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
             onClick={() => goTo(k)}>
             <span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
@@ -657,6 +658,36 @@ function QR({ text }: { text: string }) {
   const q = qrcode(0, 'M'); q.addData(text); q.make(); const n = q.getModuleCount(); let d = ''
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`
   return <svg viewBox={`-2 -2 ${n + 4} ${n + 4}`} className="qr" role="img" aria-label={'QR code for ' + text}><rect x="-2" y="-2" width={n + 4} height={n + 4} fill="#F5F4F1" /><path d={d} fill="#0A0A0A" /></svg>
+}
+type PaymentRequest = { id: string; amount: string; asset: string; network: string; target: string; createdAt: number; status: 'open' | 'cancelled'; link: string }
+const REQUEST_KEY = 'ori-payment-requests'
+function loadRequests(): PaymentRequest[] { try { const v = JSON.parse(localStorage.getItem(REQUEST_KEY) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
+function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
+  const [amount, setAmount] = useState('20'), [asset, setAsset] = useState('USDC'), [network, setNetwork] = useState('Base')
+  const [target, setTarget] = useState(defaultAddress), [requests, setRequests] = useState<PaymentRequest[]>(loadRequests), [selected, setSelected] = useState<PaymentRequest | null>(null), [copied, setCopied] = useState(false), [error, setError] = useState('')
+  const valid = !!(+amount > 0) && !!target.trim() && (target.trim().startsWith('@') || !!kindOf(target.trim()))
+  const create = (e: React.FormEvent) => {
+    e.preventDefault(); setError(''); const who = target.trim()
+    if (!valid) { setError('Enter an amount and a valid ORI handle or wallet address.'); return }
+    const id = crypto.randomUUID?.() || `req_${Date.now()}`
+    const link = `ori://request/${id}?amount=${encodeURIComponent(amount)}&asset=${encodeURIComponent(asset)}&network=${encodeURIComponent(network)}&to=${encodeURIComponent(who)}`
+    const next: PaymentRequest = { id, amount, asset, network, target: who, createdAt: Date.now(), status: 'open', link }
+    const all = [next, ...requests].slice(0, 20); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(next)
+  }
+  const copy = (text: string) => { navigator.clipboard?.writeText(text).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1400) }
+  const cancel = (id: string) => { const all = requests.map(r => r.id === id ? { ...r, status: 'cancelled' as const } : r); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(null) }
+  return <div className="pg">
+    <section className="pad-top"><Label>REQUEST · ASK FOR FUNDS</Label><h2 className="big2">Get paid<br /><span className="dim">without a username first.</span></h2><div className="mono xs dim">Create a shareable request for a handle or real wallet address. This preview stores requests on this device; it does not notify or settle payments yet.</div></section>
+    <section><Label>NEW PAYMENT REQUEST</Label><form onSubmit={create}>
+      <div className="row"><span className="grow">Amount</span><span className="amount compact"><span>$</span><input value={amount} onChange={e => setAmount(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" aria-label="Request amount" /></span></div>
+      <div className="row"><span className="grow">Requested asset</span><select className="history-filter" value={asset} onChange={e => setAsset(e.target.value)}><option>USDC</option><option>USDT</option><option>NEAR</option><option>ETH</option><option>SOL</option></select></div>
+      <div className="row"><span className="grow">Network</span><select className="history-filter" value={network} onChange={e => setNetwork(e.target.value)}><option>Base</option><option>Solana</option><option>Ethereum</option><option>NEAR</option></select></div>
+      <label className="account-label">REQUEST FROM · HANDLE OR ADDRESS<input className="field" value={target} onChange={e => setTarget(e.target.value)} placeholder="@bamio or 0x…" spellCheck={false} /></label>
+      {error && <div className="mono xs err why">{error}</div>}<button className="cta" disabled={!valid}>Create request</button>
+    </form></section>
+    {selected && <section><Label>SHARE REQUEST · {selected.status.toUpperCase()}</Label><div className="row"><span className="grow"><b>{selected.amount} {selected.asset}</b><br /><span className="mono xs dim">{selected.network} · from {selected.target}</span></span><button className="ghost" onClick={() => copy(selected.link)}>{copied ? 'COPIED' : 'COPY LINK'}</button></div><div className="pqr"><QR text={selected.link} /><span className="mono xs dim">Scan to open this request · local preview link</span></div><button className="ghost danger" onClick={() => cancel(selected.id)}>Cancel request</button></section>}
+    <section><Label>REQUESTS ON THIS DEVICE · {requests.length}</Label>{requests.length ? requests.map(r => <button className="tx-row" key={r.id} onClick={() => setSelected(r)}><span className="tx-icon">↓</span><span className="grow"><b>{r.amount} {r.asset}</b><span className="sub">{r.network} · from {r.target}</span></span><span className="tx-right"><small>{r.status}</small></span></button>) : <div className="mono xs dim">No requests yet.</div>}</section>
+  </div>
 }
 function Profile({ sum, hide }: { sum: number; hide: boolean }) {
   const [qr, setQr] = useState<string | null>(null), [cp, setCp] = useState<string | null>(null)

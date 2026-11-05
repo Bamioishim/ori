@@ -26,6 +26,7 @@ Deployed as a static Vite site on Vercel (preview project `ori-preview`). Linkin
 - Extra screens (Scanner, Policy, Swap extras, etc.) hidden for the submission.
 - Ori assistant moved off the numbers (not covering the balance).
 - Already present: spending cap for the AI (Ori can't pay above the cap without a tap) and payee-chooses-chain/asset.
+- Request slice now present: local request records with amount, token, network, handle/address, copyable `ori://` link, QR code, and local cancellation. Server persistence, notifications, and settlement are still open.
 
 ## Open items (need Bamio)
 - Per-swap fee figure — needs Bamio's approval before shipping.
