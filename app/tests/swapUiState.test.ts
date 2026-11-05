@@ -14,6 +14,8 @@ test('"Enter an amount" / over-balance share amountAllowed; API/route problems g
   assert.match(sw, /amountAllowed\(spend/)
   assert.match(sw, /sizingKind\(uiMode/)
   assert.match(sw, /readSignerSpendable/)
+  assert.match(sw, /visibleSpend\(spendRaw/)
+  assert.match(sw, /setAmt\(spend\.maxStr/)
   assert.doesNotMatch(sw, /spendableAmount\(held/)
   assert.doesNotMatch(sw, /live\.holdings/)
   assert.match(e, /balBlock/)

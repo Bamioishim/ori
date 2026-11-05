@@ -26,7 +26,7 @@ import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { CopyButton, PillTabs, PriceFlow, TokenSearch } from './ui'
 import { countProgress, quoteVisible } from './uiLogic'
-import { amountAllowed, canUseMax, exampleHeld, exampleSpendable, pickSigner, readSignerSpendable, sizingKind, spendSourceKey, unknownSpend, type SpendState } from './spendableBalance'
+import { amountAllowed, canUseMax, exampleHeld, exampleSpendable, pickSigner, readSignerSpendable, sizingKind, spendSourceKey, unknownSpend, visibleSpend, type SpendState } from './spendableBalance'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
 import { useManagedWallets } from './wallets'
@@ -410,20 +410,20 @@ function Swap({ refundEvm, preset, status, cfg, uiMode, onConfirm, onLimit }: { 
   const held = sizeKind === 'example' ? exampleHeld() : []
   const assetKey = exec && from.t ? { sym: from.s, net: exec.net, decimals: from.d, kind: exec.kind, token: exec.token } as AssetDef : null
   const sourceKey = sizeKind === 'example' ? `example|${from.b}|${from.s}` : spendSourceKey(srcAcct || null, assetKey)
-  const [spend, setSpend] = useState<SpendState>(() => sizeKind === 'example' ? exampleSpendable(from.s, from.b) : unknownSpend('Connect the signing wallet for a fresh balance read'))
+  const [spendRaw, setSpend] = useState<SpendState>(() => sizeKind === 'example' ? exampleSpendable(from.s, from.b) : unknownSpend('Connect the signing wallet for a fresh balance read'))
   useEffect(() => {
     if (sizeKind === 'example') { setSpend(exampleSpendable(from.s, from.b)); return }
     if (!from.t || !assetKey) { setSpend(unknownSpend('Pick a send asset', sourceKey)); return }
     if (!srcAcct) { setSpend(unknownSpend(`Connect your ${from.c} wallet · watch-only addresses are not a signing balance`, sourceKey)); return }
     setSpend(unknownSpend('Reading signer balance…', sourceKey))
     let dead = false
-    const probe = units && units > 0n ? units : 1n
+    const probe = units && units > 0n ? units : 1n // self-probe approx; amt not in deps (no fee-estimate loops)
     readSignerSpendable(assetKey, srcAcct, probe).then(st => { if (!dead) setSpend(st) })
     return () => { dead = true }
   }, [sizeKind, sourceKey, from.s, from.b, from.t, from.c]) // eslint-disable-line react-hooks/exhaustive-deps
-  // Source change must not keep a prior owner's fresh amount
-  useEffect(() => { if (spend.sourceKey && sourceKey && spend.sourceKey !== sourceKey && spend.kind === 'signer') setSpend(unknownSpend('Source changed · refreshing…', sourceKey)) }, [sourceKey]) // eslint-disable-line react-hooks/exhaustive-deps
-  const balBlock = amountAllowed(spend, n, from.s)
+  // Synchronous gate (like quoteVisible): never paint prior signer balance/MAX for a new sourceKey.
+  const spend = visibleSpend(spendRaw, sourceKey)
+  const balBlock = amountAllowed(spend, n, from.s, amt)
   const overBal = !!(n > 0 && balBlock && /available/i.test(balBlock))
   const [prep, setPrep] = useState('')
   const reviewLive = async (r: DOMRect) => {
@@ -449,7 +449,7 @@ function Swap({ refundEvm, preset, status, cfg, uiMode, onConfirm, onLimit }: { 
         <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenSearch value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} origin held={held} /></div>
         {from.t && !exec && <span className="qo-chip mono xs" title="ORI cannot sign a deposit from this asset; you can see the quote but not swap.">QUOTE ONLY</span>}
         <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}{` · ${spend.label}`}{spend.feeNote ? ` · ${spend.feeNote}` : ''}{overBal ? ' · over available' : ''}</span>
-        {canUseMax(spend) && <button type="button" className="ghost maxbtn" disabled={busy} title={spend.kind === 'example' ? 'Example MAX only · not a real spendable balance' : `MAX for signer ${spend.owner}`} onClick={() => setAmt(String(spend.amount))}>{spend.kind === 'example' ? 'MAX · example' : 'MAX'}</button>}
+        {canUseMax(spend) && <button type="button" className="ghost maxbtn" disabled={busy} title={spend.kind === 'example' ? 'Example MAX only · not a real spendable balance' : `MAX for signer ${spend.owner}`} onClick={() => setAmt(spend.maxStr!)}>{spend.kind === 'example' ? 'MAX · example' : 'MAX'}</button>}
         <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label={`Swap direction: currently ${from.s} to ${to.s}`} title="Swap direction">⇅</motion.button>
       </div>
       <div className="swapbox">
