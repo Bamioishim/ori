@@ -1,3 +1,4 @@
+import { FieldError } from './ui'
 import { useEffect, useState } from 'react'
 import { ASSETS, balanceOf, checkRpcChain, solRecipientCheck, estimateFee, findAsset, fromUnits, preSignCheck, sendEvm, sendSol, sendSpl, toUnits, unsupportedReason, validateRecipient, type FeeEstimate, type EvmProvider, type SolProvider } from './transfers'
 import { useManagedWallets } from './wallets'
@@ -54,10 +55,10 @@ export function SendScreen({ cfg, preset, openWallets }: { cfg: Settings; preset
         : !from ? <><div className="mono xs dim why">Connect a {chain === 'sol' ? 'Solana' : 'EVM'} wallet to send {a?.sym} on {a?.net}.</div><button className="ghost" onClick={openWallets}>Connect a wallet</button></>
         : <>
           <div className="row"><span className="grow">From<br /><span className="mono xs dim">{short(from)} · your wallet signs</span></span></div>
-          <div className="row"><input className="field" value={to} onChange={e => { setTo(e.target.value); setStage('edit') }} placeholder={`${a?.net} address`} aria-label="Recipient address" spellCheck={false} autoComplete="off" /><button className="ghost" onClick={paste}>Paste</button></div>
-          {recipientError && <div className="mono xs err why">{recipientError}</div>}
-          <div className="amount sm"><input value={amt} onChange={e => { setAmt(e.target.value.replace(/[^\d.]/g, '')); setStage('edit') }} inputMode="decimal" placeholder="0" aria-label="Amount" /><span>{a?.sym}</span></div>
-          {amt && !units && <div className="mono xs err why">Enter a positive amount with at most {a?.decimals} decimals.</div>}
+          <div className="row"><input className="field" value={to} onChange={e => { setTo(e.target.value); setStage('edit') }} placeholder={`${a?.net} address`} aria-label="Recipient address" aria-invalid={!!recipientError} aria-describedby={recipientError ? 'send-to-err' : undefined} spellCheck={false} autoComplete="off" /><button className="ghost" onClick={paste}>Paste</button></div>
+          <FieldError id="send-to-err" msg={recipientError} />
+          <div className="amount sm"><input value={amt} onChange={e => { setAmt(e.target.value.replace(/[^\d.]/g, '')); setStage('edit') }} inputMode="decimal" placeholder="0" aria-label="Amount" aria-invalid={!!amt && !units} aria-describedby={amt && !units ? 'send-amt-err' : undefined} /><span>{a?.sym}</span></div>
+          {amt && !units && <div id="send-amt-err" className="mono xs err why ferr" role="alert">Enter a positive amount with at most {a?.decimals} decimals.</div>}
           <div className="row"><span className="grow">Network fee</span><span className="num">{fee ? `${fromUnits(fee.feeUnits, fee.feeDecimals, 8)} ${fee.feeSym}` : feeErr ? 'Unavailable' : units && to && !recipientError ? 'Estimating…' : '—'}</span></div>
           {fee && <div className="mono xs dim">{fee.detail}. ORI adds no fee.</div>}{feeErr && <div className="mono xs err why">{feeErr}</div>}
         </>}

@@ -94,7 +94,7 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 - A static check enforces user-initiated listening only: `npm run check:activation`.
 
 ### Security Center / Policy
-- You can set limits for a single payment and per day, plus an approval threshold where you have to hold to confirm.
+- You can set limits for a single payment and per day, plus an approval threshold where you have to slide to confirm.
 - Limits **fail closed**: a missing, corrupt or tampered value blocks the action.
 - **What enforces them:** the ORI browser app, and nothing else. They are checked on the cards and again right before signing. They live in `localStorage`. Anyone who controls the browser can clear them, and a wallet used outside ORI is not governed at all. ORI makes **no** on-chain, NEAR contract, Chain Signatures or TEE enforcement claims.
 
@@ -107,6 +107,22 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 `HIDDEN_SCREENS = ['scan', 'earn', 'privacy']` in `app/src/config.ts`.
 
 ---
+
+### UI micro-interactions (original ORI code, Nov 5)
+These are UI only. None of them changes signing, limits, the review sheet or the wallet's own approval.
+
+- **Slide to confirm.** It replaces hold-to-confirm above the approval threshold, on the confirm sheet and on the card buttons. The handle must travel all the way while held. Letting go early or a pointer cancel resets it. It is disabled while the action is blocked and fires once only. Keyboard and screen-reader users press Enter twice; Esc or a 5 s timeout disarms it. The wallet still asks separately: this is a UI gesture, not a security control.
+- **Copy buttons** show a check only when the browser confirms the clipboard write. Otherwise they say "Copy failed".
+- **Hidden balance** masks every digit (`•`) wherever amounts appear. Pressing and holding the balance peeks while held.
+- **Live quote numbers:** changed digits ease in (price flow). The values are never altered and get no gain/loss colouring.
+- **Tabs and segments:** the Tokens/Chains tabs and the Settings segments share one spring tab control, with arrow-key support.
+- **Dropdowns:** styled history and token pickers. The send-asset picker groups tokens by chain and shows a "QUOTE ONLY" chip for sources ORI can't sign.
+- **Gmail code:** a single 6-digit field that handles paste and autofill. The separate 4-digit recovery PIN is labelled as device-only. Gmail login itself is still not functional (503).
+- **Send form errors** are announced (`role="alert"`), mark the field invalid and shake once.
+- **Hey ORI:** tap-to-talk shows decorative listening bars. They are not a microphone level, and there is no wake word.
+- **Chat composer:** labelled as a local rule-based assistant, not an AI model.
+
+Reduced motion is respected throughout (`MotionConfig reducedMotion="user"` plus CSS media queries). The logic is unit-tested in `app/tests/ui.test.ts`; the visual and touch behaviour has not been checked in a browser or on a phone yet.
 
 ## Support matrix
 
@@ -257,7 +273,7 @@ cd app && npm test
 ```
 Use the prescribed loader (`tests/register.mjs` resolves the `.js` import specifiers used in `api/`). Don't run `node --test` raw.
 
-At `6936c68`: **72 node tests and 20 static checks pass**. They cover:
+Currently: **90 node tests and 31 static checks pass**. They cover:
 - limits;
 - quote time;
 - Receive targets;

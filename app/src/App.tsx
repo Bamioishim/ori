@@ -1,5 +1,5 @@
 import { LogoH } from './Logo'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { motion, AnimatePresence } from 'motion/react'
 import { APP_NAME, isHiddenScreen } from './config'
@@ -24,6 +24,9 @@ import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
+import { CopyButton, PillTabs, PriceFlow, SlideConfirm } from './ui'
+import { MaskCtx, useMask, usePeekHandlers } from './mask'
+import { maskDigits } from './uiLogic'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
 import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
@@ -75,15 +78,18 @@ function Spark({ range }: { range: string }) {
     <circle cx={last[0] - 2} cy={last[1]} r="2.5" fill="#F5F4F1" />
   </svg>
 }
+const REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
 function useCount(target: number) {
   const [v, setV] = useState(0)
   const from = useRef(0)
-  useEffect(() => { let r = 0; const t0 = performance.now(), a = from.current; const f = (t: number) => { const k = Math.min((t - t0) / 1400, 1); const nv = a + (target - a) * (1 - Math.pow(1 - k, 4)); from.current = nv; setV(nv); if (k < 1) r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => cancelAnimationFrame(r) }, [target])
-  return v
+  useEffect(() => { if (REDUCED) { from.current = target; return } let r = 0; const t0 = performance.now(), a = from.current; const f = (t: number) => { const k = Math.min((t - t0) / 1400, 1); const nv = a + (target - a) * (1 - Math.pow(1 - k, 4)); from.current = nv; setV(nv); if (k < 1) r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => cancelAnimationFrame(r) }, [target])
+  return REDUCED ? target : v
 }
 function Money({ v, cls = '' }: { v: number; cls?: string }) {
-  const [w, c] = v.toFixed(2).split('.')
-  return <span className={'money ' + cls + (w.length >= 9 ? ' l9' : w.length >= 7 ? ' l7' : '')}><span className="cur">$</span>{(+w).toLocaleString('en-US')}<span className="cents">.{c}</span></span>
+  const { masked } = useMask()
+  const [w, c] = v.toFixed(2).split('.'); const whole = (+w).toLocaleString('en-US')
+  if (masked) return <span className={'money masked ' + cls + (w.length >= 9 ? ' l9' : w.length >= 7 ? ' l7' : '')} aria-label="Hidden amount"><span className="cur">$</span><span aria-hidden>{maskDigits(whole)}</span><span className="cents" aria-hidden>.••</span></span>
+  return <span className={'money ' + cls + (w.length >= 9 ? ' l9' : w.length >= 7 ? ' l7' : '')}><span className="cur">$</span>{whole}<span className="cents">.{c}</span></span>
 }
 export type Mode = 'example' | 'live'
 export type LiveState = { loading: boolean; holdings: Holding[]; errors: string[]; at: number | null }
@@ -111,10 +117,11 @@ function Home({ profile, hidden, setHidden, extra, mode, setMode, live, addrs, s
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
+  const peekMobile = usePeekHandlers(() => setHidden(!hidden))
   if (wide) return <HomeDesk {...{ profile, hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
     {profile}
-    <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
+    <button className={'mh-bal' + (isLive && live.loading && !live.at ? ' loading' : '')} {...peekMobile}><Money v={v} cls="big" /></button>
     <div className="mh-chg">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `Live · ${addrs.length} address${addrs.length === 1 ? '' : 'es'}` : 'Add an address in Settings'}</span> : <><span className="up">▲ 1.37%</span><span className="dim">+$38.62 · 24h</span><Example /></>}</div>
     <Tiles go={go!} />
     <Promo go={go!} />
@@ -167,30 +174,31 @@ function Promo({ go }: { go: (s: Screen) => void }) {
       <button className="promo-go" onClick={() => go('policy')}>Open Policy</button></div>
     <img src="/ori-mark.svg" alt="" className="promo-art" /></motion.div>}</AnimatePresence>
 }
-function HoldList({ rows, chainRows, sum, hide, sel, setSel, go }: any) {
+function HoldList({ rows, chainRows, sum, sel, setSel, go }: any) {
   const [open, setOpen] = useState<number | null>(null)
   const [tab, setTab] = useState<'tokens' | 'chains'>('tokens')
   return <section className="hl">
-    <div className="hl-tabs">{(['tokens', 'chains'] as const).map(t => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t === 'tokens' ? 'Tokens' : 'Chains'}</button>)}</div>
+    <PillTabs id="holdings" className="hl-tabs" value={tab} onChange={setTab} options={[['tokens', 'Tokens'], ['chains', 'Chains']]} />
     {tab === 'tokens' ? rows.map((a: any, i: number) => <Fragment key={i}><div className="trow" role="button" tabIndex={0} aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}><Glyph s={a.sym} />
       <span className="grow"><b>{NAMES[a.sym] || a.sym}</b><span className="sub">{a.sym} · {a.chain}</span></span>
       <Mini seed={a.sym} up={(a.d24 ?? 0) >= 0} />
-      <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>{open === i && go && <AssetActions sym={a.sym} chain={a.chain} go={go} />}</Fragment>)
+      <span className="r"><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>{open === i && go && <AssetActions sym={a.sym} chain={a.chain} go={go} />}</Fragment>)
     : <><div className="alloc">{chainRows.map((c: any) => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
       {chainRows.map((c: any) => <button className={'arow trow' + (sel === c.name ? ' sel' : '')} key={c.name} onClick={() => setSel(sel === c.name ? null : c.name)}>
         <span className="dot" style={{ background: chainCol(c.name) }} /><span className="grow"><b>{c.name}</b><span className="sub">{(c.usd / (sum || 1) * 100).toFixed(1)}% of balance</span></span>
-        <Mini seed={c.name} up={true} /><span className={'r' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></span></button>)}</>}
+        <Mini seed={c.name} up={true} /><span className="r"><Money v={c.usd} cls="sm" /></span></button>)}</>}
   </section>
 }
 
 function HomeDesk(p: any) {
-  const { profile, hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
+  const peekDesk = usePeekHandlers(() => p.setHidden(!p.hidden))
+  const { profile, hidden: hide, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
   const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
   return <div className="dash">
     <section className="d-card d-hero">
       <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
       {profile}
-      <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
+      <button className={'total' + (isLive && live.loading && !live.at ? ' loading' : '')} {...peekDesk}><Money v={v} /></button>
       <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
         : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">click to hide</span></>}</div>
       {!isLive && <div className="d-chart"><Spark range={range} />
@@ -212,16 +220,16 @@ function HomeDesk(p: any) {
       <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th><th className="rt">Actions</th></tr></thead><tbody>
         {chainRows.map((c: any) => <tr key={c.name} className={sel === c.name ? 'sel' : ''} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)}>
           <td><span className="dot" style={{ background: chainCol(c.name) }} /> {c.name}</td><td className="sharec"><i style={{ width: (c.usd / (sum || 1) * 100) + '%', background: chainCol(c.name) }} /></td>
-          <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className={'rt' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></td></tr>)}
+          <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className="rt"><Money v={c.usd} cls="sm" /></td></tr>)}
       </tbody></table>
     </section>}
     {!empty && <section className="d-card d-assets">
       <div className="sechead"><Label>ASSETS</Label><span className="label">SPEND ORDER</span></div>
       <table className="tbl"><thead><tr><th>Asset</th><th>Chain</th><th>Role</th><th className="rt">Amount</th><th className="rt">24h</th><th className="rt">Value</th></tr></thead><tbody>
         {rows.map((a: any, i: number) => <tr key={i}><td><span className="tcell"><Glyph s={a.sym} /><b>{a.sym}</b></span></td><td className="dim">{a.chain}</td><td className="dim">{a.role}</td>
-          <td className={'rt mono' + (hide ? ' blurred' : '')}>{a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+          <td className="rt mono">{hide ? <span aria-label="Hidden amount">{maskDigits(a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 }))}</span> : a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
           <td className={'rt mono' + (a.d24 !== null && a.d24 < 0 ? ' neg' : '')}>{a.d24 === null ? '—' : (a.d24 > 0 ? '+' : '') + a.d24.toFixed(1) + '%'}</td>
-          <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td><td className="rt"><AssetActions sym={a.sym} chain={a.chain} go={go} compact /></td></tr>)}
+          <td className="rt"><Money v={a.usd} cls="sm" /></td><td className="rt"><AssetActions sym={a.sym} chain={a.chain} go={go} compact /></td></tr>)}
       </tbody></table>
     </section>}
     <section className="d-card d-feed">
@@ -253,14 +261,13 @@ const fmtT = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: 
 export type Draft = { to: string; amt: string; k: number }
 const FLAGGED = /drain|scam|claim-airdrop/i // local demo heuristic for handles; real addresses go to GoPlus
 function ConfirmBtn({ label, need, blocked, limit, status, busyLabel, onGo, onLimit, btn }: { label: string; need: boolean; blocked: string | null; limit: string | null; status: string; busyLabel: string; onGo: (r: DOMRect) => void; onLimit: (r: DOMRect, why: string) => void; btn?: React.RefObject<HTMLButtonElement | null> }) {
-  const own = useRef<HTMLButtonElement>(null); const cta = btn || own
-  const [hold, setHold] = useState(false); const timer = useRef(0)
-  const go = () => { const r = cta.current!.getBoundingClientRect(); if (limit) { onLimit(r, limit); return } onGo(r) }
-  const start = () => { if (blocked || status !== 'idle' || limit) return; if (!need) return; navigator.vibrate?.(12); setHold(true); timer.current = window.setTimeout(() => { setHold(false); navigator.vibrate?.([18, 40, 18]); go() }, 750) }
-  const cancel = () => { clearTimeout(timer.current); setHold(false) }
-  return <button ref={cta} className={'cta hold sa2 mint' + (need ? ' needhold' : '') + (hold ? ' holding' : '') + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'}
-    onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel} onContextMenu={e => e.preventDefault()} onClick={() => { if ((limit || !need) && !blocked && status === 'idle') go() }}>
-    <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : (need ? 'Hold to ' : 'Tap to ') + label}</button>
+  const own = useRef<HTMLButtonElement>(null); const cta = btn || own; const wrap = useRef<HTMLDivElement>(null)
+  const go = () => { const r = (cta.current || wrap.current)!.getBoundingClientRect(); if (limit) { onLimit(r, limit); return } onGo(r) }
+  // Above the approval threshold the review is opened by a deliberate full slide (or Enter twice), never a tap.
+  const [round, setRound] = useState(0) // remount after a confirm so a cancelled review can be slid again
+  if (need && !blocked && !limit && status === 'idle') return <div ref={wrap} className="sa2"><SlideConfirm key={round} label={'Slide to ' + label} disabled={false} onConfirm={() => { go(); window.setTimeout(() => setRound(n => n + 1), 700) }} /></div>
+  return <button ref={cta} className={'cta hold sa2 mint' + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'} onClick={() => { if (!blocked && status === 'idle') go() }}>
+    <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : 'Tap to ' + label}</button>
 }
 
 type LivePayment = { kind: 'settlement' | 'direct'; quote?: SettlementQuote; wallet: string; txHash: string; state: SettlementStatus['status'] | 'BROADCAST' | 'SUCCESS' | 'ERROR'; destination: string; network: string; amount: number; error?: string }
@@ -334,7 +341,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → {settlement?.network || destinationNetwork} USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">{settlement?.kind === 'direct' ? `Direct Base transfer · ${settlement.state}` : `NEAR Intents · ${settlement?.state || 'simulated'}`}</span></div>
         {settlement && <><div className="row"><span className="grow">Wallet tx</span><span className="num mono">{short(settlement.txHash)}</span></div>{settlement.kind === 'settlement' && settlement.quote && <div className="row"><span className="grow">Deposit address</span><span className="num mono">{short(settlement.quote.quote.depositAddress)}</span></div>}</>}
-        <div className="row"><span className="grow">Quoted fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
+        <div className="row"><span className="grow">Quoted fee</span>{q.q ? <PriceFlow text={usd(q.q.fee)} /> : <span className="num">—</span>}</div>
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement?.kind === 'direct' ? 'Your connected wallet' : settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
@@ -351,11 +358,11 @@ function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: 
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : extra || 'Enter an amount for a live quote.'}</div>
   return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {formatEta(q.q.eta)} after deposit · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
-function TokenPick({ value, cat, onChange, disabled, label, chainLabel }: { value: string; cat: CatalogToken[]; onChange: (v: string) => void; disabled: boolean; label: string; chainLabel: (b: string) => string }) {
-  const opts = [...cat].sort((a, b) => a.blockchain.localeCompare(b.blockchain) || a.symbol.localeCompare(b.symbol))
-  return <select className="history-filter" value={value} onChange={e => onChange(e.target.value)} disabled={disabled || !cat.length} aria-label={label}>
+function TokenPick({ value, cat, onChange, disabled, label, chainLabel, origin = false }: { value: string; cat: CatalogToken[]; onChange: (v: string) => void; disabled: boolean; label: string; chainLabel: (b: string) => string; origin?: boolean }) {
+  const groups = useMemo(() => { const m = new Map<string, CatalogToken[]>(); for (const t of cat) { const k = t.blockchain; if (!m.has(k)) m.set(k, []); m.get(k)!.push(t) } return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0])).map(([k, ts]) => [k, ts.toSorted((x, y) => x.symbol.localeCompare(y.symbol))] as const) }, [cat])
+  return <select className="history-filter token-pick" value={value} onChange={e => onChange(e.target.value)} disabled={disabled || !cat.length} aria-label={label}>
     {!cat.length && <option value={value}>Loading tokens…</option>}
-    {opts.map(t => <option key={t.assetId} value={t.assetId}>{t.symbol} · {chainLabel(t.blockchain)}{originAdapter(t) ? '' : ' · quote only'}</option>)}</select>
+    {groups.map(([b, ts]) => <optgroup key={b} label={chainLabel(b)}>{ts.map(t => <option key={t.assetId} value={t.assetId}>{t.symbol} · {chainLabel(t.blockchain)}{origin && !originAdapter(t) ? ' · quote only' : ''}</option>)}</optgroup>)}</select>
 }
 export type SwapPlan = { review: SwapReview; asset: AssetDef; settlement: SettlementQuote; label: string; lines: [string, string][] }
 function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null, plan?: SwapPlan) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
@@ -413,22 +420,23 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
       <Label>SWAP · ONE TAP {px && <span className="live-tag">LIVE PRICES</span>}</Label>
       <div className="swapbox">
         <span className="mono xs dim">SEND</span>
-        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenPick value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} /></div>
+        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenPick value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} origin /></div>
+        {from.t && !exec && <span className="qo-chip mono xs" title="ORI cannot sign a deposit from this asset; you can see the quote but not swap.">QUOTE ONLY</span>}
         <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}</span>
-        <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label="Flip direction">⇅</motion.button>
+        <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label={`Swap direction: currently ${from.s} to ${to.s}`} title="Swap direction">⇅</motion.button>
       </div>
       <div className="swapbox">
         <span className="mono xs dim">RECEIVE</span>
-        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? fmtOut(out) : '—'}</span><TokenPick value={to.id} cat={cat} onChange={setToId} disabled={busy} label="Receive asset" chainLabel={chainLabel} /></div>
+        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? <PriceFlow className="" text={fmtOut(out)} /> : '—'}</span><TokenPick value={to.id} cat={cat} onChange={setToId} disabled={busy} label="Receive asset" chainLabel={chainLabel} /></div>
         <span className="mono xs dim">{q.q ? usd(q.q.amountOutUsd) : ' '}{limit && <span className="limitnote"> · {limit}</span>}</span>
       </div>
     </section>
     <section className="sb">
       <Label>QUOTE <LiveTag q={q} /></Label>
-      <div className="row"><span className="grow">Rate</span><span className="num">{q.q && n ? `1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}` : '—'}</span></div>
+      <div className="row"><span className="grow">Rate</span>{q.q && n ? <PriceFlow text={`1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}`} /> : <span className="num">—</span>}</div>
       <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? formatEta(q.q.eta) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
-      <div className="row"><span className="grow">Minimum received</span><span className="num">{q.q ? fmtOut(q.q.minOut) + ' ' + to.s : '—'}</span></div>
+      <div className="row"><span className="grow">Minimum received</span>{q.q ? <PriceFlow text={fmtOut(q.q.minOut) + ' ' + to.s} /> : <span className="num">—</span>}</div>
       <QuoteMeta q={q} extra={routeNote || 'Network fee is paid in your wallet; the total fee above is the provider spread/fees from the quote. ORI adds no app fee. ' + (live ? 'Review fetches a binding quote; your wallet signs one direct deposit. No token approvals.' : 'EXAMPLE mode: confirming simulates with these live numbers. Nothing is signed or sent.')} />
     </section>
     {status === 'sent' && sent
@@ -505,6 +513,8 @@ export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
   const [hidden, setHidden] = useState(false)
+  const [peeking, setPeeking] = useState(false)
+  const maskValue = useMemo(() => ({ masked: hidden && !peeking, hidden, peek: setPeeking }), [hidden, peeking])
   const [extra, setExtra] = useState(0)
   const [mode, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
@@ -690,7 +700,7 @@ export default function App() {
   const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
 
 
-  return <LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
+  return <MaskCtx.Provider value={maskValue}><LayoutGroup><div className={'app' + (stage !== 'done' ? ' intro-on' : '') + (stage === 'land' ? ' landing' : '')}>
     <div className="grain" />
     <Nebula reduce={reduced} dim={wide ? 1 : 0.9} active={screen === 'home' || thinking} />
     {wide && <aside className="side">
@@ -761,12 +771,13 @@ export default function App() {
         </motion.div> })}
           {thinking && <div className="msg bot thinking"><Dots size={5} label="Ori is thinking" /></div>}<div ref={msgsEnd} /></div>
         {(listenSt !== 'off' || listenHint) && <div className="mono xs dim why" role="status">
-          {listenHint || (listenSt === 'listening' ? 'Listening…' : '')}
+          {listenSt === 'listening' && <span className="vbars" aria-hidden><i /><i /><i /><i /><i /></span>}{listenHint || (listenSt === 'listening' ? 'Listening…' : '')}
           {listenSt === 'listening' && <button type="button" className="ghost" onClick={() => { haltTalk(); setListenSt('off'); setListenHint('Stopped. You can type or tap Hey ORI again.') }}>Stop</button>}
           {input.trim() && <button type="button" className="ghost" onClick={() => setInput('')}>Clear</button>}
         </div>}
         <form onSubmit={e => { e.preventDefault(); if (input.trim() && !thinking) { command(input); setInput('') } }} className="ask">
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" ref={askIn} enterKeyHint="send" tabIndex={chat ? 0 : -1} /><button className="mono xs" disabled={thinking}>SEND</button></form>
+          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" aria-label="Message Ori (local rule-based assistant)" aria-describedby="composer-note" ref={askIn} enterKeyHint="send" tabIndex={chat ? 0 : -1} /><button className={'mono xs send-btn' + (input.trim() ? ' ready' : '')} disabled={thinking || !input.trim()} aria-label="Send message">SEND</button></form>
+          <div id="composer-note" className="mono xs dim composer-note">Local rule-based assistant · not an AI model · it never signs anything</div>
       </motion.div>
     <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => { if (chat) setChat(false); else openChat() }} balance={hidden ? null : rows.reduce((a, r) => a + r.usd, 0)} chat={chat && wide} /></div>
     <AnimatePresence>{burst && <motion.div className="ripple" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .25 }} aria-hidden>
@@ -776,7 +787,7 @@ export default function App() {
     <TransactionDetail tx={selectedTransaction} onClose={() => setSelectedTransaction(null)} />
     <AccountSheet open={accountOpen} guestId={guestId} account={account} onClose={() => setAccountOpen(false)} onSignedIn={(a) => { setAccount(a); if (a) oriSay(`Signed in as @${a.username}. Saved conversations and memory are now enabled.`); else { localStorage.removeItem('ori-chat'); setMsgs([{ who: 'ori', t: 'You’re back in a limited guest session. Sign in again to save conversations.', chips: DEFAULT_CHIPS }]); oriSay('Signed out. You are back in a limited guest session.') } }} />
     <Intro stage={stage} skip={skipIntro} />
-  </div></LayoutGroup>
+  </div></LayoutGroup></MaskCtx.Provider>
 }
 
 function QR({ text }: { text: string }) {
@@ -789,7 +800,7 @@ const REQUEST_KEY = 'ori-payment-requests'
 function loadRequests(): PaymentRequest[] { try { const v = JSON.parse(localStorage.getItem(REQUEST_KEY) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
 function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
   const [amount, setAmount] = useState('20'), [asset, setAsset] = useState('USDC'), [network, setNetwork] = useState('Base')
-  const [target, setTarget] = useState(defaultAddress), [requests, setRequests] = useState<PaymentRequest[]>(loadRequests), [selected, setSelected] = useState<PaymentRequest | null>(null), [copied, setCopied] = useState(false), [error, setError] = useState('')
+  const [target, setTarget] = useState(defaultAddress), [requests, setRequests] = useState<PaymentRequest[]>(loadRequests), [selected, setSelected] = useState<PaymentRequest | null>(null), [error, setError] = useState('')
   const valid = !!(+amount > 0) && !!target.trim() && (target.trim().startsWith('@') || !!kindOf(target.trim()))
   const create = (e: React.FormEvent) => {
     e.preventDefault(); setError(''); const who = target.trim()
@@ -799,8 +810,7 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
     const next: PaymentRequest = { id, amount, asset, network, target: who, createdAt: Date.now(), status: 'open', link }
     const all = [next, ...requests].slice(0, 20); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(next)
   }
-  const copy = (text: string) => { navigator.clipboard?.writeText(text).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1400) }
-  const cancel = (id: string) => { const all = requests.map(r => r.id === id ? { ...r, status: 'cancelled' as const } : r); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(null) }
+    const cancel = (id: string) => { const all = requests.map(r => r.id === id ? { ...r, status: 'cancelled' as const } : r); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(null) }
   return <div className="pg">
     <section className="pad-top"><Label>REQUEST · ASK FOR FUNDS</Label><h2 className="big2">Get paid<br /><span className="dim">without a username first.</span></h2><div className="mono xs dim">Create a shareable request for a handle or real wallet address. This preview stores requests on this device; it does not notify or settle payments yet.</div></section>
     <section><Label>NEW PAYMENT REQUEST</Label><form onSubmit={create}>
@@ -810,12 +820,12 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
       <label className="account-label">REQUEST FROM · HANDLE OR ADDRESS<input className="field" value={target} onChange={e => setTarget(e.target.value)} placeholder="@bamio or 0x…" spellCheck={false} /></label>
       {error && <div className="mono xs err why">{error}</div>}<button className="cta" disabled={!valid}>Create request</button>
     </form></section>
-    {selected && <section><Label>SHARE REQUEST · {selected.status.toUpperCase()}</Label><div className="row"><span className="grow"><b>{selected.amount} {selected.asset}</b><br /><span className="mono xs dim">{selected.network} · from {selected.target}</span></span><button className="ghost" onClick={() => copy(selected.link)}>{copied ? 'COPIED' : 'COPY LINK'}</button></div><div className="pqr"><QR text={selected.link} /><span className="mono xs dim">Scan to open this request · local preview link</span></div><button className="ghost danger" onClick={() => cancel(selected.id)}>Cancel request</button></section>}
+    {selected && <section><Label>SHARE REQUEST · {selected.status.toUpperCase()}</Label><div className="row"><span className="grow"><b>{selected.amount} {selected.asset}</b><br /><span className="mono xs dim">{selected.network} · from {selected.target}</span></span><CopyButton text={selected.link} label="COPY LINK" aria="Copy request link" /></div><div className="pqr"><QR text={selected.link} /><span className="mono xs dim">Scan to open this request · local preview link</span></div><button className="ghost danger" onClick={() => cancel(selected.id)}>Cancel request</button></section>}
     <section><Label>REQUESTS ON THIS DEVICE · {requests.length}</Label>{requests.length ? requests.map(r => <button className="tx-row" key={r.id} onClick={() => setSelected(r)}><span className="tx-icon">↓</span><span className="grow"><b>{r.amount} {r.asset}</b><span className="sub">{r.network} · from {r.target}</span></span><span className="tx-right"><small>{r.status}</small></span></button>) : <div className="mono xs dim">No requests yet.</div>}</section>
   </div>
 }
-function Profile({ sum, hide }: { sum: number; hide: boolean }) {
-  const [qr, setQr] = useState<string | null>(null), [cp, setCp] = useState<string | null>(null)
+function Profile({ sum }: { sum: number; hide?: boolean }) {
+  const [qr, setQr] = useState<string | null>(null)
   const bal = (c: string) => chains.find(x => x.name === c)?.usd || 0
   const scale = sum / (total || 1)
   return <div className="pg profile">
@@ -824,12 +834,12 @@ function Profile({ sum, hide }: { sum: number; hide: boolean }) {
       {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
         <ChainMark chain={a.chain} />
         <span className="grow"><b>{a.chain === 'Base' ? 'Base · EVM' : a.chain}</b><span className="sub mono">{a.addr.length > 20 ? short(a.addr) : a.addr}</span></span>
-        <span className={'num' + (hide ? ' blurred' : '')}><Money v={bal(a.chain) * scale} cls="sm" /></span>
-        <button className="picon" aria-label={'Copy ' + a.chain + ' address'} onClick={() => { navigator.clipboard?.writeText(a.addr).catch(() => {}); setCp(a.chain); setTimeout(() => setCp(null), 1400) }}>{cp === a.chain ? '✓' : <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>}</button>
+        <span className="num"><Money v={bal(a.chain) * scale} cls="sm" /></span>
+        <CopyButton text={a.addr} label="" className="picon" aria={'Copy ' + a.chain + ' address'} />
         <button className="picon" aria-label={'Show ' + a.chain + ' QR'} onClick={() => setQr(qr === a.chain ? null : a.chain)}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" /></svg></button>
         <AnimatePresence>{qr === a.chain && <motion.div className="pqr" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring}><QR text={a.addr} /><span className="mono xs dim">Demo address · don’t send real funds</span></motion.div>}</AnimatePresence>
       </div>)}
-      <div className="ptotal"><span className="grow">All addresses feed one balance</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
+      <div className="ptotal"><span className="grow">All addresses feed one balance</span><span className="num"><Money v={sum} cls="sm" /></span></div>
       <div className="mono xs dim">Example data. These are demo addresses: no keys exist and no wallet is created.</div></section>
   </div>
 }

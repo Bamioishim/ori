@@ -1,3 +1,4 @@
+import { CopyButton } from './ui'
 import { useState, type FormEvent } from 'react'
 import { kindOf } from './live'
 import { CHAIN_LOGOS } from './tokenLogos'
@@ -22,14 +23,10 @@ export function ReceiveScreen({ watched, cfg, setCfg, openWallets, onAddWatch }:
   const { list } = useManagedWallets()
   const rows = receiveDirectory(list, watched, classify)
   const blob = formatCopyAll(rows)
-  const [copied, setCopied] = useState('')
   const [adding, setAdding] = useState<ReceiveNetwork | null>(null)
   const [draft, setDraft] = useState('')
   const [err, setErr] = useState('')
 
-  const copy = (text: string, key: string) => {
-    navigator.clipboard?.writeText(text).then(() => { setCopied(key); setTimeout(() => setCopied(''), 1600) }).catch(() => setCopied(''))
-  }
 
   const add = (e: FormEvent, network: ReceiveNetwork) => {
     e.preventDefault()
@@ -73,11 +70,11 @@ export function ReceiveScreen({ watched, cfg, setCfg, openWallets, onAddWatch }:
             <span className="mono xs">{row.address}</span>
             <span className="mono xs dim">{row.source === 'watched' ? 'Manually added · watch-only (ORI does not verify you own this address)' : 'Connected wallet'}</span>
             {row.kind === 'evm' && <span className="mono xs dim">Same EVM address can receive on Base and Ethereum. Send the matching asset on this network — Base USDC is not Ethereum USDC.</span>}
-            <button type="button" className="ghost" onClick={() => copy(row.address!, row.network)} aria-label={`Copy ${row.network} address`}>{copied === row.network ? 'Copied' : `Copy ${row.network} address`}</button>
+            <CopyButton text={row.address!} label={`Copy ${row.network} address`} aria={`Copy ${row.network} address`} />
           </>}
         </div>
       })}
-      {blob && <button type="button" className="ghost" onClick={() => copy(blob, 'all')}>{copied === 'all' ? 'Copied' : 'Copy populated addresses'}</button>}
+      {blob && <CopyButton text={blob} label="Copy populated addresses" />}
       <p className="mono xs dim">NEAR has no in-app connector. You can receive to an existing NEAR account; sending from ORI on NEAR is not available yet. Connect a wallet to add a new Base, Ethereum or Solana account, or paste one you already have.</p>
     </section>
     <section>

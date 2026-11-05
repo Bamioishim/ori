@@ -1,3 +1,4 @@
+import { SlideConfirm } from './ui'
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, useDragControls } from 'motion/react'
 import { goplus, short, type Risk } from './live'
@@ -25,7 +26,7 @@ export function PolicyScreen({ s, set }: P) {
       <div className="meter"><motion.i initial={{ width: 0 }} animate={{ width: Math.min(100, spent / (s.daily || 1) * 100) + '%' }} transition={spring} /></div>
       <div className="row"><span className="grow">Per-transaction cap<br /><span className="mono xs dim">Anything above is blocked inside ORI (not on-chain)</span></span><Num v={s.perPay} onChange={v => set({ perPay: v })} step={25} /></div></section>
     <section><Label>APPROVAL THRESHOLD</Label>
-      <div className="row"><span className="grow">Extra confirmation above<br /><span className="mono xs dim">Above this, you press and hold on the confirmation sheet. Below it, one tap.</span></span><Num v={s.holdAbove} onChange={v => set({ holdAbove: v })} step={5} /></div>
+      <div className="row"><span className="grow">Extra confirmation above<br /><span className="mono xs dim">Above this, you slide the handle all the way across (or press Enter twice) on the confirmation sheet. Below it, one tap.</span></span><Num v={s.holdAbove} onChange={v => set({ holdAbove: v })} step={5} /></div>
       <div className="policy-sum mono xs">
         <span>≤ {usd(s.holdAbove)} · TAP</span><span>≤ {usd(s.perPay)} · HOLD</span><span className="bad">&gt; {usd(s.perPay)} · BLOCKED</span></div></section>
     <section className="pg-wide"><Label>RECIPIENT ALLOWLIST · {s.trusted.length}</Label>
@@ -43,17 +44,14 @@ export function ConfirmSheet({ d, cfg, onCancel, onConfirm }: { d: SheetData; cf
   const allow = d.kind === 'swap' || cfg.trusted.includes(d.to.trim())
   const need = d.usdv > cfg.holdAbove
   const [ack, setAck] = useState(false); const opened = useRef(performance.now()); const dc = useDragControls()
-  const [hold, setHold] = useState(false); const t = useRef(0)
   const warns: [string, string][] = []
   if (d.blocked) warns.push(['bad', 'Blocked · ' + d.blocked])
   if (!allow) warns.push(['warn', `${d.to} isn’t on your allowlist.`])
-  if (need && !d.blocked) warns.push(['info', `Above your ${usd(cfg.holdAbove)} approval threshold · hold to confirm.`])
+  if (need && !d.blocked) warns.push(['info', `Above your ${usd(cfg.holdAbove)} approval threshold · slide to confirm.`])
   const left = Math.max(0, cfg.daily - spentToday())
   const ready = !d.blocked && (allow || ack)
-  const go = () => { if (!ready) return; logEvent('approve', allow && d.kind === 'pay' ? 'Ori approved a send to an allowlisted contact' : d.kind === 'swap' ? 'Ori approved a swap inside your limits' : 'Ori approved a send you confirmed', `${d.amount} → ${d.to}`); onConfirm() }
-  const down = () => { if (!ready || !need) return; navigator.vibrate?.(12); setHold(true); t.current = window.setTimeout(() => { setHold(false); navigator.vibrate?.([18, 40, 18]); go() }, 900) }
-  const up = () => { clearTimeout(t.current); setHold(false) }
-  useEffect(() => () => clearTimeout(t.current), [])
+  const fired = useRef(false)
+  const go = () => { if (!ready || fired.current) return; fired.current = true; logEvent('approve', allow && d.kind === 'pay' ? 'Ori approved a send to an allowlisted contact' : d.kind === 'swap' ? 'Ori approved a swap inside your limits' : 'Ori approved a send you confirmed', `${d.amount} → ${d.to}`); onConfirm() }
   return <>
     <motion.div className="scrim cscrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={e => { if (e.target === e.currentTarget && performance.now() - opened.current > 450) onCancel() }} />
     <motion.div className="csheet" drag="y" dragControls={dc} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: .6 }} onDragEnd={(_, i) => { if (i.offset.y > 110 || i.velocity.y > 600) onCancel() }}
@@ -71,8 +69,9 @@ export function ConfirmSheet({ d, cfg, onCancel, onConfirm }: { d: SheetData; cf
       {warns.map(([k, w], i) => <motion.div key={w} className={'pwarn ' + k} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ ...spring, delay: .08 + i * .05 }}><b>{k === 'bad' ? '×' : k === 'warn' ? '!' : 'i'}</b>{w}</motion.div>)}
       {!allow && !d.blocked && <label className={'ack' + (ack ? ' on' : '')}><input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} /><span>I know this recipient</span></label>}
       {d.blocked ? <button className="cta" onClick={onCancel}>Got it · change limits in Policy</button>
-        : <button className={'cta hold mint' + (hold ? ' holding' : '') + (need ? ' needhold' : '')} disabled={!ready} onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up} onContextMenu={e => e.preventDefault()} onClick={() => { if (!need) go() }}>
-          <span className="fill" />{!ready ? 'Tick “I know this recipient” first' : need ? 'Hold to confirm' : 'Tap to confirm'}</button>}
+        : need && ready ? <SlideConfirm label="Slide to confirm" disabled={!ready} onConfirm={go} />
+        : <button className="cta hold mint" disabled={!ready} onClick={() => go()}>
+          <span className="fill" />{!ready ? 'Tick “I know this recipient” first' : 'Tap to confirm'}</button>}
     </motion.div></>
 }
 

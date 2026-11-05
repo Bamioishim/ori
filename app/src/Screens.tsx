@@ -1,3 +1,4 @@
+import { PillTabs } from './ui'
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { goplus, kindOf, short, type Risk } from './live'
@@ -9,7 +10,7 @@ function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) =
   return <button className={'tg' + (on ? ' on' : '')} onClick={() => onChange(!on)} aria-pressed={on} aria-label={label}><motion.span layout transition={spring} /></button>
 }
 function Seg<T extends string | number>({ v, opts, onChange }: { v: T; opts: [T, string][]; onChange: (v: T) => void }) {
-  return <div className="modes seg">{opts.map(([k, l]) => <button key={String(k)} className={v === k ? 'on' : ''} onClick={() => onChange(k)}>{l}{v === k && <motion.i layoutId={'seg' + opts.map(o => o[0]).join()} transition={spring} />}</button>)}</div>
+  return <PillTabs id={'seg' + opts.map(o => o[0]).join()} role="radiogroup" className="modes seg" value={v} options={opts} onChange={onChange} />
 }
 function Num({ v, onChange, step = 10 }: { v: number; onChange: (n: number) => void; step?: number }) {
   return <span className="numin"><button onClick={() => onChange(Math.max(0, v - step))} aria-label="Decrease">−</button><span className="mono">$<input value={v} inputMode="decimal" onChange={e => onChange(+e.target.value.replace(/[^\d.]/g, '') || 0)} /></span><button onClick={() => onChange(v + step)} aria-label="Increase">+</button></span>
@@ -78,7 +79,7 @@ const FAQ: [string, string][] = [
   ['Is my money at risk in this preview?', 'No. The preview holds no keys and signs nothing. Payments and swaps are simulated. Quotes are dry runs, so no deposit address is ever created.'],
   ['Where do balances come from?', 'In Example mode they’re made-up numbers. In Live mode ORI reads the public addresses you add in Settings through public RPCs. It’s read-only.'],
   ['What does the scam check do?', 'Before a payment, the recipient goes through GoPlus address security, live. Flagged addresses are blocked and logged in Security.'],
-  ['How do the spending limits work?', 'A per-payment cap and a daily cap are checked inside the ORI app, on the payment and swap cards and again right before ORI asks your wallet to sign. They are not on-chain and do not cover transactions you sign outside ORI. Above your hold threshold you must press and hold to confirm. Ori warns you before you hit a cap.'],
+  ['How do the spending limits work?', 'A per-payment cap and a daily cap are checked inside the ORI app, on the payment and swap cards and again right before ORI asks your wallet to sign. They are not on-chain and do not cover transactions you sign outside ORI. Above your hold threshold you must slide all the way across to confirm (or press Enter twice). Ori warns you before you hit a cap.'],
   ['Can Ori move money on his own?', 'No. Ori prepares a card, and you confirm it. Every action needs your tap or hold.'],
   ['Does Ori use an AI model?', 'Not in this preview. Ori runs a local rule-based assistant that answers from your app state, live prices and quotes. No API keys are used, and nothing you type leaves the browser except price and quote lookups.'],
 ]
