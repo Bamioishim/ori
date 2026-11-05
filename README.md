@@ -2,9 +2,14 @@
 
 ![ORI](brand/og.png)
 
-> ⚠️ **Not payment-ready.** ORI is a hackathon prototype. No real payment, swap, or wallet signature has been tested end to end. On the current deployment the server API that live settlement needs does not work (see [Known limitations](#known-limitations)). Treat every money flow as a demo.
+> ⚠️ **Not payment-ready.** ORI is a hackathon prototype. No real payment, swap, or wallet signature has been tested end to end. On the current deployment the server API that live settlement needs does not work (see [Known limitations](#known-limitations)). Do not use it with funds you are not prepared to lose. Production can ask your wallet to sign real transfers.
 
-**Live preview:** https://ori-preview.vercel.app/ (production deployment of commit `6936c68`, in *example* settlement mode)
+**Live preview:** https://ori-preview.vercel.app/ (production deployment of commit `6936c68`, built with `VITE_ORI_SETTLEMENT_MODE=live`)
+
+> ⚠️ **The production site is not a simulation.** It was built with the **live** settlement flag.
+> - **Direct Send** (same-chain ETH/USDC/SOL/SPL) asks your **real wallet** to sign a **real transfer**.
+> - **Live Pay and Swap** request real quotes and deposits. Today they fail at the server API, which the current runtime blocks (see Known limitations #1), so cross-chain execution does not complete.
+> - Only connect a wallet and sign if you mean to move real funds. No funds have been moved by the team.
 
 ---
 
@@ -39,12 +44,14 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 |---|---|
 | Frontend UI (Home, Send, Receive, Swap, Pay, History, Policy, Account) | Deployed and browser-checked on desktop by the team; **phone not checked** |
 | Public 1Click token list and dry-run quotes from the browser | Working on the deployment (215 tokens on Nov 5) |
-| Native same-chain Send (wallet-signed) | Implemented; **mocked tests only**, never run with a real wallet |
+| Native same-chain Send (wallet-signed) | Implemented and **active on production** (asks your real wallet to sign); tested only with mocks and never run by the team with a real wallet |
 | Live cross-chain Pay and Swap through `/api/quote` + `/api/status` | Implemented in code and mock-tested; **not functional on the deployment** (server runtime issue, below) |
 | Gmail code registration/login | **Not functional**: endpoints return 503 by design until a durable store, a session and mail are configured |
 | Spending limits | Enforced only inside the ORI browser app (no on-chain or backend enforcement) |
 
-The default deployment runs in **example mode** (`VITE_ORI_SETTLEMENT_MODE` is not `live`). Pay and Swap confirmations are simulations, labelled **"EXAMPLE · SIMULATED"**.
+**Two modes, don't confuse them.**
+- **Production (https://ori-preview.vercel.app/) is built with `VITE_ORI_SETTLEMENT_MODE=live`.** Pay and Swap reviews are labelled **"LIVE · YOUR WALLET SIGNS"** and try to call `/api/quote`. That currently fails because of the runtime issue, so no cross-chain deposit is reached. Direct Send never depends on this flag: it always uses your real wallet.
+- **Local builds default to example mode** (`.env.example` sets `preview`). Pay and Swap confirmations are then simulations labelled **"EXAMPLE · SIMULATED"**, and nothing is signed. Direct Send still uses a real wallet if you connect one.
 
 ---
 
@@ -141,7 +148,7 @@ Only in live mode (`VITE_ORI_SETTLEMENT_MODE=live`, plus a working server API):
 5. **History** marks a cross-chain transfer *completed* only when the provider reports `SUCCESS`. `REFUNDED`, `FAILED` and pending keep their own states. If you refuse in your wallet, the entry is marked *cancelled* and nothing was sent.
 6. **Daily spend holds.** A live payment reserves its amount once the deposit is broadcast. It is released exactly once if the transfer is refunded or fails, without touching other spends.
 
-In example mode, the same screens run a labelled simulation and nothing is signed.
+In example mode (the local default), Pay and Swap run a labelled simulation and nothing is signed for them. Direct Send is never simulated in either mode.
 
 ---
 
@@ -211,7 +218,7 @@ npm test           # node tests + static checks
 npm run check:activation
 ```
 
-**Frontend only vs. real API.** `npm run dev` and `npm run preview` serve **only the frontend**; Vite does not host `app/api/*`. Example mode and the browser's public reads and dry quotes work fine like this, but `/api/*` calls fail locally. To exercise the functions you need a Vercel-style runtime (for example `vercel dev` in a linked project) **and** the server variables below. Note the [runtime limitation](#known-limitations) before relying on it.
+**Frontend only vs. real API.** `npm run dev` and `npm run preview` serve **only the frontend**; Vite does not host `app/api/*`. Example mode (if built without `live`) and the browser's public reads and dry quotes work fine like this, but `/api/*` calls fail locally. To exercise the functions you need a Vercel-style runtime (for example `vercel dev` in a linked project) **and** the server variables below. Note the [runtime limitation](#known-limitations) before relying on it.
 
 Handy URL: `?screen=home|pay|swap|send|receive` opens a screen directly.
 
@@ -263,13 +270,14 @@ At `6936c68`: **72 node tests and 20 static checks pass**. They cover:
 
 ## Deployment
 
-- The existing Vercel project **`ori-preview`** (root directory `app`) serves https://ori-preview.vercel.app/. That is currently `6936c68` in example mode.
+- The existing Vercel project **`ori-preview`** (root directory `app`) serves https://ori-preview.vercel.app/. That is currently `6936c68`, built with `VITE_ORI_SETTLEMENT_MODE=live`. Live cross-chain execution is blocked by the server runtime issue; direct Send can request real wallet signatures.
 - Guardrails:
   - Deploy only to that project.
-  - Don't enable `VITE_ORI_SETTLEMENT_MODE=live` until the server runtime issue is fixed and a controlled recipient and wallet test is approved.
+  - Production already has `VITE_ORI_SETTLEMENT_MODE=live`. Don't attempt real cross-chain payments until the server runtime issue is fixed and the owner approves a controlled recipient and wallet test.
   - Keep every secret in Vercel environment variables.
   - Don't remove the JWT guard without the owner's fee decision.
   - Only the owner decides when the repo goes public.
+  - Before a live test, fix the runtime adapter; production already has the live flag set.
 
 ---
 
