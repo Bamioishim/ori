@@ -1,35 +1,4 @@
-// "Hey Ori" wake word via Web Speech API (continuous). Falls back to tap-to-talk where unsupported.
-type Cb = { onWake: (src: string) => void; onCommand: (text: string, src: string) => void; onState: (s: string) => void }
-const WAKE = /\b(hey|hi|okay|ok)[,\s]+(ori|orri|orie|aury|ory|dory|laurie)\b/i
-let awaiting = 0
-export function speechSupported() { return !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) }
-export async function requestMicrophoneAccess(): Promise<'granted' | 'denied' | 'unsupported'> {
-  if (!navigator.mediaDevices?.getUserMedia) return 'unsupported'
-  try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(t => t.stop()); return 'granted' } catch { return 'denied' }
-}
-// The single handler used by real recognition AND by the demo simulation.
-export function handleHeard(text: string, cb: Cb, src = 'mic') {
-  const t = text.trim()
-  const m = t.match(WAKE)
-  if (m) {
-    const rest = t.slice((m.index || 0) + m[0].length).replace(/^[\s,.!]+/, '')
-    cb.onWake(src)
-    if (rest.length > 3) cb.onCommand(rest, src); else awaiting = Date.now()
-    return
-  }
-  if (Date.now() - awaiting < 9000) { awaiting = 0; cb.onCommand(t, src) }
-}
-export function startListening(cb: Cb) {
-  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-  if (!SR) { cb.onState('unsupported'); return () => { } }
-  let on = true
-  const rec = new SR(); rec.continuous = true; rec.interimResults = false; rec.lang = 'en-US'
-  rec.onresult = (e: any) => { const r = e.results[e.results.length - 1]; if (r.isFinal) handleHeard(r[0].transcript, cb) }
-  rec.onerror = (e: any) => { if (e.error === 'not-allowed') { on = false; cb.onState('denied') } }
-  rec.onend = () => { if (on) try { rec.start() } catch { } }
-  try { rec.start(); cb.onState('listening') } catch { cb.onState('unsupported') }
-  return () => { on = false; try { rec.stop() } catch { } cb.onState('off') }
-}
+// Ori's voice output only (opt-in text-to-speech). ORI never uses the microphone: Hey ORI is click activation.
 // Ori's voice: a small character — tiny but clear (bright voice, moderate pitch lift, not chipmunk).
 const PREFERRED = ['Google UK English Female', 'Samantha', 'Microsoft Aria Online (Natural)', 'Microsoft Jenny Online (Natural)', 'Microsoft Aria', 'Microsoft Jenny', 'Karen', 'Moira', 'Tessa', 'Serena', 'Victoria', 'Microsoft Zira', 'Google US English']
 let voice: SpeechSynthesisVoice | null = null

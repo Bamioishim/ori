@@ -394,19 +394,19 @@ function Earn() {
 }
 
 function Privacy({ hidden, setHidden }: { hidden: boolean; setHidden: (v: boolean) => void }) {
-  const [s, setS] = useState({ unlink: true, stealth: true, analytics: false })
+  const [s, setS] = useState({ analytics: false })
   const items: [keyof typeof s, string, string][] = [
-    ['unlink', 'Unlinkable addresses', 'Each chain address is derived separately via Chain Signatures; no public link between them.'],
-    ['stealth', 'Fresh deposit address per payment', 'Incoming payments never reuse an address.'],
     ['analytics', 'Share anonymous usage', 'Off by default.'],
   ]
   return <>
     <section className="pad-top">
-      <Label>PRIVACY · DEFAULT ON</Label>
+      <Label>PRIVACY</Label>
       <h2 className="big2">Your total is yours.<br /><span className="dim">Not the explorer’s.</span></h2>
       <div className="row"><span className="grow">Hide balance on screen</span><Toggle on={hidden} onChange={setHidden} /></div>
       {items.map(([k, t, d]) => <div className="row" key={k}><span className="grow">{t}<br /><span className="mono xs dim">{d}</span></span>
         <Toggle on={s[k]} onChange={v => setS({ ...s, [k]: v })} /></div>)}
+      <div className="row"><span className="grow">Separate address per chain (Chain Signatures)<br /><span className="mono xs dim">Not implemented yet, planned. Today ORI watches the addresses you add or connect; it does not derive addresses.</span></span><span className="mono xs dim">PLANNED</span></div>
+      <div className="row"><span className="grow">Fresh deposit address per payment<br /><span className="mono xs dim">Not implemented yet, planned. ORI does not generate per-payment deposit addresses today.</span></span><span className="mono xs dim">PLANNED</span></div>
       <div className="row"><span className="grow">Private AI (NEAR AI Cloud)<br /><span className="mono xs dim">Not connected yet, planned. Ori’s chat currently runs a local rule-based assistant on this device; no AI model or TEE attestation is used.</span></span><span className="mono xs dim">PLANNED</span></div>
     </section>
     <section>
