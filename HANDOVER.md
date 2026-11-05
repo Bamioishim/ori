@@ -33,10 +33,33 @@ Deployed as a static Vite site on Vercel (preview project `ori-preview`). Linkin
 - Unsupported privacy claims removed or marked **PLANNED**: per-chain Chain Signatures addresses, fresh deposit address per payment, NEAR AI Cloud private inference (TEE/attestation). The chat is a local rule-based assistant, no AI model.
 - Not done yet (doc direction, not approved scope): real NEAR AI Cloud inference, Security Center merging Scanner/Security/Policy, dynamic network/token discovery. Key import/export stays deferred until custody is approved.
 
+## Status at commit 56ae683 (Nov 5, local, not pushed)
+All "IMPLEMENTED" items are mocked/unit/static tested only. `cd app && npm test` runs 63 node tests and 20 static checks, all passing.
+
+| Area | Status |
+|---|---|
+| Native Send: ETH and USDC on Ethereum and Base | IMPLEMENTED (mocked): EIP-1193, chain and account re-check, receipt poll |
+| Native Send: SOL | IMPLEMENTED (mocked): Phantom, rent-exempt recipient check |
+| Native Send: USDC and USDT on Solana (SPL) | IMPLEMENTED (mocked): pinned mints, `transferChecked`, token account created only when missing, rent shown |
+| Send: NEAR, other SPL tokens, other EVM chains | NOT SUPPORTED: shown disabled, never simulated |
+| Receive (real wallet and watched addresses only) | IMPLEMENTED (mocked) |
+| Swap quotes (every catalog token) | IMPLEMENTED; non-signable origins labelled "quote only" |
+| Live swap execution | IMPLEMENTED (mocked): bound quote → direct deposit (no approvals) → status poll; completed only on SUCCESS |
+| Swap with settlement off | EXAMPLE simulation, labelled as such |
+| Gmail code register/login | BLOCKED in production: the endpoints return 503 (see below) |
+| Spending limits | Browser app only, fail-closed; no backend or contract enforcement |
+
 ## Honest blockers (as of Nov 5)
-- **Recovery is local-only.** Gmail code verify works only on the device that already holds the ORI profile (`localStorage`); cross-device restore needs a server account store, which is not approved.
-- **Gmail OAuth2 recovery mail is unverified.** Needs the server env vars listed in `app/.env.example` (names only; never commit values). No delivery test has been done.
-- **Live payment route today is Base USDC → Solana USDC** via 1Click (payer's Base wallet signs the deposit, refund to that wallet, recipient a Solana address or a handle in `ORI_HANDLE_DIRECTORY`). It does not use a NEAR account. Needs `VITE_ORI_SETTLEMENT_MODE=live` in a deployed build (Vercel `/api`).
+- **Gmail code auth returns 503.** The missing pieces:
+  1. A durable store for `AuthStore` (`app/api/auth/_store.ts`, `getAuthStore()` currently returns null), e.g. a Redis/KV. It must provide atomic `hit` (rate limits) and `consumeOnce` (one-time codes).
+  2. A signed server session: none exists, and profiles are device-local.
+  3. Mail delivery env: `MAIL_OAUTH_USER`, `MAIL_OAUTH_FROM`, `MAIL_OAUTH_REFRESH_TOKEN` (plus the OAuth client credentials) and `ORI_AUTH_CODE_SECRET`. Delivery has never been tested.
+
+  All of this needs Bamio's decision. Names only; never commit values.
+- **Provider quotes:** 1Click dry quotes were timing out server-side on Nov 5, so no real quote or status response has been traced.
+- **Not verified:** no live wallet signature, payment or on-chain transfer; no phone/mobile check.
+- **Recovery is local-only.** Cross-device restore needs the server account store above.
+- **Live settlement** needs `VITE_ORI_SETTLEMENT_MODE=live`, `ORI_SETTLEMENT_MODE`, `ORI_1CLICK_JWT` (and optionally `ORI_HANDLE_DIRECTORY`) in a server deployment. Deploying needs Bamio's OK.
 - **1Click JWT:** the public API works without one but adds a 0.25% platform fee (docs: API Keys page). The code deliberately refuses live quotes without `ORI_1CLICK_JWT`. **Do not remove that guard without Bamio's fee decision.** ORI sets no `appFees` of its own.
 
 ## Open items (need Bamio)
