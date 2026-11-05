@@ -48,7 +48,7 @@ export function flowParts(prev: string | null, next: string): { ch: string; chan
 // starts; an unclamped negative k made the ease extrapolate backwards (e.g. "$-88.35" flashing before $2,859.25).
 export const countProgress = (t: number, t0: number, ms: number) => Math.min(1, Math.max(0, (t - t0) / ms))
 
-// ---- Available balance for swaps (display/constraint only; never invents funds).
+// ---- Example-only helpers for mock held amounts. Live signing MUST use spendableBalance.ts (signer + fresh read).
 export type HeldBal = { sym: string; chain: string; amt: number }
 const CHAIN_TO_NET: Record<string, string> = { eth: 'Ethereum', base: 'Base', sol: 'Solana', near: 'NEAR' }
 export const chainKey = (b: string) => CHAIN_TO_NET[b] || b

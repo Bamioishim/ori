@@ -18,17 +18,17 @@ import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, goplus, isSet
 import { speak } from './voice'
 import { ReceiveScreen } from './Receive'
 import { SendScreen } from './Send'
-import { findAsset, toUnits, unsupportedReason } from './transfers'
+import { balanceOf, estimateFee, findAsset, preSignCheck, sendEvm, sendSol, sendSpl, toUnits, unsupportedReason, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
 import { EVM_CHAINS as EVM_CATALOG_CHAINS, normalizeTokens, originAdapter, type CatalogToken } from '../api/_catalog.ts'
 import { formatEta, isQuoteStale, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { CopyButton, PillTabs, PriceFlow, TokenSearch } from './ui'
-import { countProgress, quoteVisible, spendableAmount, type HeldBal } from './uiLogic'
+import { countProgress, quoteVisible } from './uiLogic'
+import { amountAllowed, canUseMax, exampleHeld, exampleSpendable, pickSigner, readSignerSpendable, sizingKind, spendSourceKey, unknownSpend, type SpendState } from './spendableBalance'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
-import { sendEvm, sendSol, sendSpl, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
 import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
@@ -371,7 +371,7 @@ function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: 
   return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {formatEta(q.q.eta)} after deposit · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
 export type SwapPlan = { review: SwapReview; asset: AssetDef; settlement: SettlementQuote; label: string; lines: [string, string][] }
-function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null, plan?: SwapPlan) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
+function Swap({ refundEvm, preset, status, cfg, uiMode, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; uiMode: Mode; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null, plan?: SwapPlan) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [flip, setFlip] = useState(preset.flip)
   const [amt, setAmt] = useState(preset.amt)
   useEffect(() => { setFlip(preset.flip); setAmt(preset.amt) }, [preset.k])
@@ -401,14 +401,30 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
   const [sent, setSent] = useState<{ q: Quote; n: number; from: string; to: string } | null>(null)
   const busy = status !== 'idle'
   const live = isSettlementEnabled()
-  // Example holdings from the Home mock (or live watch-only rows when mode is live). Used only to rank/search and cap the amount — not as a signing balance.
-  const held: HeldBal[] = assets.map(a => ({ sym: a.sym, chain: a.chain, amt: a.amt }))
-  const spendable = from.t ? spendableAmount(held, from.s, from.b) : null
-  const overBal = spendable != null && n > spendable
-  const { list: wl } = useManagedWallets()
-  const ownFor = (b: string) => EVM_CATALOG_CHAINS.has(b) ? wl.find(w => w.chain === 'evm')?.address : b === 'sol' ? wl.find(w => w.chain === 'sol')?.address : undefined
+  const sizeKind = sizingKind(uiMode, live)
+  const { list: wl, active: activeWallet } = useManagedWallets()
+  const ownFor = (b: string) => pickSigner(wl.map(w => ({ id: w.id, chain: w.chain, address: w.address })), activeWallet, b) || undefined
   const srcAcct = ownFor(from.b), dstAcct = ownFor(to.b)
   const liveBlock = !live ? null : !exec ? 'Quote only · ORI cannot sign this deposit' : !srcAcct ? `Connect your ${from.c} wallet to swap` : !dstAcct ? `Connect your own ${to.c} wallet to receive` : null
+  // Example UI: mock-ranked tokens + labelled example MAX. Live/settlement: never mock or watch-only aggregates — only the active signer + chain + token.
+  const held = sizeKind === 'example' ? exampleHeld() : []
+  const assetKey = exec && from.t ? { sym: from.s, net: exec.net, decimals: from.d, kind: exec.kind, token: exec.token } as AssetDef : null
+  const sourceKey = sizeKind === 'example' ? `example|${from.b}|${from.s}` : spendSourceKey(srcAcct || null, assetKey)
+  const [spend, setSpend] = useState<SpendState>(() => sizeKind === 'example' ? exampleSpendable(from.s, from.b) : unknownSpend('Connect the signing wallet for a fresh balance read'))
+  useEffect(() => {
+    if (sizeKind === 'example') { setSpend(exampleSpendable(from.s, from.b)); return }
+    if (!from.t || !assetKey) { setSpend(unknownSpend('Pick a send asset', sourceKey)); return }
+    if (!srcAcct) { setSpend(unknownSpend(`Connect your ${from.c} wallet · watch-only addresses are not a signing balance`, sourceKey)); return }
+    setSpend(unknownSpend('Reading signer balance…', sourceKey))
+    let dead = false
+    const probe = units && units > 0n ? units : 1n
+    readSignerSpendable(assetKey, srcAcct, probe).then(st => { if (!dead) setSpend(st) })
+    return () => { dead = true }
+  }, [sizeKind, sourceKey, from.s, from.b, from.t, from.c]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Source change must not keep a prior owner's fresh amount
+  useEffect(() => { if (spend.sourceKey && sourceKey && spend.sourceKey !== sourceKey && spend.kind === 'signer') setSpend(unknownSpend('Source changed · refreshing…', sourceKey)) }, [sourceKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const balBlock = amountAllowed(spend, n, from.s)
+  const overBal = !!(n > 0 && balBlock && /available/i.test(balBlock))
   const [prep, setPrep] = useState('')
   const reviewLive = async (r: DOMRect) => {
     if (!q.q || !exec || !srcAcct || !dstAcct || !units || !from.t || !to.t) return
@@ -432,8 +448,8 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
         <span className="mono xs dim">SEND</span>
         <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenSearch value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} origin held={held} /></div>
         {from.t && !exec && <span className="qo-chip mono xs" title="ORI cannot sign a deposit from this asset; you can see the quote but not swap.">QUOTE ONLY</span>}
-        <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}{spendable != null ? ` · available ${spendable.toLocaleString('en-US', { maximumFractionDigits: from.d === 9 ? 4 : 6 })} ${from.s}` : ''}{overBal ? ' · over available' : ''}</span>
-        {spendable != null && spendable > 0 && <button type="button" className="ghost maxbtn" disabled={busy} onClick={() => setAmt(String(spendable))}>MAX</button>}
+        <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}{` · ${spend.label}`}{spend.feeNote ? ` · ${spend.feeNote}` : ''}{overBal ? ' · over available' : ''}</span>
+        {canUseMax(spend) && <button type="button" className="ghost maxbtn" disabled={busy} title={spend.kind === 'example' ? 'Example MAX only · not a real spendable balance' : `MAX for signer ${spend.owner}`} onClick={() => setAmt(String(spend.amount))}>{spend.kind === 'example' ? 'MAX · example' : 'MAX'}</button>}
         <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label={`Swap direction: currently ${from.s} to ${to.s}`} title="Swap direction">⇅</motion.button>
       </div>
       <div className="swapbox">
@@ -459,7 +475,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
         <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · {live ? 'live' : 'simulated'} · {formatEta(sent.q.eta)}</span></div>
         <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)}{live ? '' : ' · dry run'}</span></div>
       </motion.div>
-      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!(n > 0) ? 'Enter an amount' : overBal ? `Only ${spendable!.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${from.s} available` : !canQuote ? (routeNote || 'No quote for this route') : q.err && !q.q ? 'Live quote unavailable' : !q.q ? (q.loading ? 'Waiting for a live quote' : 'No live quote yet · try again') : liveBlock || (prep && prep.startsWith('Getting') ? prep : null)} limit={limit} status={status} busyLabel="Ori is swapping"
+      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={balBlock && (spend.kind !== 'example' || !(n > 0) || overBal) ? balBlock : !canQuote ? (routeNote || 'No quote for this route') : q.err && !q.q ? 'Live quote unavailable' : !q.q ? (q.loading ? 'Waiting for a live quote' : 'No live quote yet · try again') : liveBlock || (prep && prep.startsWith('Getting') ? prep : null)} limit={limit} status={status} busyLabel="Ori is swapping"
         onGo={r => { if (!q.q) return; if (live) { void reviewLive(r); return } nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
     {prep && !prep.startsWith('Getting') && <div className="mono xs err why">{prep}</div>}
   </div>
@@ -697,7 +713,18 @@ export default function App() {
         quote: async () => plan.settlement,
         limit: () => limitCheck(cfg, v),
         currentAccount: () => plan.asset.net === 'Solana' ? w.solana?.publicKey?.toString() ?? null : plan.review.account, // EVM account is re-verified inside sendEvm
-        deposit: (a, to, u) => a.net === 'Solana' ? (w.solana ? (a.kind === 'spl' ? sendSpl(w.solana, a, plan.review.account, to, u) : sendSol(w.solana, plan.review.account, to, u)) : Promise.reject(new Error('No Solana wallet found.'))) : (w.ethereum ? sendEvm(w.ethereum, a, plan.review.account, to, u) : Promise.reject(new Error('No EVM wallet found.'))),
+        deposit: async (a, to, u) => {
+          const fee = await estimateFee(a, plan.review.account, to, u)
+          const bal = await balanceOf(a, plan.review.account)
+          const why = preSignCheck({ a, units: u, fee, bal, usd: v, caps: cfg, spent: spentToday(), recipientError: null })
+          if (why) throw new Error(why)
+          if (a.net === 'Solana') {
+            if (!w.solana) throw new Error('No Solana wallet found.')
+            return a.kind === 'spl' ? sendSpl(w.solana, a, plan.review.account, to, u) : sendSol(w.solana, plan.review.account, to, u)
+          }
+          if (!w.ethereum) throw new Error('No EVM wallet found.')
+          return sendEvm(w.ethereum, a, plan.review.account, to, u)
+        },
         status: dep => settlementStatus(dep),
         onUpdate: (st, i) => { if (st === 'deposited') reserveSpend(tx.id, v); else if (st === 'refunded' || st === 'failed') releaseSpend(tx.id); updateTransaction(tx.id, st === 'deposited' ? { status: 'pending', txHash: i.tx, note: `Deposit sent to ${short(i.depositAddress || '')}; waiting for NEAR Intents` } : { status: st === 'complete' ? 'completed' : st, note: st === 'complete' ? 'Provider reported SUCCESS' : st === 'refunded' ? 'Provider refunded the deposit to your wallet' : st === 'failed' ? 'Provider or chain reported failure' : 'Still processing; check history later' }) },
       })
@@ -736,7 +763,7 @@ export default function App() {
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
         {screen === 'home' && <Home profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'send') setSendPreset(to ? { sym: to.split('|')[0], net: to.split('|')[1] } : null); if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
-        {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} uiMode={mode} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'send' && <SendScreen key={sendPreset ? sendPreset.sym + sendPreset.net : 'send'} cfg={cfg} preset={sendPreset} openWallets={() => goTo('wallets')} />}
         {screen === 'receive' && <ReceiveScreen watched={addrs} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} onAddWatch={a => { const t = a.trim(); if (!t || addrs.some(x => x.toLowerCase() === t.toLowerCase())) return; setAddrs([...addrs, t]) }} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
