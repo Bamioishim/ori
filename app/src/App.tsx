@@ -16,6 +16,7 @@ import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, sendBaseUSDC, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
 import { speak } from './voice'
+import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
@@ -206,11 +207,14 @@ function HomeDesk(p: any) {
 
 function useQuote(args: Parameters<typeof quote>[0] | null, dep: string) {
   const [st, setSt] = useState<{ q: Quote | null; loading: boolean; err: string | null }>({ q: null, loading: false, err: null })
+  const quoteSeq = useRef(0)
   useEffect(() => {
     if (!args) { setSt({ q: null, loading: false, err: null }); return }
-    let dead = false; setSt(s => ({ ...s, loading: true, err: null }))
-    const t = setTimeout(() => quote(args).then(q => !dead && setSt({ q, loading: false, err: null })).catch(e => !dead && setSt({ q: null, loading: false, err: e.message })), 450)
-    return () => { dead = true; clearTimeout(t) }
+    // each request gets an id; only the latest may write (no stale-route ETA), and the quote refreshes once it ages out
+    let dead = false; const id = ++quoteSeq.current; setSt({ q: null, loading: true, err: null })
+    const run = () => quote(args).then(q => !dead && id === quoteSeq.current && setSt({ q, loading: false, err: null })).catch(e => !dead && id === quoteSeq.current && setSt({ q: null, loading: false, err: e.message }))
+    const t = setTimeout(run, 450), r = setInterval(() => { setSt(s => ({ ...s, loading: true })); run() }, QUOTE_MAX_AGE_MS)
+    return () => { dead = true; clearTimeout(t); clearInterval(r) }
   }, [dep])
   return st
 }
@@ -280,7 +284,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
       <div className="route">
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
         <div className="line" />
-        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? `~${q.q.eta}s` : q.loading ? <Dots size={4} /> : '—'}</span></div>
+        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? formatEta(q.q.eta) : q.loading ? <Dots size={4} /> : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
@@ -315,7 +319,7 @@ function LiveTag({ q }: { q: { q: Quote | null; loading: boolean; err: string | 
 function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: string | null }; extra: string | null }) {
   if (q.err) return <div className="mono xs err why">Live quote unavailable: {q.err}. Nothing was sent.</div>
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : extra || 'Enter an amount for a live quote.'}</div>
-  return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · ETA ~{q.q.eta}s · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
+  return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {formatEta(q.q.eta)} after deposit · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
 function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [flip, setFlip] = useState(preset.flip)
@@ -351,7 +355,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
     <section className="sb">
       <Label>QUOTE <LiveTag q={q} /></Label>
       <div className="row"><span className="grow">Rate</span><span className="num">{q.q && n ? `1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}` : '—'}</span></div>
-      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? `~${q.q.eta}s` : '—'}</span></div>
+      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? formatEta(q.q.eta) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
       <div className="row"><span className="grow">Minimum received</span><span className="num">{q.q ? fmtOut(q.q.minOut) + ' ' + to.s : '—'}</span></div>
       <QuoteMeta q={q} extra="Confirming runs a simulation with these live numbers. Nothing is signed or sent." />
@@ -362,7 +366,7 @@ function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEv
         <div className="money-r">{sent.n} {sent.from} <span className="dim">→ {fmtOut(sent.q.amountOut)} {sent.to}</span></div>
         <div className="row"><span className="grow">Value in</span><span className="num">{usd(sent.q.amountInUsd)}</span></div>
         <div className="row"><span className="grow">Quoted fee</span><span className="num">{usd(sent.q.fee)}</span></div>
-        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · simulated · ~{sent.q.eta}s</span></div>
+        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · simulated · {formatEta(sent.q.eta)}</span></div>
         <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)} · dry run</span></div>
       </motion.div>
       : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"

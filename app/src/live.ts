@@ -1,3 +1,4 @@
+import { parseTimeEstimate } from './quoteTime'
 // Read-only live data plus an explicitly opt-in settlement boundary. The browser never sees the 1Click JWT.
 const ONECLICK = 'https://1click.chaindefuser.com/v0'
 export const RPC = { eth: 'https://ethereum-rpc.publicnode.com', base: 'https://base-rpc.publicnode.com', sol: 'https://solana-rpc.publicnode.com', solIndexed: '/rpc/sol', near: 'https://rpc.mainnet.fastnear.com' }
@@ -19,7 +20,7 @@ export function tokens() {
 }
 export const price = (ts: Token[], sym: string, chain: string) => ts.find(t => t.symbol === sym && t.blockchain === chain)?.price ?? ts.find(t => t.symbol === sym)?.price ?? 0
 
-export type Quote = { amountInUsd: number; amountOutUsd: number; amountOut: number; minOut: number; eta: number; fee: number; bps: number; at: string }
+export type Quote = { amountInUsd: number; amountOutUsd: number; amountOut: number; minOut: number; eta: number | null; fee: number; bps: number; at: string }
 export async function quote(o: { from: string; to: string; amount: bigint; recipient: string; refundTo: string; outDecimals: number }): Promise<Quote> {
   const r = await fetch(ONECLICK + '/quote', {
     method: 'POST', headers: { 'content-type': 'application/json' }, signal: timeout(12000),
@@ -27,8 +28,8 @@ export async function quote(o: { from: string; to: string; amount: bigint; recip
   })
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error(r.status >= 500 ? 'Live quote service is temporarily unavailable. Try again shortly.' : j.message || serviceError(r.status, 'Live quote service'))
-  const q = j.quote, inU = +q.amountInUsd, outU = +q.amountOutUsd
-  return { amountInUsd: inU, amountOutUsd: outU, amountOut: +q.amountOut / 10 ** o.outDecimals, minOut: +q.minAmountOut / 10 ** o.outDecimals, eta: q.timeEstimate, fee: inU - outU, bps: j.quoteRequest?.appFees?.reduce((a: number, f: any) => a + f.fee, 0) ?? 0, at: j.timestamp }
+  const q = j.quote; if (!q) throw new Error('Live quote service returned no quote.'); const inU = +q.amountInUsd, outU = +q.amountOutUsd
+  return { amountInUsd: inU, amountOutUsd: outU, amountOut: +q.amountOut / 10 ** o.outDecimals, minOut: +q.minAmountOut / 10 ** o.outDecimals, eta: parseTimeEstimate(q.timeEstimate), fee: inU - outU, bps: j.quoteRequest?.appFees?.reduce((a: number, f: any) => a + f.fee, 0) ?? 0, at: typeof j.timestamp === 'string' ? j.timestamp : new Date().toISOString() }
 }
 
 export type SettlementQuote = {

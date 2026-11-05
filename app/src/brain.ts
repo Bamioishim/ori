@@ -1,3 +1,4 @@
+import { formatEta } from './quoteTime'
 import { DEMO_ADDRS } from './mock'
 // Ori's local intent engine. Rule-based, no LLM, no API keys. Answers from live app state,
 // live 1Click prices / dry quotes, live GoPlus checks, and a small built-in knowledge base.
@@ -113,7 +114,7 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
   m = t.match(/(?:how much|cost|fee|quote).*?(?:send|move|bridge)\s+\$?\s*([\d,.]+)\s*(?:usdc|dollars|usd)?\s+to\s+(solana|sol)\b/) || t.match(/(?:send|move|bridge)\s+\$?\s*([\d,.]+)\s*(?:usdc|dollars|usd)?\s+to\s+(solana)\b.*(?:cost|fee|how much)?/)
   if (m) { const n = num(m[1]); try {
     const q = await quote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(n * 1e6)), recipient: PREVIEW.sol, refundTo: PREVIEW.evm, outDecimals: 6 })
-    return { text: `Live dry quote: send ${usd(n)} of USDC from Base and about ${q.amountOut.toFixed(2)} USDC lands on Solana in about ${q.eta}s. The fee is ${usd(q.fee)}, and the minimum out is ${q.minOut.toFixed(2)}.`, chips: [`Pay tolu ${n} USDC`], mood: 'happy' }
+    return { text: `Live dry quote: send ${usd(n)} of USDC from Base and about ${q.amountOut.toFixed(2)} USDC lands on Solana${q.eta ? ` about ${formatEta(q.eta).replace('~', '')} after the deposit confirms` : ' (settlement time unavailable)'}. The fee is ${usd(q.fee)}, and the minimum out is ${q.minOut.toFixed(2)}.`, chips: [`Pay tolu ${n} USDC`], mood: 'happy' }
   } catch (e) { return { text: `I couldn’t get a live quote (${(e as Error).message}). Nothing was sent.`, mood: 'think' } } }
 
   // swap X SOL to USDC
