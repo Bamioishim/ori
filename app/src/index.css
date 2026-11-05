@@ -339,6 +339,7 @@ header{align-items:center}
 /* mobile home */
 .mh{padding-top:18px}
 .mh-addr{display:inline-flex;align-items:center;gap:8px;color:var(--dim);font-size:13px;padding:8px 0;cursor:pointer;min-height:40px}
+.mh-profile{position:relative;display:inline-block}.mh-menu{position:absolute;left:0;top:100%;z-index:30;min-width:180px;display:flex;flex-direction:column;background:rgba(10,10,10,.96);border:1px solid var(--line);border-radius:12px;padding:6px}.mh-menu button{text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;min-height:44px}.mh-menu button:hover{background:rgba(255,255,255,.06)}
 .mh-addr .copied{color:#6FE3C2;font-size:11px;letter-spacing:.08em}
 .mh-bal{display:block;text-align:left;cursor:pointer;margin-top:2px}
 .money.big{font-size:52px;font-weight:300;letter-spacing:-.04em;line-height:1.05}

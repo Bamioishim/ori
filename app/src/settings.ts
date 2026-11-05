@@ -36,7 +36,7 @@ export function logBlocked(what: string, why: string) {
   logEvent(/cap|limit/i.test(why) ? 'block' : 'flag', /cap|limit/i.test(why) ? 'Ori blocked a send over your limit' : 'Ori blocked a flagged recipient', `${what} · ${why}`)
 }
 export function limitCheck(s: Settings, amt: number): string | null { return decideLimit(s, amt, spentToday()) }
-export function resetLocal() { ['ori-settings', SKEY, BKEY, 'ori-feed', 'ori-revoked', 'ori-transactions', 'ori-payment-requests', 'ori-account', 'ori-usernames', 'mode', 'addrs', 'ori-intro'].forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k) }); ['ori-guest', 'ori-account-prompted'].forEach(k => sessionStorage.removeItem(k)) }
+export function resetLocal() { ['ori-settings', SKEY, BKEY, 'ori-feed', 'ori-revoked', 'ori-transactions', 'ori-payment-requests', 'ori-account', 'ori-known-profiles', 'ori-usernames', 'mode', 'addrs', 'ori-intro'].forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k) }); ['ori-guest', 'ori-account-prompted'].forEach(k => sessionStorage.removeItem(k)) }
 // Ori activity feed (local). Real policy events are appended; a few demo entries are seeded.
 export type FeedKind = 'flag' | 'block' | 'approve' | 'revoke' | 'info'
 export type FeedItem = { at: number; kind: FeedKind; text: string; sub?: string; demo?: boolean }

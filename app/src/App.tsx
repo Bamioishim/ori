@@ -16,15 +16,17 @@ import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
 import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, sendBaseUSDC, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
 import { speak } from './voice'
+import { ReceiveScreen } from './Receive'
 import { formatEta, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
+import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
 import { TOKEN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
 
-type Screen = 'home' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
+type Screen = 'home' | 'receive' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
@@ -85,7 +87,7 @@ function Watch({ addrs, setAddrs, live, refresh }: { addrs: string[]; setAddrs: 
     {live.errors.map(e => <div className="mono xs err" key={e}>{e}</div>)}
   </section>
 }
-function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
+function Home({ profile, hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { profile: React.ReactNode; wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
   const [range, setRange] = useState('1W')
   const [sel, setSel] = useState<string | null>(null)
   const isLive = mode === 'live'
@@ -95,9 +97,9 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
-  if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
+  if (wide) return <HomeDesk {...{ profile, hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
-    <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
+    {profile}
     <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
     <div className="mh-chg">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `Live · ${addrs.length} address${addrs.length === 1 ? '' : 'es'}` : 'Add an address in Settings'}</span> : <><span className="up">▲ 1.37%</span><span className="dim">+$38.62 · 24h</span><Example /></>}</div>
     <Tiles go={go!} />
@@ -116,17 +118,22 @@ function Mini({ seed, up }: { seed: string; up: boolean }) {
   const pts = Array.from({ length: 14 }, (_, i) => { h = (h * 1103515245 + 12345) >>> 0; const t = i / 13; return [t * 60, 14 + (up ? -1 : 1) * (t * 10 - 5) + ((h % 1000) / 1000 - .5) * 9] })
   return <svg className="mini" viewBox="0 0 60 28" aria-hidden><path d={pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')} fill="none" stroke={up ? '#6FE3C2' : '#C98A8A'} strokeWidth="1.4" strokeLinejoin="round" /></svg>
 }
-function AddrRow({ addr }: { addr: string }) {
-  const [ok, setOk] = useState(false)
-  return <button className="mh-addr mono" onClick={() => { navigator.clipboard?.writeText(addr).catch(() => {}); setOk(true); setTimeout(() => setOk(false), 1400) }} aria-label="Copy address">
-    {short(addr)}<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
-    {ok && <span className="copied">COPIED</span>}</button>
+// Replaces the old EVM address line above the balance: who is signed in, with profile and log out.
+function ProfileChip({ account, onAccount, onProfile, onLogout }: { account: Account | null; onAccount: () => void; onProfile: () => void; onLogout: () => void }) {
+  const [open, setOpen] = useState(false)
+  return <div className="mh-profile">
+    <button className="mh-addr mono" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-haspopup="menu"><span className="account-dot" />{account ? `@${account.username}` : 'Guest'}<span className="dim">{open ? '▴' : '▾'}</span></button>
+    {open && <div className="mh-menu" role="menu">
+      <button role="menuitem" onClick={() => { setOpen(false); onProfile() }}>Profile</button>
+      <button role="menuitem" onClick={() => { setOpen(false); onAccount() }}>{account ? 'Account' : 'Sign in / Register'}</button>
+      {account && <button role="menuitem" onClick={() => { setOpen(false); onLogout() }}>Log out</button>}
+    </div>}</div>
 }
 function Tiles({ go }: { go: (s: Screen, to?: string, amt?: string) => void }) {
   const T: [string, string, () => void, React.ReactNode][] = [
     ['Send', 'send', () => go('pay', '', ''), <path d="M12 19V5M6 11l6-6 6 6" />],
     ['Swap', 'swap', () => go('swap'), <path d="M7 4v14M4 15l3 3 3-3M17 20V6M14 9l3-3 3 3" />],
-    ['Pay', 'pay', () => go('pay', '@tolu', '20'), <path d="M12 5v14M5 12h14" />]]
+    ['Receive', 'receive', () => go('receive'), <path d="M12 5v14M6 13l6 6 6-6" />]]
   return <div className="tiles">{T.map(([l, k, f, ic]) => <motion.button key={k} className="tile" whileTap={{ scale: .96 }} onClick={f}>
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ic}</svg><span>{l}</span></motion.button>)}</div>
 }
@@ -154,12 +161,12 @@ function HoldList({ rows, chainRows, sum, hide, sel, setSel }: any) {
 }
 
 function HomeDesk(p: any) {
-  const { hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
+  const { profile, hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
   const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
   return <div className="dash">
     <section className="d-card d-hero">
       <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
-      <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
+      {profile}
       <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
       <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
         : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">click to hide</span></>}</div>
@@ -428,7 +435,7 @@ export function useWide() {
 }
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 type Msg = { who: 'me' | 'ori'; t: string; chips?: string[]; pending?: Act }
-const MORE: Screen[] = ['wallets', 'history', 'request', 'policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
+const MORE: Screen[] = ['receive', 'wallets', 'history', 'request', 'policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
@@ -576,8 +583,8 @@ export default function App() {
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}</div>
       <div className="side-nav">
-        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['request', 'Request'], ['wallets', 'Wallets'], ['history', 'History'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label], i) => <Fragment key={k}>
-          {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
+        {([['home', 'Home'], ['pay', 'Pay'], ['receive', 'Receive'], ['swap', 'Swap'], ['request', 'Request'], ['wallets', 'Wallets'], ['history', 'History'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label], i) => <Fragment key={k}>
+          {i === 4 && <p className="mono xs dim side-sep">MORE</p>}
           <button className={'side-item' + (screen === k ? ' on' : '') + ''} onClick={() => goTo(k as Screen)}>
             {label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
       </div>
@@ -595,9 +602,10 @@ export default function App() {
       {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
+        {screen === 'home' && <Home profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'receive' && <ReceiveScreen watched={addrs} live={mode === 'live'} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
         {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
         {screen === 'wallets' && <WalletsScreen />}
@@ -623,7 +631,7 @@ export default function App() {
         <div className="grab" />
         <p className="mono xs dim">MORE</p>
         <button className="drow account-menu" onClick={() => setAccountOpen(true)}><span className="dl">{account ? `@${account.username}` : 'Sign in / Login'}<small>{account ? 'Gmail account · saved conversations on' : 'Guest session · save conversations and memory'}</small></span><span className="arr">→</span></button>
-        {([['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['request', 'Request', 'Ask someone to pay you'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label, sub], i) =>
+        {([['receive', 'Receive', 'Your real addresses, copy and network'], ['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['request', 'Request', 'Ask someone to pay you'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
             onClick={() => goTo(k)}>
             <span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
