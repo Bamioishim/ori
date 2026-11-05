@@ -18,12 +18,12 @@ export function PolicyScreen({ s, set }: P) {
   const spent = spentToday()
   const add = () => { const w = who.trim(); if (w && !s.trusted.includes(w)) { set({ trusted: [...s.trusted, w] }); logEvent('info', 'Ori added a contact to your allowlist', w); setWho('') } }
   return <div className="pg">
-    <section className="pad-top"><Label>POLICY & LIMITS · ENFORCED BY ORI</Label><h2 className="big2">Ori can only spend<br /><span className="dim">inside these lines.</span></h2>
+    <section className="pad-top"><Label>POLICY & LIMITS · CHECKED IN THE ORI APP</Label><h2 className="big2">Ori can only spend<br /><span className="dim">inside these lines.</span></h2>
       <div className="mono xs dim">Saved on this device. Every send and swap is checked against this policy before the confirmation sheet lets it through.</div></section>
     <section><Label>SPENDING CAPS</Label>
       <div className="row"><span className="grow">Daily cap<br /><span className="mono xs dim">{usd(spent)} used today · {usd(Math.max(0, s.daily - spent))} left</span></span><Num v={s.daily} onChange={v => set({ daily: v })} step={50} /></div>
       <div className="meter"><motion.i initial={{ width: 0 }} animate={{ width: Math.min(100, spent / (s.daily || 1) * 100) + '%' }} transition={spring} /></div>
-      <div className="row"><span className="grow">Per-transaction cap<br /><span className="mono xs dim">Anything above is blocked outright</span></span><Num v={s.perPay} onChange={v => set({ perPay: v })} step={25} /></div></section>
+      <div className="row"><span className="grow">Per-transaction cap<br /><span className="mono xs dim">Anything above is blocked inside ORI (not on-chain)</span></span><Num v={s.perPay} onChange={v => set({ perPay: v })} step={25} /></div></section>
     <section><Label>APPROVAL THRESHOLD</Label>
       <div className="row"><span className="grow">Extra confirmation above<br /><span className="mono xs dim">Above this, you press and hold on the confirmation sheet. Below it, one tap.</span></span><Num v={s.holdAbove} onChange={v => set({ holdAbove: v })} step={5} /></div>
       <div className="policy-sum mono xs">

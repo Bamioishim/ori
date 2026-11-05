@@ -1,3 +1,4 @@
+import { decideLimit } from './limits'
 import { useEffect, useState } from 'react'
 // Local-only preferences. Nothing leaves the browser.
 export type Fmt = 'full' | 'nocents' | 'compact'
@@ -22,8 +23,9 @@ export const usd = (n: number) => FMT === 'compact' ? n.toLocaleString('en-US', 
 // spend ledger (simulated) for daily cap, per local day
 const SKEY = 'ori-spent'
 const today = () => new Date().toDateString()
-export function spentToday(): number { try { const o = JSON.parse(localStorage.getItem(SKEY) || '{}'); return o.d === today() ? o.v : 0 } catch { return 0 } }
-export function addSpent(v: number) { localStorage.setItem(SKEY, JSON.stringify({ d: today(), v: spentToday() + v })) }
+// a corrupt/tampered ledger returns NaN so decideLimit fails closed instead of treating it as $0 spent
+export function spentToday(): number { try { const raw = localStorage.getItem(SKEY); if (!raw) return 0; const o = JSON.parse(raw); if (o?.d !== today()) return 0; return typeof o.v === 'number' && Number.isFinite(o.v) && o.v >= 0 ? o.v : NaN } catch { return NaN } }
+export function addSpent(v: number) { const cur = spentToday(); localStorage.setItem(SKEY, JSON.stringify({ d: today(), v: (Number.isFinite(cur) ? cur : 0) + v })) }
 // blocked attempts log
 export type Blocked = { at: number; what: string; why: string }
 const BKEY = 'ori-blocked'
@@ -33,12 +35,7 @@ export function logBlocked(what: string, why: string) {
   localStorage.setItem(BKEY, JSON.stringify([{ at: Date.now(), what, why }, ...l].slice(0, 30))); dispatchEvent(new Event('ori-blocked'))
   logEvent(/cap|limit/i.test(why) ? 'block' : 'flag', /cap|limit/i.test(why) ? 'Ori blocked a send over your limit' : 'Ori blocked a flagged recipient', `${what} · ${why}`)
 }
-export function limitCheck(s: Settings, amt: number): string | null {
-  if (amt > s.perPay) return `Over your per-payment cap of ${usd(s.perPay)}.`
-  const left = s.daily - spentToday()
-  if (amt > left) return `That would pass your daily cap of ${usd(s.daily)} (${usd(Math.max(left, 0))} left today).`
-  return null
-}
+export function limitCheck(s: Settings, amt: number): string | null { return decideLimit(s, amt, spentToday()) }
 export function resetLocal() { ['ori-settings', SKEY, BKEY, 'ori-feed', 'ori-revoked', 'ori-transactions', 'ori-payment-requests', 'ori-account', 'ori-usernames', 'mode', 'addrs', 'ori-intro'].forEach(k => { localStorage.removeItem(k); sessionStorage.removeItem(k) }); ['ori-guest', 'ori-account-prompted'].forEach(k => sessionStorage.removeItem(k)) }
 // Ori activity feed (local). Real policy events are appended; a few demo entries are seeded.
 export type FeedKind = 'flag' | 'block' | 'approve' | 'revoke' | 'info'
