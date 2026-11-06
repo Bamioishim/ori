@@ -86,7 +86,7 @@ IMPLEMENTED, behavior-tested with mocks only (`app/tests/pay.test.ts`).
 A first self-custody vault slice is now implemented in `app/src/nativeVault.ts` and exposed in `app/src/Wallets.tsx`:
 - Generates a real secp256k1 EVM key/address and a Solana keypair in the browser.
 - Encrypts both secret keys with PBKDF2-SHA256 (310,000 iterations) + AES-256-GCM before storing the encrypted vault record locally.
-- Supports password unlock/lock, encrypted backup export (copy) and encrypted backup import.
+- Supports password unlock/lock, encrypted backup export (copy) and encrypted backup import. Decrypted keys are cleared when the Wallets screen exits or the browser tab is backgrounded.
 - Verifies the decrypted keys reproduce the public addresses before unlocking or importing.
 - Adds direct Noble crypto dependencies and vault lifecycle tests.
 
