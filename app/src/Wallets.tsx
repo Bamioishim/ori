@@ -19,6 +19,7 @@ export default function WalletsScreen() {
   const [vaultOpen, setVaultOpen] = useState(!!getUnlockedVault())
   const [vault, setVault] = useState(nativeVaultMetadata())
   const addresses = [...list.map(w => w.address), ...(vault ? [vault.evmAddress, vault.solAddress] : [])]
+  useEffect(() => { const lockWhenHidden = () => { if (document.hidden) { lockNativeVault(); setVaultOpen(false) } }; document.addEventListener('visibilitychange', lockWhenHidden); return () => document.removeEventListener('visibilitychange', lockWhenHidden) }, [])
   useEffect(() => {
     let dead = false
     setHoldings([])
