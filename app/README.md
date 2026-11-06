@@ -13,4 +13,6 @@ The Request screen creates a local payment-request record with amount, token, ne
 
 The microphone control explicitly requests `getUserMedia` access before starting Web Speech recognition. If the browser previously blocked access, allow Microphone for the site in browser permissions and tap the control again. Core token rows use maintained Trust Wallet asset logos with local vector fallbacks.
 
+NEAR Auth mainnet is wired through `@fast-auth-near/react-sdk` and `@fast-auth-near/javascript-provider`. Open **More** and use the **NEAR Auth** row to authenticate through `login.auth.near.org`; ORI then displays the derived NEAR public key and supports sign-out. The public client ID is configured with `VITE_NEAR_AUTH_CLIENT_ID` (the approved mainnet ID is used as a safe fallback). No Auth0 client secret is included in the browser. A live mainnet transaction still requires a separate explicit recipient, amount, policy check, and signing-flow review.
+
 Name: `src/config.ts`. Accent colour: `--accent` in `src/index.css`.
