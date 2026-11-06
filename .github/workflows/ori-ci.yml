@@ -1,0 +1,43 @@
+name: ORI CI
+
+on:
+  push:
+    branches:
+      - master
+      - native-wallets-mainnet
+  pull_request:
+    branches:
+      - master
+      - native-wallets-mainnet
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm install
+
+      - name: Run lint
+        working-directory: app
+        run: npm run lint
+
+      - name: Run tests
+        working-directory: app
+        run: npm test
+
+      - name: Build application
+        working-directory: app
+        run: npm run build
