@@ -33,21 +33,26 @@ Deployed as a static Vite site on Vercel (preview project `ori-preview`). Linkin
 - Unsupported privacy claims removed or marked **PLANNED**: per-chain Chain Signatures addresses, fresh deposit address per payment, NEAR AI Cloud private inference (TEE/attestation). The chat is a local rule-based assistant, no AI model.
 - Not done yet (doc direction, not approved scope): real NEAR AI Cloud inference, Security Center merging Scanner/Security/Policy, dynamic network/token discovery. Key import/export stays deferred until custody is approved.
 
-## Status at commit 56ae683 (Nov 5, local, not pushed)
-All "IMPLEMENTED" items are mocked/unit/static tested only. `cd app && npm test` runs 63 node tests and 20 static checks, all passing.
+## Status at commit 6bf4ff8 (6 Nov 2026, on `submission-hide-extras`, production https://ori-preview.vercel.app/)
+All "IMPLEMENTED" items are mocked/unit/static tested only unless noted. Earlier suite on this line reported **138 unit + 31 activation** checks passing; that coverage was **not** freshly re-run for this docs update. **Not payment-ready.** Spending limits are browser-side only — do not claim on-chain security enforcement.
 
 | Area | Status |
 |---|---|
-| Native Send: ETH and USDC on Ethereum and Base | IMPLEMENTED (mocked): EIP-1193, chain and account re-check, receipt poll |
-| Native Send: SOL | IMPLEMENTED (mocked): Phantom, rent-exempt recipient check |
-| Native Send: USDC and USDT on Solana (SPL) | IMPLEMENTED (mocked): pinned mints, `transferChecked`, token account created only when missing, rent shown |
-| Send: NEAR, other SPL tokens, other EVM chains | NOT SUPPORTED: shown disabled, never simulated |
+| Node/Web runtime adapter (`app/api/_runtime.ts`) | FIXED at `6bf4ff8`: relative URL + exact Buffer body copy (no pooled ArrayBuffer leak). Public smokes previously seen: `/api/resolve` `@tolu` → 404; `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405 |
+| Native Send: ETH and USDC on Ethereum and Base | IMPLEMENTED for **connected** wallets (mocked): EIP-1193, chain and account re-check, receipt poll — not mainnet-verified |
+| Native Send: SOL | IMPLEMENTED for connected Phantom (mocked): rent-exempt recipient check |
+| Native Send: USDC and USDT on Solana (SPL) | IMPLEMENTED for connected wallets (mocked): pinned mints, `transferChecked`, token account created only when missing, rent shown |
+| ORI-created wallets (passkey + email recovery) | **NOT BUILT.** Connect/import-first only; custody, signer, recovery and gas unimplemented. Desired core direction — blocked on product build + pending NEAR Auth |
+| Send: NEAR, other SPL tokens, other EVM chains | NOT SUPPORTED / quote-only where shown; never simulated as success |
 | Receive (real wallet and watched addresses only) | IMPLEMENTED (mocked) |
-| Swap quotes (every catalog token) | IMPLEMENTED; non-signable origins labelled "quote only" |
-| Live swap execution | IMPLEMENTED (mocked): bound quote → direct deposit (no approvals) → status poll; completed only on SUCCESS |
+| Swap quotes (every catalog token) | IMPLEMENTED; non-signable / NEAR origins labelled "quote only" |
+| Live swap / Pay execution | Code + mocks exist; runtime responds; **real mainnet signing/settlement not end-to-end verified** |
+| Demo Pay `@tolu` | EXAMPLE · SIMULATED receipt/history only — no funds; not a registered live recipient |
 | Swap with settlement off | EXAMPLE simulation, labelled as such |
-| Gmail code register/login | BLOCKED in production: the endpoints return 503 (see below) |
+| Gmail code register/login | BLOCKED in production: durable store / session / mail provisioning missing → fail-closed 503 |
+| NEAR Auth (production) | **Pending.** Official form submitted ~00:02 WAT 6 Nov 2026 (origin + callback `https://ori-preview.vercel.app`, initial MAU under 1000). Follow-up to Peersyst general contact ~01:53 WAT. Last Gmail check (inbox + spam + trash) **09:20 WAT 6 Nov 2026**: **no approval/reply**. No timeline. Approval ≠ wallet implementation |
 | Spending limits | Browser app only, fail-closed; no backend or contract enforcement |
+| iPhone / mobile speech | Not end-to-end verified |
 
 ## Pay hardening (review fixes, Nov 5)
 IMPLEMENTED, behavior-tested with mocks only (`app/tests/pay.test.ts`).
@@ -56,20 +61,22 @@ IMPLEMENTED, behavior-tested with mocks only (`app/tests/pay.test.ts`).
 - **Spend holds:** spend is reserved per transaction id once a deposit is broadcast. On REFUNDED or failed, the hold is released exactly once (idempotent) without touching other spends. A tampered ledger is never "repaired". REFUNDED is now its own terminal history state instead of pending. Swap uses the same holds.
 - **Signer checks:** `connectBaseWallet` re-reads the chain after switching. All Base signing (both the direct path and the Intents deposit) goes through `sendEvm`: chain re-check, account check, then a receipt poll. Only a `0x1` receipt counts as confirmed; `0x0` is failed; no receipt means pending. The broadcast-only helpers `sendBaseUSDC`/`depositBaseUSDC`/`checkDepositQuote` were removed.
 
-## Honest blockers (as of Nov 5)
+## Honest blockers (as of 6 Nov 2026, commit `6bf4ff8`)
+- **ORI-created wallets not built.** Connect/import-first does not meet the desired core (passkey + email recovery). Custody, signer, recovery and gas remain unimplemented. **NEAR Auth production access is pending** (see status table); when approved it enables work — it does not ship wallet features by itself.
 - **Gmail code auth returns 503.** The missing pieces:
   1. A durable store for `AuthStore` (`app/api/auth/_store.ts`, `getAuthStore()` currently returns null), e.g. a Redis/KV. It must provide atomic `hit` (rate limits) and `consumeOnce` (one-time codes).
   2. A signed server session: none exists, and profiles are device-local.
-  3. Mail delivery env: `MAIL_OAUTH_USER`, `MAIL_OAUTH_FROM`, `MAIL_OAUTH_REFRESH_TOKEN` (plus the OAuth client credentials) and `ORI_AUTH_CODE_SECRET`. Delivery has never been tested.
+  3. Mail delivery / provisioning env (OAuth client + refresh + from/user names, plus `ORI_AUTH_CODE_SECRET`). Delivery has never been tested.
 
-  All of this needs Bamio's decision. Names only; never commit values.
-- **Provider quotes:** 1Click dry quotes were timing out server-side on Nov 5, so no real quote or status response has been traced.
-- **Not verified:** no live wallet signature, payment or on-chain transfer; no phone/mobile check.
+  All of this needs Bamio's decision. Names only; never commit values or personal addresses.
+- **Provider / live settlement:** runtime adapter is fixed; real non-dry quote → deposit → SUCCESS on mainnet has not been verified end to end. 1Click dry quotes sometimes timed out on Nov 5.
+- **Not verified:** no live wallet signature, payment or on-chain transfer by the team; no phone / iPhone speech check.
 - **Recovery is local-only.** Cross-device restore needs the server account store above.
-- **Live settlement** needs `VITE_ORI_SETTLEMENT_MODE=live`, `ORI_SETTLEMENT_MODE`, `ORI_1CLICK_JWT` (and optionally `ORI_HANDLE_DIRECTORY`) in a server deployment. Deploying needs Bamio's OK.
+- **Live settlement env** on production already uses `VITE_ORI_SETTLEMENT_MODE=live`; server still needs `ORI_1CLICK_JWT` (and optionally `ORI_HANDLE_DIRECTORY`) for live quotes. Changing secrets or recipients needs Bamio's OK.
 - **1Click JWT:** the public API works without one but adds a 0.25% platform fee (docs: API Keys page). The code deliberately refuses live quotes without `ORI_1CLICK_JWT`. **Do not remove that guard without Bamio's fee decision.** ORI sets no `appFees` of its own.
 
 ## Open items (need Bamio)
+- NEAR Auth: wait for Peersyst/NEAR reply (pending as of 09:20 WAT 6 Nov 2026); then decide wallet-creation build order.
 - Per-swap fee figure — needs Bamio's approval before shipping.
-- Bamio's NEAR account — still needed for the real payment.
+- Bamio's NEAR account — still needed for a controlled real payment test.
 - Making the repo public, signing any mainnet tx, posting or submitting — only with Bamio's explicit OK.

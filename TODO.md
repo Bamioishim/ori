@@ -12,3 +12,10 @@
 - [ ] Render deposit address, status transitions, transaction hashes, and refund/failure states in the receipt.
 - [ ] Add unit and e2e coverage for quote validation and settlement state transitions.
 - [ ] Configure `ORI_1CLICK_JWT` and a controlled recipient before enabling live mode.
+
+## Current status pointer (6 Nov 2026)
+
+- Runtime adapter fixed at `6bf4ff8` — see README / HANDOVER.
+- ORI-created wallets (passkey + email recovery): **not built**.
+- NEAR Auth production application: **pending** (no reply as of 09:20 WAT 6 Nov 2026). Approval ≠ implementation.
+- Not payment-ready; limits are browser-side only.

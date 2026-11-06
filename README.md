@@ -2,13 +2,13 @@
 
 ![ORI](brand/og.png)
 
-> ⚠️ **Not payment-ready.** ORI is a hackathon prototype. No real payment, swap, or wallet signature has been tested end to end. On the current deployment the server API that live settlement needs does not work (see [Known limitations](#known-limitations)). Do not use it with funds you are not prepared to lose. Production can ask your wallet to sign real transfers.
+> ⚠️ **Not payment-ready.** ORI is a hackathon prototype. No real payment, swap, or wallet signature has been verified end to end on mainnet. Spending limits are browser-side only (not on-chain). Do not use it with funds you are not prepared to lose. Production can ask a **connected** wallet to sign real transfers; ORI does **not** create custodial wallets yet.
 
-**Live preview:** https://ori-preview.vercel.app/ (production deployment of commit `6936c68`, built with `VITE_ORI_SETTLEMENT_MODE=live`)
+**Live preview:** https://ori-preview.vercel.app/ (production deployment of commit `6bf4ff8`, built with `VITE_ORI_SETTLEMENT_MODE=live`)
 
 > ⚠️ **The production site is not a simulation.** It was built with the **live** settlement flag.
 > - **Direct Send** (same-chain ETH/USDC/SOL/SPL) asks your **real wallet** to sign a **real transfer**.
-> - **Live Pay and Swap** request real quotes and deposits. Today they fail at the server API, which the current runtime blocks (see Known limitations #1), so cross-chain execution does not complete.
+> - **Live Pay and Swap** request real quotes and deposits. The Node/Web runtime adapter is fixed; endpoints respond. Real mainnet signing and settlement are still **not** end-to-end verified, so do not treat cross-chain Pay/Swap as ready.
 > - Only connect a wallet and sign if you mean to move real funds. No funds have been moved by the team.
 
 ---
@@ -42,15 +42,19 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 
 | Area | State |
 |---|---|
-| Frontend UI (Home, Send, Receive, Swap, Pay, History, Policy, Account) | Deployed and browser-checked on desktop by the team; **phone not checked** |
+| Frontend UI (Home, Send, Receive, Swap, Pay, History, Policy, Account) | Deployed and browser-checked on desktop by the team; **phone / iPhone speech not verified** |
 | Public 1Click token list and dry-run quotes from the browser | Working on the deployment (215 tokens on Nov 5) |
-| Native same-chain Send (wallet-signed) | Implemented and **active on production** (asks your real wallet to sign); tested only with mocks and never run by the team with a real wallet |
-| Live cross-chain Pay and Swap through `/api/quote` + `/api/status` | Implemented in code and mock-tested; **not functional on the deployment** (server runtime issue, below) |
-| Gmail code registration/login | **Not functional**: endpoints return 503 by design until a durable store, a session and mail are configured |
+| Native same-chain Send / Receive (connected wallets) | Implemented for supported assets; **active on production** for already-connected/imported wallets; mock-tested only — not verified with a real mainnet signature by the team |
+| ORI-created native wallets (passkey + email recovery) | **Not built.** Connect/import-first flow only; custody, signer, recovery and gas for ORI-created wallets are unimplemented |
+| Live cross-chain Pay and Swap (`/api/quote` + `/api/status`) | Runtime adapter fixed at `6bf4ff8`. Public checks: `/api/resolve` for `@tolu` → 404 (not a registered recipient); `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405. Code + mocks exist; **real mainnet settlement not end-to-end verified** |
+| Demo Pay `@tolu` | Explicit **EXAMPLE · SIMULATED** receipt/history path only — no funds, not a registered live recipient |
+| Gmail code registration/login | **Not functional** (fail-closed 503): durable store, signed session and mail provisioning still missing |
+| NEAR Auth (production) | **Application submitted** ~00:02 WAT on 6 Nov 2026 (origin + callback `https://ori-preview.vercel.app`, initial MAU under 1000). Follow-up sent to the Peersyst general contact ~01:53 WAT. **No approval/reply** as of the last Gmail check at **09:20 WAT on 6 Nov 2026** (inbox + spam + trash). Status: **pending**, no timeline. Approval alone does **not** implement wallet creation or signing |
 | Spending limits | Enforced only inside the ORI browser app (no on-chain or backend enforcement) |
+| NEAR as a send origin | Quote-only today — no NEAR signing from ORI |
 
 **Two modes, don't confuse them.**
-- **Production (https://ori-preview.vercel.app/) is built with `VITE_ORI_SETTLEMENT_MODE=live`.** Pay and Swap reviews are labelled **"LIVE · YOUR WALLET SIGNS"** and try to call `/api/quote`. That currently fails because of the runtime issue, so no cross-chain deposit is reached. Direct Send never depends on this flag: it always uses your real wallet.
+- **Production (https://ori-preview.vercel.app/) is built with `VITE_ORI_SETTLEMENT_MODE=live`.** Pay and Swap reviews are labelled **"LIVE · YOUR WALLET SIGNS"** and call `/api/quote`. The Node/Web runtime adapter is fixed; real mainnet signing/settlement is still not end-to-end verified. Direct Send never depends on this flag: it always uses a **connected** real wallet (ORI does not create one).
 - **Local builds default to example mode** (`.env.example` sets `preview`). Pay and Swap confirmations are then simulations labelled **"EXAMPLE · SIMULATED"**, and nothing is signed. Direct Send still uses a real wallet if you connect one.
 
 ---
@@ -294,34 +298,32 @@ Currently: **90 node tests and 31 static checks pass**. They cover:
 
 ## Deployment
 
-- The existing Vercel project **`ori-preview`** (root directory `app`) serves https://ori-preview.vercel.app/. That is currently `6936c68`, built with `VITE_ORI_SETTLEMENT_MODE=live`. Live cross-chain execution is blocked by the server runtime issue; direct Send can request real wallet signatures.
+- The existing Vercel project **`ori-preview`** (root directory `app`) serves https://ori-preview.vercel.app/. That is currently `6bf4ff8`, built with `VITE_ORI_SETTLEMENT_MODE=live`. The Node/Web runtime adapter (relative URL + exact Buffer body copy) is in this commit. Direct Send can request signatures from a **connected** wallet; real mainnet settlement is still not end-to-end verified.
 - Guardrails:
   - Deploy only to that project.
-  - Production already has `VITE_ORI_SETTLEMENT_MODE=live`. Don't attempt real cross-chain payments until the server runtime issue is fixed and the owner approves a controlled recipient and wallet test.
+  - Production already has `VITE_ORI_SETTLEMENT_MODE=live`. Don't attempt real cross-chain payments until the owner approves a controlled recipient and wallet test.
   - Keep every secret in Vercel environment variables.
   - Don't remove the JWT guard without the owner's fee decision.
   - Only the owner decides when the repo goes public.
-  - Before a live test, fix the runtime adapter; production already has the live flag set.
+  - NEAR Auth approval (when it arrives) does not by itself ship ORI-created wallets — custody/signer/recovery/gas still have to be built.
 
 ---
 
 ## Known limitations
 
-1. **The server API is broken on the current Vercel runtime. This is the main blocker.** The handlers in `app/api/` are written in the Web `Request → Response` style. The deployed Node runtime calls them as `(req, res)` instead:
-   - `quote` and the auth handlers return a `Response` that is ignored, so the request hangs;
-   - `status` calls `new URL(request.url)` on a relative URL and fails with `Invalid URL` / `FUNCTION_INVOCATION_FAILED`.
-
-   Until a runtime adapter is added, **live settlement, handle resolution and Gmail codes do not work on the deployment**. The browser's public dry quotes are unaffected.
-2. **Provider timeouts.** On Nov 5, 1Click dry quotes sometimes timed out on the provider's side. No real non-dry quote or status response has been traced.
-3. **Gmail login is not functional.** It needs:
+1. **Node/Web runtime adapter — fixed at `6bf4ff8`.** Handlers use a shared `adapt()` wrapper (`app/api/_runtime.ts`) so Node `(req, res)` and Web `Request` both work: absolute URL construction for relative paths, and exact Buffer body bytes (no pooled `ArrayBuffer` leak). Prior unit coverage included runtime/body regressions; earlier suite reported **138 unit + 31 activation** checks passing (not re-run for this docs update). Public smoke previously seen: `/api/resolve?handle=tolu` → 404; `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405.
+2. **Not payment-ready / not security-on-chain.** No real mainnet payment, swap or wallet signature has been verified end to end. Spending limits are browser-side only.
+3. **ORI does not create wallets yet.** Native Send/Receive work only with wallets the user already connects or imports. Desired product direction is ORI-created wallets with passkey + email recovery; custody, signer, recovery and gas for that path are **unimplemented**. NEAR Auth production access is **pending** (see Status at a glance); approval alone does not implement those features.
+4. **Provider timeouts.** On Nov 5, 1Click dry quotes sometimes timed out on the provider's side. No real non-dry quote or live settlement response has been fully traced end to end.
+5. **Gmail login is not functional.** It needs:
    - a durable `AuthStore` (`app/api/auth/_store.ts`; `getAuthStore()` returns null today) with atomic rate limits and one-time code consumption, e.g. Redis/KV;
    - a signed server session;
-   - the Gmail OAuth variables.
+   - the Gmail OAuth / mail provisioning variables.
 
    None are configured, so the endpoints return **503**. Profiles are device-local, with no cross-device restore.
-4. **Limits are browser-only.** See Security Center above.
-5. **No NEAR signing.** NEAR balances can be read but not sent. There is no NEAR wallet connector and no Chain Signatures.
-6. **Mobile has not been verified.**
+6. **Limits are browser-only.** See Security Center above.
+7. **No NEAR signing from ORI.** NEAR can appear as quote-only; there is no ORI NEAR send path and no Chain Signatures.
+8. **Mobile / iPhone speech has not been verified.**
 
 ---
 
@@ -334,7 +336,7 @@ Currently: **90 node tests and 31 static checks pass**. They cover:
 | "Same asset on the same chain: use Send" | pick a different destination, or use Send |
 | `/api/*` 404 locally | Vite dev/preview doesn't host functions |
 | `/api/quote` 503 "Live settlement is not configured." | `ORI_1CLICK_JWT` missing (by design) |
-| `/api/quote` hangs or `/api/status` returns `FUNCTION_INVOCATION_FAILED` on the deployment | runtime adapter limitation (Known limitations #1) |
+| `/api/quote` GET → 405 / `/api/status` without depositAddress → 400 | expected method/validation responses after the runtime fix |
 | Gmail code returns 503 | no durable auth store configured (by design) |
 | "Your wallet is not on Base/Ethereum. Nothing was sent." | the wallet refused or failed to switch chains |
 | "The wallet account changed…" | the selected account differs from the one reviewed; review again |
@@ -344,14 +346,16 @@ Currently: **90 node tests and 31 static checks pass**. They cover:
 
 ## Roadmap
 
-**Implemented (mock-tested):** native Send and Receive, catalog-driven swap quotes, guarded live swap and Pay execution, SPL USDC/USDT, Gmail code flow (fail-closed), profile control, settlement-time display, limit disclosure, click-only Hey ORI.
+**Implemented (mock-tested):** native Send and Receive for **connected/imported** wallets, catalog-driven swap quotes, guarded live swap and Pay execution paths, SPL USDC/USDT, Gmail code flow (fail-closed), profile control, settlement-time display, limit disclosure, click-only Hey ORI, Node/Web runtime adapter.
+
+**Not built yet:** ORI-created wallets (passkey + email recovery), custody/signer/recovery/gas for that path.
 
 **Next:**
-1. A Vercel runtime adapter for `app/api/*`.
+1. After NEAR Auth approval (currently pending): design/build ORI-created wallet creation — approval alone is not implementation.
 2. A controlled live test with a small amount, approved by the owner.
 3. A durable auth store, a signed session and mail configuration.
-4. A mobile QA pass.
+4. A mobile / iPhone speech QA pass.
 5. NEAR signing and more SPL/EVM chains.
 6. Server-side persistence for Requests, plus invoicing.
 
-See [HANDOVER.md](HANDOVER.md) for open owner decisions: the 1Click fee, the NEAR account, and making the repo public.
+See [HANDOVER.md](HANDOVER.md) for open owner decisions: the 1Click fee, the NEAR account, NEAR Auth follow-up, and making the repo public.
