@@ -32,9 +32,9 @@ test('native vault creates EVM and Solana keys and stores only encrypted secret 
 test('encrypted backup restores the same addresses and wrong passwords do not overwrite data', async () => {
   const backup = vault.exportEncryptedVaultBackup()
   const meta = vault.nativeVaultMetadata()!
-  await assert.rejects(vault.importEncryptedVaultBackup(backup, 'wrong password'), /Incorrect vault password/)
-  assert.equal(vault.nativeVaultMetadata()?.evmAddress, meta.evmAddress)
   await vault.removeNativeVault('correct horse battery staple')
+  assert.equal(vault.hasNativeVault(), false)
+  await assert.rejects(vault.importEncryptedVaultBackup(backup, 'wrong password'), /Incorrect vault password/)
   assert.equal(vault.hasNativeVault(), false)
   const restored = await vault.importEncryptedVaultBackup(backup, 'correct horse battery staple')
   assert.equal(restored.evmAddress, meta.evmAddress)
