@@ -18,7 +18,6 @@ export default function WalletsScreen() {
   const [vaultExists, setVaultExists] = useState(hasNativeVault())
   const [vaultOpen, setVaultOpen] = useState(!!getUnlockedVault())
   const [vault, setVault] = useState(nativeVaultMetadata())
-  const selected = list.find(w => w.id === active) || list[0]
   const addresses = [...list.map(w => w.address), ...(vault ? [vault.evmAddress, vault.solAddress] : [])]
   useEffect(() => {
     let dead = false
