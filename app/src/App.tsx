@@ -29,6 +29,7 @@ import { countProgress, quoteVisible } from './uiLogic'
 import { amountAllowed, canUseMax, exampleHeld, exampleSpendable, pickSigner, readSignerSpendable, sizingKind, spendSourceKey, unknownSpend, visibleSpend, type SpendState } from './spendableBalance'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
+import { HandleResolveError, isExampleHandle } from './handles'
 import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
@@ -276,7 +277,7 @@ function ConfirmBtn({ label, blocked, limit, status, busyLabel, onGo, onLimit, b
 }
 
 type LivePayment = { kind: 'settlement' | 'direct'; quote?: SettlementQuote; wallet: string; txHash: string; state: SettlementStatus['status'] | 'BROADCAST' | 'SUCCESS' | 'ERROR'; destination: string; network: string; amount: number; error?: string }
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null, demo?: boolean) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
@@ -289,12 +290,22 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     return () => { dead = true; clearTimeout(t) } }, [to, cfg.scam])
   const [resolvedRecipient, setResolvedRecipient] = useState<string | null>(null)
   const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolveKind, setResolveKind] = useState<'unregistered' | 'service' | 'invalid' | null>(null)
   const [resolvedExample, setResolvedExample] = useState(false)
   useEffect(() => {
-    const value = to.trim(); setResolvedRecipient(null); setResolveError(null); setResolvedExample(false)
+    const value = to.trim(); setResolvedRecipient(null); setResolveError(null); setResolveKind(null); setResolvedExample(false)
     if (kindOf(value) === 'sol' || kindOf(value) === 'evm' || !value.startsWith('@')) return
     let dead = false
-    resolveHandle(value).then(r => { if (!dead) { setResolvedRecipient(r.address); setResolvedExample(!!r.example) } }).catch(e => { if (!dead) setResolveError((e as Error).message) })
+    resolveHandle(value).then(r => {
+      if (dead) return
+      setResolvedRecipient(r.address); setResolvedExample(!!r.example); setResolveError(null); setResolveKind(null)
+    }).catch(e => {
+      if (dead) return
+      // Never show a service status code as the recipient. Clear stale resolution.
+      setResolvedRecipient(null); setResolvedExample(false)
+      if (e instanceof HandleResolveError) { setResolveError(e.message); setResolveKind(e.kind) }
+      else { setResolveError((e as Error).message || 'Handle lookup failed.'); setResolveKind('service') }
+    })
     return () => { dead = true }
   }, [to])
   const local = cfg.scam && FLAGGED.test(to)
@@ -308,7 +319,9 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
   const destinationAsset = solTo || resolvedRecipient ? ASSET.solUSDC : ASSET.baseUSDC
   const destinationNetwork = solTo || resolvedRecipient ? 'Solana' : 'Base'
   const preferredSupported = cfg.preferredReceivingCurrency === 'USDC'
-  const q = useQuote(!evmTo && n0 > 0 ? { from: ASSET.baseUSDC, to: destinationAsset, amount: BigInt(Math.round(n0 * 1e6)), recipient: liveRecipient || PREVIEW.evm, refundTo, outDecimals: 6 } : null, `${n0}|${liveRecipient || ''}|${destinationAsset}|${refundTo}`)
+  // No quote while handle resolution failed (clears stale provider quote). Example/verified recipients OK.
+  const canQuotePay = !evmTo && n0 > 0 && !resolveError && (!!liveRecipient || !to.trim().startsWith('@'))
+  const q = useQuote(canQuotePay ? { from: ASSET.baseUSDC, to: destinationAsset, amount: BigInt(Math.round(n0 * 1e6)), recipient: liveRecipient || PREVIEW.evm, refundTo, outDecimals: 6 } : null, `${n0}|${liveRecipient || ''}|${destinationAsset}|${refundTo}|${resolveError || ''}`)
   useEffect(() => () => onRisk(null), [])
   const trusted = cfg.trusted.includes(to.trim())
   const st = (ok: string) => !cfg.scam ? 'CHECK OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : ok
@@ -332,7 +345,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? `${resolvedExample ? 'EXAMPLE handle' : 'Verified handle'} ${to} → ${short(resolvedRecipient)}${resolvedExample ? ' · dry quotes only until ORI_HANDLE_DIRECTORY has a real address' : ''}` : resolveError || 'Resolving handle…'} />
+      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? (resolvedExample ? `DEMO handle ${to} → ${short(resolvedRecipient)} · simulated pay only · not a verified live payee` : `Verified handle ${to} → ${short(resolvedRecipient)}`) : resolveError ? (resolveKind === 'service' ? resolveError : resolveError) : 'Resolving handle…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
@@ -343,8 +356,8 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     </section></div>
     {status === 'sent'
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : 'SIMULATED'}</span></Label>
-        <div className="money-r">{usd(n)} <span className="dim">sent to {to}</span></div>
+        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : (resolvedExample ? 'DEMO · SIMULATED' : 'SIMULATED')}</span></Label>
+        <div className="money-r">{usd(n)} <span className="dim">{settlement ? 'sent' : 'demo · not sent'} to {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → {settlement?.network || destinationNetwork} USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">{settlement?.kind === 'direct' ? `Direct Base transfer · ${settlement.state}` : `NEAR Intents · ${settlement?.state || 'simulated'}`}</span></div>
         {settlement && <><div className="row"><span className="grow">Wallet tx</span><span className="num mono">{short(settlement.txHash)}</span></div>{settlement.kind === 'settlement' && settlement.quote && <div className="row"><span className="grow">Deposit address</span><span className="num mono">{short(settlement.quote.quote.depositAddress)}</span></div>}</>}
@@ -352,8 +365,8 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement?.kind === 'direct' ? 'Your connected wallet' : settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? `Handle unresolved: ${resolveError}` : to.trim().startsWith('@') && !resolvedRecipient && !evmTo && !solTo ? 'Resolving handle…' : isSettlementEnabled() && resolvedExample ? `${to.trim()} is an example handle · add a verified Solana address in ORI_HANDLE_DIRECTORY to pay for real` : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
-        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
+      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : resolvedExample ? 'review DEMO payment ' + usd(n) : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? (resolveKind === 'service' ? resolveError : `Handle unresolved: ${resolveError}`) : to.trim().startsWith('@') && !resolvedRecipient && !evmTo && !solTo ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel={resolvedExample ? 'Ori is simulating' : 'Ori is delivering'}
+        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null, !!resolvedExample) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
@@ -544,7 +557,11 @@ export default function App() {
   const [mode, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
   const [live, setLive] = useState<LiveState>({ loading: false, holdings: [], errors: [], at: null })
-  const setMode = (m: Mode) => { setModeS(m); localStorage.setItem('mode', m) }
+  const setMode = (m: Mode) => {
+    setModeS(m); localStorage.setItem('mode', m)
+    // Abort pending review/confirm when UI data mode changes
+    sheetAction.current = 'cancel'; setSheet(null); setStatus('idle'); setSwapSt('idle'); setSettlement(null); paymentInFlight.current = false
+  }
   const setAddrs = (a: string[]) => { setAddrsS(a); localStorage.setItem('addrs', JSON.stringify(a)) }
   const lastTotal = useRef<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
@@ -654,23 +671,40 @@ export default function App() {
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
   const paymentInFlight = useRef(false)
-  const confirm = async (r: DOMRect, amt: number, to: string, fee: number | null) => {
+  const confirm = async (r: DOMRect, amt: number, to: string, fee: number | null, demo = false) => {
     sheetAction.current = 'idle'
-    if (!isSettlementEnabled()) { setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, run: () => doPay(r, amt, to) }); return }
-    try { // live: build the exact plan the wallet will sign, and show it
-      const plan = await preparePay(amt, to, { resolve: async h => { const r = await resolveHandle(h); if (r.example) throw new Error(`${h} is an example handle only. Set ORI_HANDLE_DIRECTORY with a verified Solana address to pay them for real.`); return r.address }, connect: connectBaseWallet, quote: createSettlementQuote })
+    // DEMO path (e.g. @tolu example): isolated even when VITE_ORI_SETTLEMENT_MODE=live. No dry:false, wallet, or fake tx.
+    if (demo || isExampleHandle(to) || !isSettlementEnabled()) {
+      const demoLines: [string, string][] = [['Mode', 'DEMO · simulated'], ['Recipient', to.trim()], ['Route', 'Base USDC → Solana USDC (quoted dry · not deposited)'], ['Signing', 'None · demo does not open a wallet'], ['History', 'Logged as DEMO · separate from real spending']]
+      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, lines: demo || isExampleHandle(to) ? demoLines : undefined, run: () => doPay(r, amt, to, undefined, true) })
+      return
+    }
+    try { // live verified only: build the exact plan the wallet will sign
+      const plan = await preparePay(amt, to, { resolve: async h => { const r = await resolveHandle(h); if (r.example) throw new Error(`${h} is an example handle only. Use DEMO review for example handles, or set ORI_HANDLE_DIRECTORY with a verified Solana address for live pay.`); return r.address }, connect: connectBaseWallet, quote: createSettlementQuote })
       saveWallet({ address: plan.account, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
       const lines: [string, string][] = plan.kind === 'direct'
         ? [['Route', 'Direct USDC transfer on Base (no NEAR Intents)'], ['From account', short(plan.account)], ['Recipient address', short(plan.to)], ['Approvals', 'None']]
         : [['Route', 'USDC Base → USDC Solana (NEAR Intents)'], ['From account', short(plan.account)], ['Deposit to', short(plan.settlement.quote.depositAddress)], ['Recipient address', short(plan.review.recipient)], ['Refund to', short(plan.account)], ['Minimum received', `${(Number(plan.review.minOutUnits) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 })} USDC`], ['Quote expires', fmtT(plan.settlement.quote.deadline!)], ['Approvals', 'None · direct transfer to the deposit address']]
-      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: plan.kind === 'direct' ? 'Base' : 'Base → Solana', fee, blocked: null, live: true, lines, run: () => doPay(r, amt, to, plan) })
+      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: plan.kind === 'direct' ? 'Base' : 'Base → Solana', fee, blocked: null, live: true, lines, run: () => doPay(r, amt, to, plan, false) })
     } catch (e) { oriSay(`${(e as Error).message} No transaction was submitted.`) }
   }
   const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null, plan?: SwapPlan) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: plan ? short(plan.review.recipient) + ' (yours)' : 'Your ORI wallet', amount: detail, usdv: v, chain: plan ? plan.lines[0][1] : /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: !!plan, lines: plan?.lines, run: () => doSwap(r, v, detail, plan) }) }
-  const doPay = async (r: DOMRect, amt: number, to: string, plan?: PayPlan) => {
+  const doPay = async (r: DOMRect, amt: number, to: string, plan?: PayPlan, demo = false) => {
     if (paymentInFlight.current) return
     { const why = limitCheck(cfg, amt); if (why) { overLimit(r, why, `Payment of ${usd(amt)} to ${to}`); return } } // re-check at the signing boundary, not only on the card
-    if (!isSettlementEnabled()) { paymentInFlight.current = true; await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`EXAMPLE: delivered ${usd(amt)} to ${to}. Simulated, nothing was signed.`); paymentInFlight.current = false; return }
+    // DEMO / non-settlement simulation: honest receipt + demo ledger. No wallet, no dry:false, no fake txHash/explorer.
+    if (demo || !plan) {
+      if (isSettlementEnabled() && !demo && !isExampleHandle(to)) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
+      paymentInFlight.current = true
+      try {
+        await celebrate(r, setStatus)
+        setSettlement(null)
+        logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to: to.trim(), note: 'DEMO · simulated delivery · nothing signed or broadcast', demo: true })
+        setExtra(e => e - amt) // UI-only example balance nudge; not real spending
+        oriSay(`DEMO: simulated ${usd(amt)} to ${to}. Nothing was signed, deposited, or spent for real.`)
+      } finally { paymentInFlight.current = false }
+      return
+    }
     if (!plan || plan.usd !== amt) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
     paymentInFlight.current = true; setStatus('running')
     const dest = plan.kind === 'direct' ? plan.to : plan.review.recipient

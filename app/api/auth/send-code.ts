@@ -1,11 +1,12 @@
 import nodemailer from 'nodemailer'
 import { sendCode } from './_codes.js'
 import { getAuthStore } from './_store.js'
+import { adapt } from '../_runtime.js'
 
 declare const process: { env: Record<string, string | undefined> }
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
 
-export default async function handler(req: Request) {
+async function webHandler(req: Request) {
   if (req.method !== 'POST') return json({ error: 'Method not allowed.' }, 405)
   const body = await req.json().catch(() => ({})) as { email?: string; purpose?: string }
   const env = process.env, user = env.GMAIL_OAUTH_USER, from = env.GMAIL_OAUTH_FROM || user
@@ -18,3 +19,5 @@ export default async function handler(req: Request) {
   const r = await sendCode(String(body.email || ''), ip, String(body.purpose || 'login'), { store: getAuthStore(), secret: env.ORI_AUTH_CODE_SECRET, send })
   return json(r.body, r.status)
 }
+
+export default adapt(webHandler)

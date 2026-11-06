@@ -15,7 +15,7 @@ test('resolveHandle falls back to EXAMPLE_HANDLES when /api/resolve has no verif
   const fetch404: typeof fetch = async () => new Response(JSON.stringify({ error: 'This handle is not linked to a verified Solana address.' }), { status: 404 })
   const r = await resolveHandleWith(fetch404, '@tolu')
   assert.equal(r.example, true); assert.equal(r.address, PREVIEW.sol); assert.match(r.label, /example/i)
-  await assert.rejects(resolveHandleWith(fetch404, '@nobody'))
+  await assert.rejects(resolveHandleWith(fetch404, '@nobody'), (e: any) => e?.kind === 'unregistered' || /not linked/i.test(String(e)))
 })
 
 test('resolveHandle prefers a verified directory entry over the example map', async () => {
