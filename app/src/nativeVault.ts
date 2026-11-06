@@ -26,6 +26,7 @@ const fromBase64 = (value: string) => Uint8Array.from(atob(value), c => c.charCo
 const toHex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
 const fromHex = (value: string) => Uint8Array.from(value.match(/.{2}/g) || [], x => parseInt(x, 16))
 const randomBytes = (length: number) => crypto.getRandomValues(new Uint8Array(length))
+const asArrayBuffer = (bytes: Uint8Array): ArrayBuffer => { const copy = new ArrayBuffer(bytes.byteLength); new Uint8Array(copy).set(bytes); return copy }
 const evmAddress = (privateKey: Uint8Array) => {
   const publicKey = secp256k1.getPublicKey(privateKey, false).slice(1)
   return '0x' + toHex(keccak_256(publicKey).slice(-20))
@@ -34,7 +35,7 @@ const solAddress = (secretKey: Uint8Array) => Keypair.fromSecretKey(secretKey).p
 
 async function encryptionKey(password: string, salt: Uint8Array, iterations: number) {
   const material = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey'])
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: asArrayBuffer(salt), iterations }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
 }
 function validatePassword(password: string) {
   if (password.length < 12) throw new Error('Use a vault password with at least 12 characters.')
@@ -67,7 +68,7 @@ async function decrypt(vault: VaultMetadata, password: string): Promise<Unlocked
   validatePassword(password)
   const key = await encryptionKey(password, fromBase64(vault.salt), vault.iterations)
   let plaintext: ArrayBuffer
-  try { plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(vault.iv) }, key, fromBase64(vault.ciphertext)) }
+  try { plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: asArrayBuffer(fromBase64(vault.iv)) }, key, asArrayBuffer(fromBase64(vault.ciphertext))) }
   catch { throw new Error('Incorrect vault password or damaged backup.') }
   const payload = JSON.parse(decoder.decode(plaintext)) as SecretPayload
   if (payload.version !== 1) throw new Error('Unsupported wallet backup version.')
@@ -88,7 +89,7 @@ export async function createNativeVault(password: string) {
   const secrets: SecretPayload = { version: 1, evmPrivateKey: toHex(evmPrivateKey), solSecretKey: toBase64(sol.secretKey) }
   const salt = randomBytes(16), iv = randomBytes(12)
   const key = await encryptionKey(password, salt, ITERATIONS)
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(JSON.stringify(secrets)))
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: asArrayBuffer(iv) }, key, encoder.encode(JSON.stringify(secrets)))
   const vault: VaultMetadata = { version: 1, createdAt: Date.now(), evmAddress: evmAddress(evmPrivateKey), solAddress: sol.publicKey.toBase58(), salt: toBase64(salt), iv: toBase64(iv), ciphertext: toBase64(new Uint8Array(ciphertext)), iterations: ITERATIONS }
   persist(vault)
   unlocked = { evmPrivateKey, solSecretKey: sol.secretKey.slice(), evmAddress: vault.evmAddress, solAddress: vault.solAddress }
