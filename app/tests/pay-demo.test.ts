@@ -53,3 +53,11 @@ test('isExampleHandle covers @tolu/@ade only', () => {
   assert.equal(isExampleHandle('@ade'), true)
   assert.equal(isExampleHandle('@nobody'), false)
 })
+
+test('mode-change invalidates in-flight DEMO so stale celebrate cannot log', () => {
+  assert.match(app, /demoPayGen/)
+  assert.match(app, /demoPayGen\.current \+= 1/)
+  assert.match(doPay, /gen !== demoPayGen\.current/)
+  assert.match(doPay, /stale \/ cancelled/)
+  assert.match(doPay, /if \(gen === demoPayGen\.current\) setStatus/)
+})

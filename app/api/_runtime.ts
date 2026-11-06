@@ -15,13 +15,28 @@ function headersFromNode(h: Record<string, unknown> | undefined): Headers {
   return out
 }
 
-function readNodeBody(req: { on: Function; headers?: Record<string, unknown> }): Promise<ArrayBuffer | undefined> {
-  const method = String((req as { method?: string }).method || 'GET').toUpperCase()
+/**
+ * Exact payload bytes for Request body.
+ * Never return Buffer.concat(...).buffer — that is the pooled ArrayBuffer and can
+ * leak tens of KB of unrelated pool data past the real payload (JSON parse then fails).
+ */
+export function exactBodyBytes(chunks: Buffer[]): ArrayBuffer | undefined {
+  if (!chunks.length) return undefined
+  const buf = Buffer.concat(chunks)
+  if (!buf.byteLength) return undefined
+  // Copy only [offset, offset+length) into a fresh ArrayBuffer.
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+}
+
+export function readNodeBody(req: { on: Function; method?: string }): Promise<ArrayBuffer | undefined> {
+  const method = String(req.method || 'GET').toUpperCase()
   if (method === 'GET' || method === 'HEAD') return Promise.resolve(undefined)
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
-    req.on('end', () => resolve(Buffer.concat(chunks).buffer))
+    req.on('data', (c: Buffer | Uint8Array | string) => {
+      chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
+    })
+    req.on('end', () => resolve(exactBodyBytes(chunks)))
     req.on('error', reject)
   })
 }

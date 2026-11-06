@@ -559,7 +559,8 @@ export default function App() {
   const [live, setLive] = useState<LiveState>({ loading: false, holdings: [], errors: [], at: null })
   const setMode = (m: Mode) => {
     setModeS(m); localStorage.setItem('mode', m)
-    // Abort pending review/confirm when UI data mode changes
+    // Abort pending review/confirm when UI data mode changes; invalidate in-flight DEMO so it cannot log after cancel
+    demoPayGen.current += 1
     sheetAction.current = 'cancel'; setSheet(null); setStatus('idle'); setSwapSt('idle'); setSettlement(null); paymentInFlight.current = false
   }
   const setAddrs = (a: string[]) => { setAddrsS(a); localStorage.setItem('addrs', JSON.stringify(a)) }
@@ -671,6 +672,7 @@ export default function App() {
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
   const paymentInFlight = useRef(false)
+  const demoPayGen = useRef(0)
   const confirm = async (r: DOMRect, amt: number, to: string, fee: number | null, demo = false) => {
     sheetAction.current = 'idle'
     // DEMO path (e.g. @tolu example): isolated even when VITE_ORI_SETTLEMENT_MODE=live. No dry:false, wallet, or fake tx.
@@ -695,9 +697,13 @@ export default function App() {
     // DEMO / non-settlement simulation: honest receipt + demo ledger. No wallet, no dry:false, no fake txHash/explorer.
     if (demo || !plan) {
       if (isSettlementEnabled() && !demo && !isExampleHandle(to)) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
+      if (paymentInFlight.current) return
       paymentInFlight.current = true
+      const gen = demoPayGen.current
       try {
-        await celebrate(r, setStatus)
+        // Gated status updates: mode-change bumps demoPayGen and must not leave a late celebrate writing 'sent'
+        await celebrate(r, v => { if (gen === demoPayGen.current) setStatus(v) })
+        if (gen !== demoPayGen.current || sheetAction.current === 'cancel') return // stale / cancelled — do not log
         setSettlement(null)
         logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to: to.trim(), note: 'DEMO · simulated delivery · nothing signed or broadcast', demo: true })
         setExtra(e => e - amt) // UI-only example balance nudge; not real spending
