@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - native-wallets-mainnet
+      - native-wallet-vault
   pull_request:
     branches:
       - master
