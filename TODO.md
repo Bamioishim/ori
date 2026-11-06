@@ -20,7 +20,7 @@
 - [x] Add password unlock and encrypted backup import/export.
 - [x] Add address/key consistency checks and vault lifecycle tests.
 - [ ] Integrate native EVM and Solana signing into the existing Send flow.
-- [ ] Add inactivity/background auto-lock and reviewed session policy.
+- [x] Lock decrypted keys when the Wallets screen exits or the tab is backgrounded; [ ] add an inactivity timeout and reviewed session policy.
 - [ ] Add passkey-based unlock and a secure recovery design; Gmail code login is not wallet recovery.
 - [ ] Run CI, review the cryptography integration, and test on-chain with controlled low-value wallets before enabling deposits.
 
