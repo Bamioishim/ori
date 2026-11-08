@@ -277,7 +277,7 @@ function ConfirmBtn({ label, blocked, limit, status, busyLabel, onGo, onLimit, b
 }
 
 type LivePayment = { kind: 'settlement' | 'direct'; quote?: SettlementQuote; wallet: string; txHash: string; state: SettlementStatus['status'] | 'BROADCAST' | 'SUCCESS' | 'ERROR'; destination: string; network: string; amount: number; error?: string }
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null, demo?: boolean) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement, guest }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; guest: boolean; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null, demo?: boolean) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
@@ -296,7 +296,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     const value = to.trim(); setResolvedRecipient(null); setResolveError(null); setResolveKind(null); setResolvedExample(false)
     if (kindOf(value) === 'sol' || kindOf(value) === 'evm' || !value.startsWith('@')) return
     let dead = false
-    resolveHandle(value).then(r => {
+    resolveHandle(value, guest).then(r => {
       if (dead) return
       setResolvedRecipient(r.address); setResolvedExample(!!r.example); setResolveError(null); setResolveKind(null)
     }).catch(e => {
@@ -307,7 +307,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
       else { setResolveError((e as Error).message || 'Handle lookup failed.'); setResolveKind('service') }
     })
     return () => { dead = true }
-  }, [to])
+  }, [to, guest])
   const local = cfg.scam && FLAGGED.test(to)
   const flagged = local || risk?.state === 'flagged'
   const why = risk?.state === 'flagged' ? `GoPlus flags this address: ${risk.flags.join(', ')}.` : 'That handle matches a known drainer pattern.'
@@ -357,7 +357,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     {status === 'sent'
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
         <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : (resolvedExample ? 'DEMO · SIMULATED' : 'SIMULATED')}</span></Label>
-        <div className="money-r">{usd(n)} <span className="dim">{settlement ? 'sent' : 'demo · not sent'} to {to}</span></div>
+        <div className="money-r">{usd(n)} <span className="dim">{settlement ? 'sent' : 'simulated delivery'} to {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → {settlement?.network || destinationNetwork} USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">{settlement?.kind === 'direct' ? `Direct Base transfer · ${settlement.state}` : `NEAR Intents · ${settlement?.state || 'simulated'}`}</span></div>
         {settlement && <><div className="row"><span className="grow">Wallet tx</span><span className="num mono">{short(settlement.txHash)}</span></div>{settlement.kind === 'settlement' && settlement.quote && <div className="row"><span className="grow">Deposit address</span><span className="num mono">{short(settlement.quote.quote.depositAddress)}</span></div>}</>}
@@ -558,6 +558,7 @@ export default function App() {
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
   const [live, setLive] = useState<LiveState>({ loading: false, holdings: [], errors: [], at: null })
   const setMode = (m: Mode) => {
+    if (account && m === 'example') return
     setModeS(m); localStorage.setItem('mode', m)
     // Abort pending review/confirm when UI data mode changes; invalidate in-flight DEMO so it cannot log after cancel
     demoPayGen.current += 1
@@ -570,6 +571,7 @@ export default function App() {
   const [settlement, setSettlement] = useState<LivePayment | null>(null)
   const [account, setAccount] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('ori-account') || 'null') } catch { return null } })
   const [accountOpen, setAccountOpen] = useState(false)
+  useEffect(() => { setMode(account ? 'live' : 'example') }, [account])
   const [guestId] = useState(() => { const existing = sessionStorage.getItem('ori-guest'); if (existing) return existing; const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); sessionStorage.setItem('ori-guest', id); return id })
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
@@ -676,11 +678,12 @@ export default function App() {
   const confirm = async (r: DOMRect, amt: number, to: string, fee: number | null, demo = false) => {
     sheetAction.current = 'idle'
     // DEMO path (e.g. @tolu example): isolated even when VITE_ORI_SETTLEMENT_MODE=live. No dry:false, wallet, or fake tx.
-    if (demo || isExampleHandle(to) || !isSettlementEnabled()) {
+    if (demo) {
       const demoLines: [string, string][] = [['Mode', 'DEMO · simulated'], ['Recipient', to.trim()], ['Route', 'Base USDC → Solana USDC (quoted dry · not deposited)'], ['Signing', 'None · demo does not open a wallet'], ['History', 'Logged as DEMO · separate from real spending']]
       setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, lines: demo || isExampleHandle(to) ? demoLines : undefined, run: () => doPay(r, amt, to, undefined, true) })
       return
     }
+    if (!isSettlementEnabled()) { oriSay('Mainnet payments are not enabled on this deployment yet. No transaction was submitted.'); return }
     try { // live verified only: build the exact plan the wallet will sign
       const plan = await preparePay(amt, to, { resolve: async h => { const r = await resolveHandle(h); if (r.example) throw new Error(`${h} is an example handle only. Use DEMO review for example handles, or set ORI_HANDLE_DIRECTORY with a verified Solana address for live pay.`); return r.address }, connect: connectBaseWallet, quote: createSettlementQuote })
       saveWallet({ address: plan.account, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
@@ -696,7 +699,7 @@ export default function App() {
     { const why = limitCheck(cfg, amt); if (why) { overLimit(r, why, `Payment of ${usd(amt)} to ${to}`); return } } // re-check at the signing boundary, not only on the card
     // DEMO / non-settlement simulation: honest receipt + demo ledger. No wallet, no dry:false, no fake txHash/explorer.
     if (demo || !plan) {
-      if (isSettlementEnabled() && !demo && !isExampleHandle(to)) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
+      if (!demo) { oriSay('No reviewed mainnet payment plan is available. Nothing was sent.'); return }
       if (paymentInFlight.current) return
       paymentInFlight.current = true
       const gen = demoPayGen.current
@@ -802,7 +805,7 @@ export default function App() {
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
         {screen === 'home' && <Home profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'send') setSendPreset(to ? { sym: to.split('|')[0], net: to.split('|')[1] } : null); if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
-        {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
+        {screen === 'pay' && <Pay guest={!account} draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} uiMode={mode} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'send' && <SendScreen key={sendPreset ? sendPreset.sym + sendPreset.net : 'send'} cfg={cfg} preset={sendPreset} openWallets={() => goTo('wallets')} />}
         {screen === 'receive' && <ReceiveScreen watched={addrs} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} onAddWatch={a => { const t = a.trim(); if (!t || addrs.some(x => x.toLowerCase() === t.toLowerCase())) return; setAddrs([...addrs, t]) }} />}
