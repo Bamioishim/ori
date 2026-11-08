@@ -31,11 +31,12 @@ export function NearAuthMenu() {
   const { isLoggedIn, isLoading, error, refetch } = useIsLoggedIn()
   const { publicKey } = usePublicKey(undefined, false)
   const [busy, setBusy] = useState(false)
+  const [loginError, setLoginError] = useState('')
 
   const login = async () => {
     if (!client) return
-    setBusy(true)
-    try { await client.login() } catch { await refetch() } finally { setBusy(false) }
+    setBusy(true); setLoginError('')
+    try { await client.login() } catch (e) { setLoginError(e instanceof Error ? e.message : 'NEAR Auth could not send a verification code. Check the Auth provider configuration and try again.'); try { await refetch() } catch { /* retain the original login error */ } } finally { setBusy(false) }
   }
   const logout = async () => {
     if (!client) return
@@ -44,7 +45,7 @@ export function NearAuthMenu() {
   }
 
   if (!isReady || isLoading) return <div className="near-auth-menu mono xs dim">NEAR AUTH · CHECKING…</div>
-  if (!isLoggedIn) return <div className="near-auth-menu"><span className="dl"><b>NEAR Auth</b><small>Mainnet identity · Auth0</small></span><button className="ghost compact" disabled={busy} onClick={login}>{busy ? 'Opening…' : 'Sign in'}</button></div>
+  if (!isLoggedIn) return <div className="near-auth-menu"><span className="dl"><b>NEAR Auth</b><small>Mainnet identity · Auth0</small>{(loginError || error?.message) && <small className="mono xs err">{loginError || error?.message}</small>}</span><button className="ghost compact" disabled={busy} onClick={login}>{busy ? 'Opening…' : 'Sign in'}</button></div>
   const key = publicKey?.toString() || 'Derived key available after authorization'
   return <div className="near-auth-menu"><span className="dl"><b>NEAR Auth · connected</b><small className="mono">{key.length > 24 ? `${key.slice(0, 12)}…${key.slice(-8)}` : key}</small></span><button className="ghost compact" disabled={busy} onClick={logout}>{busy ? 'Signing out…' : 'Sign out'}</button>{error && <small className="mono xs err">{error.message}</small>}</div>
 }
