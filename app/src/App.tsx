@@ -97,7 +97,7 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   const empty = isLive && !live.loading && !live.holdings.length
   if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
-    <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
+    <AddrRow addr={isLive ? (addrs[0] || 'No mainnet wallet connected') : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
     <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
     <div className="mh-chg">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `Live · ${addrs.length} address${addrs.length === 1 ? '' : 'es'}` : 'Add an address in Settings'}</span> : <><span className="up">▲ 1.37%</span><span className="dim">+$38.62 · 24h</span><Example /></>}</div>
     <Tiles go={go!} />
@@ -118,6 +118,7 @@ function Mini({ seed, up }: { seed: string; up: boolean }) {
 }
 function AddrRow({ addr }: { addr: string }) {
   const [ok, setOk] = useState(false)
+  if (addr === 'No mainnet wallet connected') return <div className="mh-addr mono">No mainnet wallet connected</div>
   return <button className="mh-addr mono" onClick={() => { navigator.clipboard?.writeText(addr).catch(() => {}); setOk(true); setTimeout(() => setOk(false), 1400) }} aria-label="Copy address">
     {short(addr)}<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
     {ok && <span className="copied">COPIED</span>}</button>
@@ -231,7 +232,7 @@ function ConfirmBtn({ label, need, blocked, limit, status, busyLabel, onGo, onLi
 }
 
 type LivePayment = { kind: 'settlement' | 'direct'; quote?: SettlementQuote; wallet: string; txHash: string; state: SettlementStatus['status'] | 'BROADCAST' | 'SUCCESS' | 'ERROR'; destination: string; network: string; amount: number; error?: string }
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement, guest }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; guest: boolean; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null, demo: boolean) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
@@ -244,13 +245,15 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     return () => { dead = true; clearTimeout(t) } }, [to, cfg.scam])
   const [resolvedRecipient, setResolvedRecipient] = useState<string | null>(null)
   const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolvedDemo, setResolvedDemo] = useState(false)
   useEffect(() => {
-    const value = to.trim(); setResolvedRecipient(null); setResolveError(null)
-    if (!isSettlementEnabled() || kindOf(value) === 'sol' || !value.startsWith('@')) return
+    const value = to.trim(); setResolvedRecipient(null); setResolveError(null); setResolvedDemo(false)
+    if (guest && value.startsWith('@') && /^@[a-z0-9][a-z0-9._-]{0,31}$/i.test(value)) { setResolvedRecipient(PREVIEW.sol); setResolvedDemo(true); return }
+    if (guest || !isSettlementEnabled() || kindOf(value) === 'sol' || !value.startsWith('@')) return
     let dead = false
     resolveHandle(value).then(r => { if (!dead) setResolvedRecipient(r.address) }).catch(e => { if (!dead) setResolveError((e as Error).message) })
     return () => { dead = true }
-  }, [to])
+  }, [to, guest])
   const local = cfg.scam && FLAGGED.test(to)
   const flagged = local || risk?.state === 'flagged'
   const why = risk?.state === 'flagged' ? `GoPlus flags this address: ${risk.flags.join(', ')}.` : 'That handle matches a known drainer pattern.'
@@ -285,19 +288,19 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.` : resolveError || 'Resolving handle to a verified Solana address…'} />
+      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? (resolvedDemo ? `Guest demo recipient ${to} · not a registered payee` : `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.`) : resolveError || 'Resolving handle to a verified Solana address…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
-      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{resolveError || (resolvedRecipient ? `${to} → ${short(resolvedRecipient)}` : !cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source)}</span></span><span className={'mono xs' + ((flagged && checked) || resolveError ? ' bad' : '')}>{resolveError ? 'UNRESOLVED' : resolvedRecipient ? 'RESOLVED · LIVE' : !cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
+      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{resolveError || (resolvedRecipient ? `${resolvedDemo ? 'DEMO · ' : ''}${to} → ${short(resolvedRecipient)}` : !cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source)}</span></span><span className={'mono xs' + ((flagged && checked) || resolveError ? ' bad' : '')}>{resolveError ? 'UNRESOLVED' : resolvedRecipient ? (resolvedDemo ? 'DEMO ONLY' : 'RESOLVED · LIVE') : !cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
       <div className="row"><span className="grow">Token contract</span><span className="mono xs">{checked ? 'USDC · CANONICAL' : 'CHECKING…'}</span></div>
       <div className="row"><span className="grow">Drainer / approval risk</span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{st('NO APPROVAL NEEDED')}</span></div>
       <div className="row"><span className="grow">Spending limits</span><span className={'mono xs' + (limit ? ' bad' : '')}>{limit ? 'OVER CAP' : `${usd(Math.max(0, cfg.daily - spentToday()))} LEFT TODAY`}</span></div>
     </section></div>
     {status === 'sent'
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : 'SIMULATED'}</span></Label>
-        <div className="money-r">{usd(n)} <span className="dim">sent to {to}</span></div>
+        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : 'DEMO · SIMULATED'}</span></Label>
+        <div className="money-r">{usd(n)} <span className="dim">{settlement ? 'sent to' : 'simulated for'} {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → {settlement?.network || destinationNetwork} USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">{settlement?.kind === 'direct' ? `Direct Base transfer · ${settlement.state}` : `NEAR Intents · ${settlement?.state || 'simulated'}`}</span></div>
         {settlement && <><div className="row"><span className="grow">Wallet tx</span><span className="num mono">{short(settlement.txHash)}</span></div>{settlement.kind === 'settlement' && settlement.quote && <div className="row"><span className="grow">Deposit address</span><span className="num mono">{short(settlement.quote.quote.depositAddress)}</span></div>}</>}
@@ -305,8 +308,8 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement?.kind === 'direct' ? 'Your connected wallet' : settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? 'Handle unresolved' : isSettlementEnabled() && !liveRecipient ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
-        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
+      : <ConfirmBtn btn={cta} label={guest ? 'review DEMO payment ' + usd(n) : `${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? 'Handle unresolved' : !guest && isSettlementEnabled() && !liveRecipient ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
+        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null, guest) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
@@ -434,7 +437,7 @@ export default function App() {
   const [mode, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
   const [live, setLive] = useState<LiveState>({ loading: false, holdings: [], errors: [], at: null })
-  const setMode = (m: Mode) => { setModeS(m); localStorage.setItem('mode', m) }
+  const setMode = (m: Mode) => { if (account && m === 'example') return; setModeS(m); localStorage.setItem('mode', m) }
   const setAddrs = (a: string[]) => { setAddrsS(a); localStorage.setItem('addrs', JSON.stringify(a)) }
   const lastTotal = useRef<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
@@ -442,6 +445,7 @@ export default function App() {
   const [settlement, setSettlement] = useState<LivePayment | null>(null)
   const [account, setAccount] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('ori-account') || 'null') } catch { return null } })
   const [accountOpen, setAccountOpen] = useState(false)
+  useEffect(() => { setMode(account ? 'live' : 'example') }, [account])
   const [guestId] = useState(() => { const existing = sessionStorage.getItem('ori-guest'); if (existing) return existing; const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); sessionStorage.setItem('ori-guest', id); return id })
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
@@ -528,12 +532,20 @@ export default function App() {
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
   const paymentInFlight = useRef(false)
-  const confirm = (r: DOMRect, amt: number, to: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, run: () => doPay(r, amt, to) }) }
-  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, run: () => doSwap(r, v, detail) }) }
-  const doPay = async (r: DOMRect, amt: number, to: string) => {
+  const confirm = (r: DOMRect, amt: number, to: string, fee: number | null, demo = false) => {
+    if (!demo && !isSettlementEnabled()) { oriSay('Mainnet payments are not configured on this deployment. No funds were moved.'); return }
+    sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: !demo, lines: demo ? [['Mode', 'GUEST · DEMO'], ['Recipient', to], ['Funds', 'Simulated only · no wallet signing or blockchain transaction']] : undefined, run: () => doPay(r, amt, to, demo) })
+  }
+  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { if (account) { oriSay('Mainnet swap execution is not connected yet. Nothing was swapped or spent.'); return }; sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: false, lines: [['Mode', 'GUEST · DEMO'], ['Funds', 'Simulated only · no wallet signing']], run: () => doSwap(r, v, detail, true) }) }
+  const doPay = async (r: DOMRect, amt: number, to: string, demo = false) => {
     if (paymentInFlight.current) return
     paymentInFlight.current = true
-    if (!isSettlementEnabled()) { await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`Delivered ${usd(amt)} to ${to}. Simulated, nothing was signed. Receipt’s on the card.`); paymentInFlight.current = false; return }
+    if (demo) {
+      try { await celebrate(r, setStatus); setSettlement(null); setExtra(e => e - amt); logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'DEMO · no chain', to: to.trim(), note: 'Guest simulation only. Nothing was signed, broadcast, or spent.', demo: true }); oriSay(`DEMO: simulated ${usd(amt)} for ${to}. No real funds moved.`) }
+      finally { paymentInFlight.current = false }
+      return
+    }
+    if (!isSettlementEnabled()) { paymentInFlight.current = false; setStatus('idle'); oriSay('Mainnet payments are not configured on this deployment. No funds were moved.'); return }
     let recipient = to.trim()
     if (kindOf(recipient) !== 'sol') {
       try { recipient = (await resolveHandle(recipient)).address }
@@ -568,7 +580,7 @@ export default function App() {
       }
     } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} No transaction was submitted.`) } } finally { paymentInFlight.current = false }
   }
-  const doSwap = async (r: DOMRect, v: number, detail: string) => { await celebrate(r, setSwapSt); addSpent(v); oriSay(`Swapped ${detail}, simulated at the live quote. Nothing was signed.`) }
+  const doSwap = async (r: DOMRect, v: number, detail: string, demo = false) => { if (!demo) { oriSay('Mainnet swap execution is not connected yet. Nothing was swapped or spent.'); return }; await celebrate(r, setSwapSt); oriSay(`DEMO: simulated ${detail}. Nothing was signed or spent.`) }
   const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
 
 
@@ -599,7 +611,7 @@ export default function App() {
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
         {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
-        {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
+        {screen === 'pay' && <Pay guest={!account} draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
         {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
@@ -609,7 +621,7 @@ export default function App() {
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
         {screen === 'scan' && <ScanScreen />}
         {screen === 'help' && <HelpScreen ask={ask} />}
-        {screen === 'profile' && <Profile sum={total + extra} hide={hidden} />}
+        {screen === 'profile' && <Profile sum={account ? live.holdings.reduce((n, h) => n + h.usd, 0) : total + extra} hide={hidden} demo={!account} addrs={addrs} holdings={live.holdings} />}
         {screen === 'earn' && <Earn />}
         {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
@@ -691,22 +703,24 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
     <section><Label>REQUESTS ON THIS DEVICE · {requests.length}</Label>{requests.length ? requests.map(r => <button className="tx-row" key={r.id} onClick={() => setSelected(r)}><span className="tx-icon">↓</span><span className="grow"><b>{r.amount} {r.asset}</b><span className="sub">{r.network} · from {r.target}</span></span><span className="tx-right"><small>{r.status}</small></span></button>) : <div className="mono xs dim">No requests yet.</div>}</section>
   </div>
 }
-function Profile({ sum, hide }: { sum: number; hide: boolean }) {
+function Profile({ sum, hide, demo, addrs, holdings }: { sum: number; hide: boolean; demo: boolean; addrs: string[]; holdings: Holding[] }) {
   const [qr, setQr] = useState<string | null>(null), [cp, setCp] = useState<string | null>(null)
   const bal = (c: string) => chains.find(x => x.name === c)?.usd || 0
   const scale = sum / (total || 1)
   return <div className="pg profile">
-    <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">One account · four chains <Example /></div></div></section>
-    <section><Label>CHAIN ADDRESSES · DEMO</Label>
-      {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
+    <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">{demo ? 'Guest preview · simulated funds' : 'Registered account · mainnet only'}</div></div></section>
+    <section><Label>{demo ? 'CHAIN ADDRESSES · DEMO' : 'MAINNET ADDRESSES'}</Label>
+      {demo ? DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
         <span className="pchip" style={{ background: chainCol(a.chain) }}>{a.chain[0]}</span>
         <span className="grow"><b>{a.chain === 'Base' ? 'Base · EVM' : a.chain}</b><span className="sub mono">{a.addr.length > 20 ? short(a.addr) : a.addr}</span></span>
         <span className={'num' + (hide ? ' blurred' : '')}><Money v={bal(a.chain) * scale} cls="sm" /></span>
         <button className="picon" aria-label={'Copy ' + a.chain + ' address'} onClick={() => { navigator.clipboard?.writeText(a.addr).catch(() => {}); setCp(a.chain); setTimeout(() => setCp(null), 1400) }}>{cp === a.chain ? '✓' : <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>}</button>
         <button className="picon" aria-label={'Show ' + a.chain + ' QR'} onClick={() => setQr(qr === a.chain ? null : a.chain)}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" /></svg></button>
         <AnimatePresence>{qr === a.chain && <motion.div className="pqr" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring}><QR text={a.addr} /><span className="mono xs dim">Demo address · don’t send real funds</span></motion.div>}</AnimatePresence>
-      </div>)}
-      <div className="ptotal"><span className="grow">All addresses feed one balance</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
-      <div className="mono xs dim">Example data. These are demo addresses: no keys exist and no wallet is created.</div></section>
+      </div>) : addrs.map((addr, i) => <div className="prow" key={addr}><span className="grow"><b>{kindOf(addr) === 'evm' ? 'EVM · Base / Ethereum' : kindOf(addr) === 'sol' ? 'Solana' : 'NEAR'}</b><span className="sub mono">{short(addr)}</span></span><span className="mono xs dim">MAINNET</span></div>)}
+      {!demo && !addrs.length && <div className="mono xs dim">No mainnet wallet connected. Connect a wallet to read its actual balance.</div>}
+      {!demo && holdings.length > 0 && <div className="mono xs dim">{holdings.length} verified mainnet asset balances.</div>}
+      <div className="ptotal"><span className="grow">{demo ? 'All example addresses · simulated' : 'Verified mainnet balance'}</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
+      <div className="mono xs dim">{demo ? 'Example data. These are demo addresses: no keys exist and no wallet is created.' : 'Only verified mainnet balances are shown. Demo funds are excluded.'}</div></section>
   </div>
 }
