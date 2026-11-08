@@ -26,7 +26,7 @@ function asExample(h: string): HandleResolution | null {
  * - 5xx / network → service failure (EXAMPLE may still demo; never invent a live payee)
  * Server errors are never treated as a recipient address.
  */
-export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string, apiPath = '/api/resolve'): Promise<HandleResolution> {
+export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string, apiPath = '/api/resolve', allowExamples = true): Promise<HandleResolution> {
   const h = handle.trim().toLowerCase()
   if (!h.startsWith('@')) throw new HandleResolveError('Use a handle such as @tolu.', 'invalid')
   const q = new URLSearchParams({ handle: h })
@@ -34,13 +34,13 @@ export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string,
   try {
     r = await fetchImpl(apiPath + '?' + q.toString(), { headers: { accept: 'application/json' } })
   } catch {
-    const ex = asExample(h)
+    const ex = allowExamples ? asExample(h) : null
     if (ex) return ex
     throw new HandleResolveError('Handle directory is temporarily unavailable. Try again shortly.', 'service')
   }
   const body = await r.json().catch(() => ({} as Record<string, unknown>))
   if (r.status === 404) {
-    const ex = asExample(h)
+    const ex = allowExamples ? asExample(h) : null
     if (ex) return ex
     throw new HandleResolveError(
       (typeof body.error === 'string' && body.error) || 'This handle is not linked to a verified Solana address.',
@@ -48,12 +48,12 @@ export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string,
     )
   }
   if (r.status >= 500 || r.status === 429) {
-    const ex = asExample(h)
+    const ex = allowExamples ? asExample(h) : null
     if (ex) return ex
     throw new HandleResolveError('Handle directory is temporarily unavailable. Try again shortly.', 'service')
   }
   if (!r.ok) {
-    const ex = asExample(h)
+    const ex = allowExamples ? asExample(h) : null
     if (ex) return ex
     // Never surface raw "ORI service NNN" as a recipient — classify as service/unregistered.
     const msg = typeof body.error === 'string' ? body.error : typeof body.message === 'string' ? body.message : null
@@ -61,7 +61,7 @@ export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string,
   }
   const address = typeof body.address === 'string' ? body.address : ''
   if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
-    const ex = asExample(h)
+    const ex = allowExamples ? asExample(h) : null
     if (ex) return ex
     throw new HandleResolveError('Handle directory returned an invalid response.', 'service')
   }

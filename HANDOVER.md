@@ -80,3 +80,14 @@ IMPLEMENTED, behavior-tested with mocks only (`app/tests/pay.test.ts`).
 - Per-swap fee figure — needs Bamio's approval before shipping.
 - Bamio's NEAR account — still needed for a controlled real payment test.
 - Making the repo public, signing any mainnet tx, posting or submitting — only with Bamio's explicit OK.
+
+
+## Native wallet vault implementation (branch `native-wallet-vault`, 6 Nov 2026)
+A first self-custody vault slice is now implemented in `app/src/nativeVault.ts` and exposed in `app/src/Wallets.tsx`:
+- Generates a real secp256k1 EVM key/address and a Solana keypair in the browser.
+- Encrypts both secret keys with PBKDF2-SHA256 (310,000 iterations) + AES-256-GCM before storing the encrypted vault record locally.
+- Supports password unlock/lock, encrypted backup export (copy) and encrypted backup import. Decrypted keys are cleared when the Wallets screen exits or the browser tab is backgrounded.
+- Verifies the decrypted keys reproduce the public addresses before unlocking or importing.
+- Adds direct Noble crypto dependencies and vault lifecycle tests.
+
+**Not yet complete / do not use with funds:** native EVM/Solana signing is not connected to Send, passkey/email recovery is not implemented, there is no cross-device account service, and no real wallet transaction has been tested. The Wallets screen explicitly warns users not to deposit to these addresses yet. This branch must pass CI and receive a code review before merge/deploy. Browser encryption is not a hardware wallet; a compromised page/device can expose keys while unlocked.

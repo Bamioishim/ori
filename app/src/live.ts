@@ -109,9 +109,9 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-export async function resolveHandle(handle: string): Promise<HR> {
+export async function resolveHandle(handle: string, allowExamples = true): Promise<HR> {
   const { resolveHandleWith } = await import('./handles.ts')
-  return resolveHandleWith(fetch, handle)
+  return resolveHandleWith(fetch, handle, '/api/resolve', allowExamples)
 }
 
 export async function createSettlementQuote(o: { from: string; to: string; amount: bigint; recipient: string; refundTo: string }): Promise<SettlementQuote> {

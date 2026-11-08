@@ -1,361 +1,510 @@
-# ORI — One Balance
+# ORI — One private balance. Every chain.
 
 ![ORI](brand/og.png)
 
-> ⚠️ **Not payment-ready.** ORI is a hackathon prototype. No real payment, swap, or wallet signature has been verified end to end on mainnet. Spending limits are browser-side only (not on-chain). Do not use it with funds you are not prepared to lose. Production can ask a **connected** wallet to sign real transfers; ORI does **not** create custodial wallets yet.
+ORI is a non-custodial, multi-chain wallet project designed to make assets across Ethereum, Base, Solana and NEAR feel like one usable balance. It combines portfolio visibility, direct transfers, cross-chain payment routing and a conversational interface, with NEAR infrastructure as the foundation for cross-chain settlement and the longer-term account model.
 
-**Live preview:** https://ori-preview.vercel.app/ (production deployment of commit `6bf4ff8`, built with `VITE_ORI_SETTLEMENT_MODE=live`)
+> [!WARNING]
+> **ORI is still under active development and is not audited or payment-ready.** The app can request real signatures from connected wallets, and live settlement routes can create real deposit instructions when correctly configured. Never connect a funded wallet or sign a transaction unless you have independently checked the exact network, asset, amount, recipient, fee and destination. No real end-to-end mainnet payment has been verified by the team. Spending policies currently live in the browser and are not enforced by a smart contract.
+>
+> The native wallet vault described below is an early implementation. Its EVM and Solana keys can be generated and encrypted locally, but native signing is not yet wired into Send. **Do not deposit funds into newly generated ORI vault addresses yet.**
 
-> ⚠️ **The production site is not a simulation.** It was built with the **live** settlement flag.
-> - **Direct Send** (same-chain ETH/USDC/SOL/SPL) asks your **real wallet** to sign a **real transfer**.
-> - **Live Pay and Swap** request real quotes and deposits. The Node/Web runtime adapter is fixed; endpoints respond. Real mainnet signing and settlement are still **not** end-to-end verified, so do not treat cross-chain Pay/Swap as ready.
-> - Only connect a wallet and sign if you mean to move real funds. No funds have been moved by the team.
-
----
-
-## Vision
-
-ORI gives you **one balance for all your money** across Ethereum, Base, Solana and NEAR. You can send, receive, pay or swap from that one view. When money has to cross chains, ORI uses **NEAR Intents** (the 1Click API). When it stays on one chain, ORI makes an ordinary transfer from your own wallet with no detour. ORI never holds your keys, adds no app fee, and shows you exactly what your wallet will sign before it signs.
-
-It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product requirements live in [CORE_REQUIREMENTS.md](CORE_REQUIREMENTS.md), status and blockers in [HANDOVER.md](HANDOVER.md), and the architecture plan in [PLAN.md](PLAN.md).
+**Preview:** https://ori-preview.vercel.app/  
+**Active wallet work:** [PR #2 — encrypted native EVM + Solana wallet vault](https://github.com/Bamioishim/ori/pull/2)  
+**Current development branch:** `native-wallet-vault`
 
 ---
 
 ## Contents
-- [Status at a glance](#status-at-a-glance)
-- [Features](#features)
-- [Support matrix](#support-matrix)
-- [How signing and review work](#how-signing-and-review-work)
+
+- [Why ORI exists](#why-ori-exists)
+- [Product overview](#product-overview)
+- [How ORI uses NEAR](#how-ori-uses-near)
 - [Architecture](#architecture)
-- [Repository layout](#repository-layout)
-- [Getting started](#getting-started)
-- [Environment variables](#environment-variables)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [Known limitations](#known-limitations)
-- [Troubleshooting](#troubleshooting)
-- [Roadmap](#roadmap)
+- [Wallet model and security](#wallet-model-and-security)
+- [Feature and network support](#feature-and-network-support)
+- [What is implemented today](#what-is-implemented-today)
+- [Run locally](#run-locally)
+- [Configuration](#configuration)
+- [Tests and quality checks](#tests-and-quality-checks)
+- [Repository map](#repository-map)
+- [Limitations and security notes](#limitations-and-security-notes)
+- [Roadmap — editable working plan](#roadmap--editable-working-plan)
+- [Official NEAR references](#official-near-references)
 
 ---
 
-## Status at a glance
+## Why ORI exists
 
-| Area | State |
-|---|---|
-| Frontend UI (Home, Send, Receive, Swap, Pay, History, Policy, Account) | Deployed and browser-checked on desktop by the team; **phone / iPhone speech not verified** |
-| Public 1Click token list and dry-run quotes from the browser | Working on the deployment (215 tokens on Nov 5) |
-| Native same-chain Send / Receive (connected wallets) | Implemented for supported assets; **active on production** for already-connected/imported wallets; mock-tested only — not verified with a real mainnet signature by the team |
-| ORI-created native wallets (passkey + email recovery) | **Not built.** Connect/import-first flow only; custody, signer, recovery and gas for ORI-created wallets are unimplemented |
-| Live cross-chain Pay and Swap (`/api/quote` + `/api/status`) | Runtime adapter fixed at `6bf4ff8`. Public checks: `/api/resolve` for `@tolu` → 404 (not a registered recipient); `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405. Code + mocks exist; **real mainnet settlement not end-to-end verified** |
-| Demo Pay `@tolu` | Explicit **EXAMPLE · SIMULATED** receipt/history path only — no funds, not a registered live recipient |
-| Gmail code registration/login | **Not functional** (fail-closed 503): durable store, signed session and mail provisioning still missing |
-| NEAR Auth (production) | **Application submitted** ~00:02 WAT on 6 Nov 2026 (origin + callback `https://ori-preview.vercel.app`, initial MAU under 1000). Follow-up sent to the Peersyst general contact ~01:53 WAT. **No approval/reply** as of the last Gmail check at **09:20 WAT on 6 Nov 2026** (inbox + spam + trash). Status: **pending**, no timeline. Approval alone does **not** implement wallet creation or signing |
-| Spending limits | Enforced only inside the ORI browser app (no on-chain or backend enforcement) |
-| NEAR as a send origin | Quote-only today — no NEAR signing from ORI |
+Crypto is fragmented. A person may hold USDC on Base, ETH on Ethereum, SOL on Solana and NEAR on NEAR. Paying someone can mean checking several wallets, finding the correct network, acquiring the right gas token, swapping an asset, bridging, and manually tracking whether the recipient actually received the money.
 
-**Two modes, don't confuse them.**
-- **Production (https://ori-preview.vercel.app/) is built with `VITE_ORI_SETTLEMENT_MODE=live`.** Pay and Swap reviews are labelled **"LIVE · YOUR WALLET SIGNS"** and call `/api/quote`. The Node/Web runtime adapter is fixed; real mainnet signing/settlement is still not end-to-end verified. Direct Send never depends on this flag: it always uses a **connected** real wallet (ORI does not create one).
-- **Local builds default to example mode** (`.env.example` sets `preview`). Pay and Swap confirmations are then simulations labelled **"EXAMPLE · SIMULATED"**, and nothing is signed. Direct Send still uses a real wallet if you connect one.
+ORI's goal is to make the user's intent the starting point:
 
----
+- **See** supported assets across multiple chains in one portfolio.
+- **Choose** what to do in ordinary language or through a simple Send, Pay or Swap flow.
+- **Route** a cross-chain payment through NEAR Intents when a conversion or chain change is needed.
+- **Review** the exact asset, amount, route, destination and fees before signing.
+- **Track** the transaction through a clear pending, completed, failed or refunded state.
 
-## Features
+The product principle is simple: users should choose what they want to achieve; ORI should explain the route and let the user approve the action. ORI must never silently spend funds because a chat message sounded like permission.
 
-### Home
-- One total balance and per-asset rows. Each asset has **Send** and **Receive** actions (mobile rows and a desktop table).
-- Numbers are **example data** (`app/src/mock.ts`) unless you add a real or watched address. Prices come live from the public 1Click token list.
-- The former "Pay" tile is now **Receive**. A **profile control** (profile, account, log out) replaces the EVM address shown above the portfolio.
+## Product overview
 
-### Receive
-- Always lists **Base, Ethereum, Solana and NEAR**. A row shows a connected or watch-only address you can copy, or **Not connected** / **No address added** (those cannot be copied).
-- ORI never invents addresses or keys. **Watch-only** means you pasted a public address; ORI does not verify that you own it, and it cannot sign or move anything from it.
-- The same EVM address can appear on both Base and Ethereum; send the matching asset on the network you pick.
-- You can connect a wallet on the existing Wallets screen or add an existing address, including a NEAR account. Receiving to NEAR works; sending from ORI on NEAR is not available yet.
-- Copy one row, or copy only the populated addresses. See your **preferred receiving currency**.
+### Portfolio
 
-### Send (same-chain, direct)
-- Paste or type a recipient. Validation knows each network's address format.
-- Choose asset and network, see a fee estimate read from the chain's RPC, review, then authorize in your wallet.
-- Status is tracked by the receipt or signature, and the result goes into History.
-- Same-chain sends **never** go through NEAR Intents. SOL → a Solana wallet is a normal Solana transaction; EVM → EVM is a normal transfer.
-- Right before signing, ORI re-checks your balance, the fee and your limits.
+ORI reads public balances for supported addresses and combines the results into a single portfolio view. It can read:
 
-### Swap (cross-chain via NEAR Intents)
-- The pickers list **every token in the live 1Click catalog**. A big catalog is not the same as support, though: a token can only be the **source** of an executable swap when ORI has a signer for it (see the matrix). Anything else is labelled **"quote only"**.
-- **Quote only** means ORI shows you the provider's live price, fee and settlement time, but it cannot sign a deposit from that asset. The button stays disabled, and nothing is ever simulated as a success.
-- Same asset on the same chain shows *"use Send (direct transfer)"*.
-- Settlement time comes from the quote's `timeEstimate` (seconds after the deposit confirms). If it is missing, the app says *"Time unavailable"*. Quotes refresh every 30 s, and the newest request always wins.
+- ETH and USDC on Ethereum.
+- ETH and USDC on Base.
+- SOL and supported SPL stablecoins on Solana.
+- NEAR and NEAR USDC for a supplied NEAR account.
 
-### Pay
-- Pay a Solana address or a handle (handles come from the server-only `ORI_HANDLE_DIRECTORY` allowlist), or pay a Base address directly.
-- A Solana recipient goes USDC on Base → USDC on Solana via NEAR Intents. A Base address gets a direct USDC transfer on Base.
+Prices are sourced from the public NEAR Intents 1Click token catalogue. A token appearing in that catalogue does **not** mean ORI can sign or send it. The portfolio is read-only: reading an address never proves ownership and never grants permission to spend.
+
+The interface also supports hidden-balance presentation and chain-level breakdowns.
+
+### Wallets
+
+ORI has two wallet paths:
+
+1. **Native ORI vault (active development branch):** creates an EVM account and a Solana account directly in the browser. The secret material is encrypted locally with a password before it is persisted. The user can unlock, lock, export an encrypted backup and restore that backup.
+2. **External wallets:** optional connections to compatible EVM wallets and Phantom. ORI stores public address/provider metadata; signing is performed by the wallet provider and must be approved by the user.
+
+The native vault currently covers EVM and Solana only. It does not create a NEAR account, and its private keys are not yet connected to the transaction Send pipeline.
+
+### Send
+
+Send is intended for ordinary same-chain transfers. These do not need NEAR Intents:
+
+- EVM transfers use the connected EIP-1193 wallet.
+- Solana transfers use a connected Solana wallet.
+- ORI validates the recipient format, estimates network fees, displays a review step, checks the selected account/network and then asks the wallet to sign.
+
+A same-chain transfer should remain a normal transfer. ORI should not route it through a cross-chain solver unnecessarily.
+
+### Pay and Swap
+
+Pay and Swap use NEAR Intents when the user needs an asset conversion or a cross-chain delivery. ORI requests a quote, binds the quote to the review screen, asks the source wallet to sign the deposit transaction, then monitors the provider status.
+
+A quote is not a payment. A deposit address is not proof of settlement. ORI should only show a cross-chain action as completed after the provider reports a terminal successful result.
+
+### Requests and invoices
+
+The Request flow currently creates a local request record with an amount, token, network, payee/recipient information, a copyable ORI link and a QR code. It is a useful request prototype, not a complete payment-request network: server persistence, notifications, recipient identity and automatic settlement still need work.
+
+The longer-term invoice direction is to let a payee request a chosen asset while the payer pays from another supported asset, with NEAR Intents handling the conversion and ORI producing a receipt suitable for records.
 
 ### Hey ORI
-- Tap or click **Hey ORI** to open chat and, where the browser supports it, start speech recognition for that gesture only. There is **no always-on wake word** (nothing like Hey Siri). A second tap, Stop, Close, or leaving the screen ends listening. Recognition does not restart itself.
-- What you say is transcribed into the chat box for you to send or clear. Understanding goes through the existing local chat assistant (not an AI model), which still asks before any payment or swap. ORI will not sign or spend from a voice command alone.
-- Spoken replies stay **opt-in** (Settings → Ori speaks replies).
-- Support varies by browser. iOS Safari in particular is limited, and speech input was not verified on a physical iPhone; you can always type.
-- A static check enforces user-initiated listening only: `npm run check:activation`.
 
-### Security Center / Policy
-- You can set limits for a single payment and per day, plus an approval threshold where you have to slide to confirm.
-- Limits **fail closed**: a missing, corrupt or tampered value blocks the action.
-- **What enforces them:** the ORI browser app, and nothing else. They are checked on the cards and again right before signing. They live in `localStorage`. Anyone who controls the browser can clear them, and a wallet used outside ORI is not governed at all. ORI makes **no** on-chain, NEAR contract, Chain Signatures or TEE enforcement claims.
+The current assistant experience is a local rule-based interface, not a deployed LLM. It helps navigate and structure supported actions. It must ask for explicit user approval before any payment or swap.
 
-### Account
-- **Guest mode** always works. Profiles are **device-local**.
-- Log out keeps the profile on the device (`ori-known-profiles`) and does not touch wallets.
-- Gmail code registration and login are built but **not functional yet** (see Known limitations).
-
-### Hidden for the submission
-`HIDDEN_SCREENS = ['scan', 'earn', 'privacy']` in `app/src/config.ts`.
+Voice activation is intentionally user-initiated. There is no always-on microphone or wake-word listener.
 
 ---
 
-### UI micro-interactions (original ORI code, Nov 5)
-These are UI only. None of them changes signing, limits, the review sheet or the wallet's own approval.
+## How ORI uses NEAR
 
-- **Slide to confirm.** On the cards, a tap only opens the review sheet. Above the approval threshold, the review sheet replaces hold-to-confirm with a slide: the handle must travel all the way while held, and letting go early or a pointer cancel resets it. It is disabled while the action is blocked and fires once only. Keyboard and screen-reader users press Enter (or Space), release it, then press again. Holding the key or auto-repeat never confirms, and Esc or a 5 s timeout disarms it. Below the threshold, the sheet is a single tap. The wallet still asks separately: this is a UI gesture, not a security control.
-- **Copy buttons** show a check only when the browser confirms the clipboard write. Otherwise they say "Copy failed".
-- **Hidden balance** blurs amounts on tap (restored to the pre–digit-mask interaction). Tap again to show.
-- **Live quote numbers:** changed digits ease in (price flow). The values are never altered and get no gain/loss colouring.
-- **Searchable token picker** on Swap: type to filter the catalog; held/spendable assets rise to the top; amount is capped to available balance (native gas reserved). Quote-only origins stay labelled and are not signable.
-- **@tolu / @ade handles:** resolve for dry quotes as EXAMPLE destinations (same preview Solana address used elsewhere). Live pay still needs a verified `ORI_HANDLE_DIRECTORY` entry — ORI will not invent a real payee.
-- **Settlement times (~22s, ~37s, etc.):** the UI formats the provider’s `quote.timeEstimate` when a **fresh quote for the current route** is present. That field is an estimate of seconds after deposit confirms — not quote latency, not a guarantee, and **not proof the on-screen number is fresh**. ORI does not hardcode 22 or 37. Dry public samples (Africa/Lagos 2026-11-05 23:57) returned distinct raw values per route (SOL→Base USDC 22, Base USDC→Solana USDC 32, Base USDC→SOL 34, ETH→SOL 42, SOL→ETH 27). If the public quote call fails, ORI cannot verify an ETA. The badge is **PROVIDER QUOTE** (or STALE / REFRESHING), never a LIVE settlement claim; changing route clears the previous ETA immediately.
-- **Tabs and segments:** the Tokens/Chains tabs and the Settings segments share one spring tab control, with arrow-key support.
-- **Dropdowns:** styled history and token pickers. The send-asset picker groups tokens by chain and shows a "QUOTE ONLY" chip for sources ORI can't sign.
-- **Gmail code:** a single 6-digit field that handles paste and autofill. The separate 4-digit recovery PIN is labelled as device-only. Gmail login itself is still not functional (503).
-- **Send form errors** are announced (`role="alert"`), mark the field invalid and shake once.
-- **Hey ORI:** tap-to-talk shows decorative listening bars. They are not a microphone level, and there is no wake word.
-- **Chat composer:** labelled as a local rule-based assistant, not an AI model.
+NEAR is not just a logo in the interface. It is intended to provide the cross-chain settlement layer and, over time, the account and private-compute infrastructure behind ORI. The important distinction is between what is already connected and what remains a roadmap item.
 
-Reduced motion is respected throughout (`MotionConfig reducedMotion="user"` plus CSS media queries). The logic is unit-tested in `app/tests/ui.test.ts`; the visual and touch behaviour has not been checked in a browser or on a phone yet.
+### 1. NEAR Intents and the 1Click API — integrated, with end-to-end settlement still unverified
 
-## Support matrix
+**Purpose:** let a user pay or swap across chains without manually choosing and operating a bridge.
 
-**Direct Send (same chain, signed in your wallet)**
+ORI integrates with the NEAR Intents 1Click API at https://1click.chaindefuser.com/v0/.
 
-| Asset | Network | Signer | Notes |
-|---|---|---|---|
-| ETH | Ethereum, Base | EIP-1193 wallet (e.g. MetaMask) | native value transfer |
-| USDC | Ethereum (`0xa0b8…eb48`), Base (`0x8335…2913`) | EIP-1193 | ERC-20 `transfer`, 6 decimals |
-| SOL | Solana | Phantom `signAndSendTransaction` | System Program transfer; recipient must stay rent-exempt |
-| USDC (`EPjF…Dt1v`), USDT (`Es9v…NYB`) | Solana | Phantom | SPL `transferChecked` with pinned mint and 6 decimals |
-| NEAR, other SPL tokens, other EVM chains | — | none | shown **disabled**, never simulated |
+Current integration:
 
-**Swap / Pay sources ORI can sign a deposit from:** ETH and ERC-20 tokens on Ethereum and Base, native SOL, and USDC/USDT on Solana (only the pinned mints, and only when the catalog's symbol and decimals match).
+- GET /v0/tokens supplies the public asset catalogue and token prices used by the app.
+- Dry quotes (dry: true) provide a route preview, estimated output, provider fee/spread information and an estimated settlement time. A dry quote does not create a deposit address and cannot move funds.
+- ORI's server API has a guarded non-dry quote route (POST /api/quote) and a status route (GET /api/status).
+- The 1Click API credential is read only by the server from ORI_1CLICK_JWT. It is not exposed as a VITE_ browser variable.
+- The server validates requested assets and routes against the trusted token catalogue before forwarding a quote request.
+- The client binds the returned quote to the exact reviewed route, amount, recipient, refund address, minimum output and expiry before asking a wallet to sign.
+- After a deposit is broadcast, ORI can poll the 1Click status endpoint and map states such as PENDING_DEPOSIT, PROCESSING, SUCCESS, REFUNDED and FAILED into the transaction history.
 
-**Destinations:** any catalog asset on a chain whose address format ORI can validate. For live swaps, the recipient must be **your own** connected wallet on that chain. Everything else is quote-only.
+**What this does not mean:** the presence of quote and execution code does not prove a successful real mainnet settlement. The team has not completed a controlled end-to-end mainnet payment test. Routes without a supported source-wallet signer remain quote-only or disabled. Do not describe every token in the catalogue as spendable.
 
-**Fees**
-- ORI adds **no app fee** (`appFees` is never set) and invents no gas targets.
-- The network fee comes from the chain's RPC (gas × gas price, or Solana `getFeeForMessage`). The provider's fee or spread is shown separately.
-- A Solana token send to a recipient with no token account for that coin also pays that account's **rent** (`getMinimumBalanceForRentExemption(165)`, about 0.002 SOL). It is shown in review, and the account is created idempotently only when it is missing.
-- ORI **never** requests token approvals. Every deposit is a single direct transfer.
+**Why this matters:** NEAR Intents abstracts solver coordination and cross-chain execution. ORI can focus on the user's requested outcome and the safety of the reviewed deposit rather than implementing a separate bridge for every chain pair.
 
----
+### 2. NEAR RPC and NEAR assets — read-only portfolio support
 
-## How signing and review work
+ORI can read a supplied NEAR account through a NEAR-compatible RPC endpoint and query:
 
-Only in live mode (`VITE_ORI_SETTLEMENT_MODE=live`, plus a working server API):
+- Native NEAR account balance.
+- NEAR USDC token balance through the token contract's ft_balance_of view method.
 
-1. **Review builds one plan.** The server fetches a fresh non-dry quote. Your own source wallet is the refund address; for swaps, your own destination wallet is the recipient. The review sheet is labelled **"LIVE · YOUR WALLET SIGNS"** and shows the route, from-account, deposit address, recipient, refund address, minimum received, provider fees, quote expiry and "Approvals: None".
-2. **The quote is bound to that review** (`checkSwapQuote` in `app/src/swapExec.ts`). It must have:
-   - the exact origin and destination asset IDs, amount, recipient and refund address;
-   - a minimum output at or above the reviewed floor;
-   - a deadline more than 30 s away (a missing deadline is rejected);
-   - no memo;
-   - a deposit address in the source chain's format.
+The current client uses a public FastNear RPC endpoint for these reads. The read path does not sign transactions, create an account or control the supplied NEAR account.
 
-   Any mismatch stops the flow before your wallet is asked anything.
-3. **Signing-time checks.** Limits are checked again. EVM wallets are switched to the right chain, the chain id is re-read, and the account must match. Then exactly one direct deposit is signed.
-4. **Confirmation.**
-   - EVM sends are confirmed by receipt: only `0x1` counts as confirmed, `0x0` is failed, and no receipt yet means pending.
-   - Solana sends are confirmed by signature status.
-   - Cross-chain swaps and payments are then polled through `/api/status`.
-5. **History** marks a cross-chain transfer *completed* only when the provider reports `SUCCESS`. `REFUNDED`, `FAILED` and pending keep their own states. If you refuse in your wallet, the entry is marked *cancelled* and nothing was sent.
-6. **Daily spend holds.** A live payment reserves its amount once the deposit is broadcast. It is released exactly once if the transfer is refunded or fails, without touching other spends.
+NEAR is also represented in the 1Click asset catalogue. This allows ORI to display NEAR-related routes and quote supported NEAR-origin or NEAR-destination paths where the provider offers them. A route remains non-executable unless ORI has a compatible signer and the required account/network checks.
 
-In example mode (the local default), Pay and Swap run a labelled simulation and nothing is signed for them. Direct Send is never simulated in either mode.
+**Current boundary:** NEAR can be added/read as an address, but native NEAR sending from ORI is not implemented.
+
+### 3. NEAR Auth — production application submitted; integration pending
+
+**Purpose:** provide a familiar sign-in experience (for example Google, Apple, email or passkey) that can resolve to a NEAR account without asking users to manage a traditional seed phrase.
+
+ORI's production access application has been submitted to the NEAR Auth team. Approval/credentials are not the same thing as an integration.
+
+As of this README's project status:
+
+- The production application is pending.
+- The NEAR Auth SDK/provider is not wired into the app.
+- There is no completed NEAR Auth login callback/session flow in the current implementation.
+- Gmail one-time-code endpoints exist, but production login remains fail-closed until a durable server store, session design and mail configuration are in place.
+- NEAR Auth has not been connected to the local EVM/Solana vault or to transaction signing.
+
+The intended use is to make account onboarding and recovery less intimidating. The actual wallet/key model, account permissions, recovery flow and transaction authorization still need a separate security design. NEAR Auth approval alone does not implement those pieces.
+
+### 4. NEAR Chain Signatures — planned, not integrated
+
+**Purpose:** allow a NEAR account or contract to request signatures for supported external-chain transactions through NEAR's MPC signer network.
+
+The planned ORI model is to use a NEAR account as a coordinating identity and derive chain-specific accounts using explicit derivation paths. That could reduce the need for users to connect a separate wallet for every chain and could support an account abstraction experience across EVM and other supported networks.
+
+Planned ORI work includes:
+
+- Verify the current Chain Signatures network, signer contract and supported curves for each target chain.
+- Design and test derivation paths and address ownership.
+- Build a server/contract signing request flow with strict transaction intent validation.
+- Verify returned signatures and broadcast only the exact reviewed transaction.
+- Add spending policy, replay protection, expiry and recovery behavior.
+- Test on testnet before any controlled mainnet use.
+
+**Not implemented:** ORI does not currently call the Chain Signatures signer contract, derive user addresses with Chain Signatures or use Chain Signatures to sign EVM/Solana transactions. The EVM and Solana keys in the native vault are generated locally and are separate from NEAR MPC keys.
+
+### 5. NEAR AI Cloud private inference — planned, not integrated
+
+**Purpose:** give ORI a path to private AI reasoning for sensitive wallet context.
+
+The intended use is to send only the minimum required context to a model running in a Trusted Execution Environment (TEE), for example:
+
+- Parse a user's payment intent.
+- Explain why a route was selected.
+- Summarize a risk warning.
+- Explain a transaction in plain language.
+
+NEAR AI Cloud provides private inference infrastructure and attestation mechanisms. ORI would need to integrate the API, protect credentials, define what data can be sent, and verify the attestation according to the service's current documentation.
+
+**Current reality:** the ORI assistant is local rule-based logic. It does not call NEAR AI Cloud, does not run an LLM, and does not currently verify TEE attestations. ORI must not claim private AI inference until that integration and verification exist.
+
+### 6. NEAR access keys, meta-transactions and policy enforcement — planned
+
+ORI's current spend limits are browser-side controls. They are useful UX guardrails, but they are not a security boundary: local browser storage can be changed and those limits do not govern a wallet used elsewhere.
+
+The longer-term plan is to evaluate NEAR access keys, function-call permissions and meta-transaction patterns for limited, revocable automation. The design should make clear:
+
+- Which contract methods an agent may call.
+- Which assets and amounts are allowed.
+- Daily and per-transaction limits.
+- Expiry and revocation.
+- Which actions still require an explicit user signature.
+- What happens if the policy service or relayer is unavailable.
+
+This is future work. No current ORI smart contract enforces the app's spending limits.
 
 ---
 
 ## Architecture
 
+```text
+                         ┌──────────────────────────┐
+                         │       ORI web app        │
+                         │     React + Vite + TS    │
+                         └────────────┬─────────────┘
+                                      │
+          ┌───────────────────────────┼──────────────────────────┐
+          │                           │                          │
+          ▼                           ▼                          ▼
+  Portfolio / RPC reads       Wallet authorization       ORI server API
+  Ethereum · Base             Native local vault         /api/quote
+  Solana · NEAR               EVM / Solana providers     /api/status
+          │                           │                          │
+          │                           │                          ▼
+          │                           │                  NEAR Intents 1Click
+          │                           │                  token catalogue
+          │                           │                  quote / status
+          │                           │                          │
+          └───────────────────────────┴──────────────────────────┘
+                                      │
+                                      ▼
+                             Transaction history
 ```
-Browser (React 19 + Vite + TS)
- ├─ public reads: 1Click /v0/tokens + dry quotes, public RPCs (Ethereum, Base, Solana, NEAR), GoPlus address checks
- ├─ wallets: EIP-1193 (window.ethereum), Phantom (window.solana) — the user signs; ORI never holds keys
- └─ /api/* (Vercel functions, server-only secrets)
-     ├─ quote.ts    → 1Click /quote (dry:false), route validated against the trusted catalog (_catalog.ts)
-     ├─ status.ts   → 1Click /status
-     ├─ resolve.ts  → @handle → verified Solana address (ORI_HANDLE_DIRECTORY)
-     └─ auth/       → send-code / verify-code (Gmail OAuth2 mail, AuthStore)
-```
-Boundaries:
-- The 1Click JWT stays on the server.
-- The server validates every quote against the trusted token catalog (cached for 5 min) and per-chain address formats.
-- Without `ORI_1CLICK_JWT` the API returns 503 on purpose: there is no unauthenticated fallback, because that costs an extra 0.25%.
 
-Key modules in `app/src/`:
+The current architecture separates three responsibilities:
 
-| File | Role |
+1. **Read layer:** public RPC calls and the 1Click token catalogue provide balances, prices and route information.
+2. **Authorization layer:** the connected wallet or (in the future) the native ORI signer authorizes the exact transaction. The native vault is not yet connected to Send.
+3. **Settlement layer:** NEAR Intents 1Click coordinates cross-chain execution after the user deposits the reviewed source asset.
+
+The 1Click JWT is server-only. Wallet private keys should never be placed in server environment variables or sent to ORI's API.
+
+## Wallet model and security
+
+### Native ORI vault (branch native-wallet-vault)
+
+The current native vault implementation:
+
+- Generates a secp256k1 EVM private key and derives its EVM address in the browser.
+- Generates a Solana keypair in the browser.
+- Encrypts the secret payload with PBKDF2-SHA256 (310,000 iterations) and AES-256-GCM.
+- Stores the encrypted vault record in browser localStorage.
+- Requires a vault password of at least 12 characters.
+- Supports password unlock and lock.
+- Supports export and import of an encrypted JSON backup.
+- Checks that decrypted keys reproduce the stored public addresses.
+- Clears the in-memory key byte arrays when locking, when the Wallets screen exits, and when the tab is backgrounded.
+
+This is an early browser vault, not a hardware wallet. A compromised browser, malicious extension, injected script or compromised device can expose keys while the vault is unlocked. The encrypted backup still requires the password. Losing both the password and backup means losing access.
+
+**Critical missing piece:** native EVM and Solana signing are not connected to the Send flow yet. The addresses are real key-derived addresses, but transaction signing, recovery and mainnet safety testing are incomplete. Do not fund them.
+
+### External wallets
+
+External wallet connections are optional. The EVM path uses an EIP-1193 provider; the Solana path uses a compatible Solana provider such as Phantom. ORI stores public address and provider metadata locally. The wallet provider controls the private key and asks the user to approve signatures.
+
+### Data and privacy
+
+- Public blockchain addresses and their transaction histories are public by design.
+- Portfolio reads are read-only and do not prove ownership.
+- Local profiles and current wallet metadata are device-local.
+- The native vault stores encrypted key material locally; it does not create a cloud recovery copy.
+- NEAR AI Cloud private inference and cryptographic attestation verification are not yet integrated.
+- Separate addresses do not automatically make activity private or unlinkable. Privacy claims must be based on a tested design, not on address formatting.
+
+---
+
+## Feature and network support
+
+| Capability | Ethereum | Base | Solana | NEAR |
+|---|---:|---:|---:|---:|
+| Read native balance | Yes | Yes | Yes | Yes |
+| Read supported USDC balance | Yes | Yes | Yes | Yes |
+| Read SOL / supported SPL assets | — | — | Yes | — |
+| Direct Send with connected wallet | ETH, USDC | ETH, USDC | SOL, USDC, USDT | Not yet |
+| Native ORI vault address | EVM address | Same EVM address | Solana address | Not yet |
+| Native ORI vault signing | Not wired | Not wired | Not wired | Not available |
+| NEAR Intents quote/catalogue | Route dependent | Route dependent | Route dependent | Route dependent |
+| Verified real cross-chain settlement | Not yet | Not yet | Not yet | Not yet |
+
+Support is deliberately narrower than the 1Click token catalogue. The catalogue can contain hundreds of assets and networks; ORI can only execute from a source for which it has a reviewed signer and transfer implementation.
+
+## What is implemented today
+
+The status below describes the active native-wallet-vault development branch. A draft pull request is open against native-wallets-mainnet; the native vault work has not yet been merged.
+
+| Area | Current status |
 |---|---|
-| `transfers.ts` | assets, address validation, exact BigInt units, fee estimates, `sendEvm` / `sendSol` / `sendSpl` |
-| `swapExec.ts` | quote binding (`checkSwapQuote`), status mapping, `executeSwap` |
-| `payExec.ts` | Pay plan (`preparePay`) and execution (`executePay`) |
-| `live.ts` | token list, quotes, wallet connect, portfolio reads |
-| `limits.ts` / `settings.ts` | fail-closed limits, local spend ledger and holds |
-| `quoteTime.ts` | settlement-time parsing and display |
-| `Send.tsx`, `Receive.tsx`, `App.tsx`, `Policy.tsx`, `Account.tsx` | screens |
+| Mobile-first portfolio and wallet UI | Implemented |
+| Public token catalogue and prices from 1Click | Integrated |
+| Dry-run cross-chain quotes | Integrated |
+| Server-side non-dry quote and status endpoints | Implemented behind server-only 1Click JWT; real settlement not end-to-end verified |
+| Read-only Ethereum, Base, Solana and NEAR portfolio queries | Implemented for the supported assets |
+| Direct Send from connected EVM/Solana wallets | Implemented for supported assets; not independently verified with real mainnet transactions |
+| Local native EVM + Solana key generation and encrypted vault | Implemented on native-wallet-vault |
+| Encrypted backup import/export and password unlock | Implemented on native-wallet-vault |
+| Native vault signing in Send | Not implemented |
+| NEAR native wallet creation or Send | Not implemented |
+| NEAR Auth SDK and callback integration | Pending |
+| NEAR Chain Signatures | Planned |
+| NEAR AI Cloud private inference and attestation verification | Planned |
+| Gmail code login | Endpoints exist; production blocked until durable storage/session/mail configuration |
+| Server-backed payment requests and notifications | Planned |
+| On-chain spending policies | Planned; current limits are browser-side only |
+| Real end-to-end mainnet settlement test | Not completed |
 
 ---
 
-## Repository layout
+## Run locally
 
-```
-.
-├── README.md, HANDOVER.md, CORE_REQUIREMENTS.md, PLAN.md, TODO.md, TOKEN_LOGO_SOURCES.md
-├── brand/      logo, icons, OG image
-├── mascot/     Ori mascot concepts
-├── shots/      QA screenshots from earlier iterations (may not match the current UI)
-└── app/
-    ├── src/        React app (see table above)
-    ├── api/        Vercel functions: quote, status, resolve, auth/*, _catalog, _oneclick
-    ├── tests/      node:test suites + register.mjs loader + fixture-tokens.json
-    ├── scripts/    check-click-activation.mjs (static checks)
-    ├── public/
-    ├── .env.example
-    └── package.json, vite.config.ts, tsconfig*.json
-```
-
----
-
-## Getting started
-
-**Prerequisites:** Node **24** (tests rely on Node's built-in TypeScript type stripping; verified on v24.22) and npm.
+**Requirements:** Node.js 24 or a compatible version supported by the project, plus npm.
 
 ```bash
-cd app
+git clone https://github.com/Bamioishim/ori.git
+cd ori/app
 npm install
-npm run dev        # Vite dev server, http://localhost:5173
-npm run build      # tsc -b && vite build  → app/dist
-npm run preview    # serve app/dist
-npm run lint       # oxlint
-npm test           # node tests + static checks
+cp .env.example .env
+npm run dev
+```
+
+Open http://localhost:5173.
+
+Useful commands:
+
+```bash
+npm run dev       # Start Vite development server
+npm run build     # TypeScript project check + Vite production build
+npm run preview   # Preview the production build locally
+npm run lint      # Oxlint
+npm test          # Node test suite + click-activation check
 npm run check:activation
 ```
 
-**Frontend only vs. real API.** `npm run dev` and `npm run preview` serve **only the frontend**; Vite does not host `app/api/*`. Example mode (if built without `live`) and the browser's public reads and dry quotes work fine like this, but `/api/*` calls fail locally. To exercise the functions you need a Vercel-style runtime (for example `vercel dev` in a linked project) **and** the server variables below. Note the [runtime limitation](#known-limitations) before relying on it.
+The Vite dev server serves the frontend. It does not automatically run the Vercel API functions in app/api. To test /api/quote, /api/status or /api/auth/* locally, use a compatible Vercel development runtime and configure the server-only environment variables.
 
-Handy URL: `?screen=home|pay|swap|send|receive` opens a screen directly.
+## Configuration
 
----
+Copy app/.env.example and keep all real secrets out of Git.
 
-## Environment variables
+| Variable | Scope | Purpose |
+|---|---|---|
+| VITE_ORI_SETTLEMENT_MODE | Browser build | preview keeps Pay/Swap in example mode; live enables the live settlement path |
+| ORI_1CLICK_JWT | Server only | Authenticates ORI's requests to NEAR Intents 1Click |
+| ORI_HANDLE_DIRECTORY | Server only | JSON allowlist mapping approved handles to verified recipient addresses |
+| GMAIL_OAUTH_USER | Server only | Gmail sender identity |
+| GMAIL_OAUTH_FROM | Server only | Email From header |
+| GOOGLE_OAUTH_CLIENT_ID | Server only | Gmail OAuth2 client |
+| GOOGLE_OAUTH_CLIENT_SECRET | Server only | Gmail OAuth2 secret |
+| GMAIL_OAUTH_REFRESH_TOKEN | Server only | Gmail OAuth2 refresh token |
+| ORI_AUTH_CODE_SECRET | Server only | Secret used by one-time email-code flow |
 
-Names only. **Never commit values.** Copy `app/.env.example` for local use and set the real values as Vercel environment variables.
+Never prefix a server secret with VITE_: Vite exposes VITE_ variables to browser code. Never commit .env, wallet keys, recovery phrases, JWTs or OAuth credentials.
 
-| Name | Where | Used by | Purpose |
-|---|---|---|---|
-| `VITE_ORI_SETTLEMENT_MODE` | browser (build time) | `src/live.ts` | `live` enables real settlement flows; anything else (default `preview`) = example mode |
-| `ORI_1CLICK_JWT` | server | `api/_oneclick.ts` | 1Click API key; missing → `/api/quote` and `/api/status` return 503 |
-| `ORI_HANDLE_DIRECTORY` | server | `api/resolve.ts` | JSON allowlist of `@handle` → verified Solana address |
-| `GMAIL_OAUTH_USER` | server | `api/auth/send-code.ts` | Gmail sender account |
-| `GMAIL_OAUTH_FROM` | server | `api/auth/send-code.ts` | From header (defaults to the user) |
-| `GOOGLE_OAUTH_CLIENT_ID` | server | `api/auth/send-code.ts` | OAuth2 client |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | server | `api/auth/send-code.ts` | OAuth2 client secret |
-| `GMAIL_OAUTH_REFRESH_TOKEN` | server | `api/auth/send-code.ts` | OAuth2 refresh token |
-| `ORI_AUTH_CODE_SECRET` | server | `api/auth/*` | secret used to hash and verify one-time codes |
+## Tests and quality checks
 
-Never prefix a server variable with `VITE_`; that would ship it to the browser.
-
----
-
-## Testing
+Run from app/:
 
 ```bash
-cd app && npm test
-# = node --import ./tests/register.mjs --test tests/*.test.ts && node scripts/check-click-activation.mjs
+npm test
+npm run lint
+npm run build
 ```
-Use the prescribed loader (`tests/register.mjs` resolves the `.js` import specifiers used in `api/`). Don't run `node --test` raw.
 
-Currently: **90 node tests and 31 static checks pass**. They cover:
-- limits;
-- quote time;
-- Receive targets;
-- transfers: validation, units, fees, chain/account re-checks, receipts, rent;
-- the token catalog and route validation;
-- auth (fail-closed, one-time codes, rate limits) with an in-memory store;
-- swap binding and status;
-- SPL: instructions, rent and refusal;
-- Pay: binding, wrong chain or account, refusal, refunds and spend holds, failed receipts;
-- Swap UI state.
+The test suite includes unit coverage for transfer validation, quote binding, settlement states, spend limits, authentication-code behavior and native-vault lifecycle. Tests use mocked providers/RPCs where applicable.
 
-**What the tests do not prove:** everything above runs with **mocked** wallets, RPCs and provider responses. No real transfer, signature, 1Click non-dry quote or status response, mail delivery, or phone/mobile check has been done.
+Passing tests do **not** prove a real wallet signature, a successful mainnet transfer, a completed 1Click settlement, production email delivery, secure recovery or a mobile-browser experience. Those require separate controlled tests.
 
----
+## Repository map
 
-## Deployment
+```text
+.
+├── README.md
+├── PLAN.md
+├── HANDOVER.md
+├── brand/                    # Brand assets and social preview image
+├── mascot/                   # ORI mascot artwork
+├── shots/                    # Product and QA screenshots
+└── app/
+    ├── src/
+    │   ├── App.tsx            # Main application and navigation
+    │   ├── live.ts            # Token catalogue, RPC reads, quotes and wallet providers
+    │   ├── nativeVault.ts     # Local EVM + Solana encrypted vault
+    │   ├── wallets.ts         # External wallet connection metadata
+    │   ├── Wallets.tsx        # Wallet and vault interface
+    │   ├── transfers.ts       # Direct transfer validation and signing helpers
+    │   ├── payExec.ts         # Pay flow
+    │   ├── swapExec.ts        # Swap quote binding and execution
+    │   ├── settings.ts        # Browser-side settings and spend controls
+    │   └── config.ts          # Product name and screen visibility
+    ├── api/
+    │   ├── quote.ts           # Server-side 1Click quote request
+    │   ├── status.ts          # 1Click settlement status
+    │   ├── resolve.ts         # Verified handle resolution
+    │   └── auth/              # Email-code authentication endpoints
+    ├── tests/
+    │   └── nativeVault.test.ts
+    ├── public/
+    ├── .env.example
+    └── package.json
+```
 
-- The existing Vercel project **`ori-preview`** (root directory `app`) serves https://ori-preview.vercel.app/. That is currently `6bf4ff8`, built with `VITE_ORI_SETTLEMENT_MODE=live`. The Node/Web runtime adapter (relative URL + exact Buffer body copy) is in this commit. Direct Send can request signatures from a **connected** wallet; real mainnet settlement is still not end-to-end verified.
-- Guardrails:
-  - Deploy only to that project.
-  - Production already has `VITE_ORI_SETTLEMENT_MODE=live`. Don't attempt real cross-chain payments until the owner approves a controlled recipient and wallet test.
-  - Keep every secret in Vercel environment variables.
-  - Don't remove the JWT guard without the owner's fee decision.
-  - Only the owner decides when the repo goes public.
-  - NEAR Auth approval (when it arrives) does not by itself ship ORI-created wallets — custody/signer/recovery/gas still have to be built.
+## Limitations and security notes
 
----
+1. **Not audited.** ORI has not completed an independent security audit.
+2. **Native vault signing is incomplete.** EVM and Solana keys can be generated and encrypted, but Send does not yet use them. Do not fund these addresses.
+3. **No native NEAR wallet.** ORI can read a supplied NEAR account; it cannot currently create or sign from one.
+4. **NEAR Auth is not integrated.** Production access is pending and the SDK/callback/session flow still needs implementation.
+5. **NEAR Chain Signatures are not integrated.** ORI does not currently derive foreign addresses or request MPC signatures through NEAR.
+6. **NEAR AI Cloud is not integrated.** The current assistant is local rule-based logic, not private inference.
+7. **Cross-chain settlement is unverified.** Quotes and server endpoints exist, but the team has not completed a controlled successful mainnet settlement.
+8. **Browser-side policy only.** Current limits can be changed by someone who controls the browser. They do not constrain a wallet outside ORI.
+9. **Authentication is incomplete.** Email-code routes fail closed until durable one-time-code storage, signed sessions and mail delivery are configured.
+10. **Privacy is limited.** Blockchain activity remains public. ORI does not currently provide unlinkable account aggregation or private AI.
+11. **Mobile compatibility needs testing.** Speech and wallet-provider behavior vary across mobile browsers.
 
-## Known limitations
-
-1. **Node/Web runtime adapter — fixed at `6bf4ff8`.** Handlers use a shared `adapt()` wrapper (`app/api/_runtime.ts`) so Node `(req, res)` and Web `Request` both work: absolute URL construction for relative paths, and exact Buffer body bytes (no pooled `ArrayBuffer` leak). Prior unit coverage included runtime/body regressions; earlier suite reported **138 unit + 31 activation** checks passing (not re-run for this docs update). Public smoke previously seen: `/api/resolve?handle=tolu` → 404; `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405.
-2. **Not payment-ready / not security-on-chain.** No real mainnet payment, swap or wallet signature has been verified end to end. Spending limits are browser-side only.
-3. **ORI does not create wallets yet.** Native Send/Receive work only with wallets the user already connects or imports. Desired product direction is ORI-created wallets with passkey + email recovery; custody, signer, recovery and gas for that path are **unimplemented**. NEAR Auth production access is **pending** (see Status at a glance); approval alone does not implement those features.
-4. **Provider timeouts.** On Nov 5, 1Click dry quotes sometimes timed out on the provider's side. No real non-dry quote or live settlement response has been fully traced end to end.
-5. **Gmail login is not functional.** It needs:
-   - a durable `AuthStore` (`app/api/auth/_store.ts`; `getAuthStore()` returns null today) with atomic rate limits and one-time code consumption, e.g. Redis/KV;
-   - a signed server session;
-   - the Gmail OAuth / mail provisioning variables.
-
-   None are configured, so the endpoints return **503**. Profiles are device-local, with no cross-device restore.
-6. **Limits are browser-only.** See Security Center above.
-7. **No NEAR signing from ORI.** NEAR can appear as quote-only; there is no ORI NEAR send path and no Chain Signatures.
-8. **Mobile / iPhone speech has not been verified.**
-
----
-
-## Troubleshooting
-
-| Symptom | Likely cause |
-|---|---|
-| Swap shows "Live quote unavailable" | 1Click unreachable or timing out; retry, the quote refreshes every 30 s |
-| "Quote only · ORI cannot sign this deposit" | the source asset has no ORI signer (see matrix) |
-| "Same asset on the same chain: use Send" | pick a different destination, or use Send |
-| `/api/*` 404 locally | Vite dev/preview doesn't host functions |
-| `/api/quote` 503 "Live settlement is not configured." | `ORI_1CLICK_JWT` missing (by design) |
-| `/api/quote` GET → 405 / `/api/status` without depositAddress → 400 | expected method/validation responses after the runtime fix |
-| Gmail code returns 503 | no durable auth store configured (by design) |
-| "Your wallet is not on Base/Ethereum. Nothing was sent." | the wallet refused or failed to switch chains |
-| "The wallet account changed…" | the selected account differs from the one reviewed; review again |
-| A payment is blocked by a limit | adjust it in Policy; a corrupt limit value fails closed |
+If you find a security issue, do not publish exploit details or include private keys in an issue. Contact the project owner privately.
 
 ---
 
-## Roadmap
+## Roadmap — editable working plan
 
-**Implemented (mock-tested):** native Send and Receive for **connected/imported** wallets, catalog-driven swap quotes, guarded live swap and Pay execution paths, SPL USDC/USDT, Gmail code flow (fail-closed), profile control, settlement-time display, limit disclosure, click-only Hey ORI, Node/Web runtime adapter.
+> This section is intentionally a working plan, not a promise that the features already exist. We can revise, reorder or remove it later.
 
-**Not built yet:** ORI-created wallets (passkey + email recovery), custody/signer/recovery/gas for that path.
+### Phase 1 — Complete the native ORI wallet
 
-**Next:**
-1. After NEAR Auth approval (currently pending): design/build ORI-created wallet creation — approval alone is not implementation.
-2. A controlled live test with a small amount, approved by the owner.
-3. A durable auth store, a signed session and mail configuration.
-4. A mobile / iPhone speech QA pass.
-5. NEAR signing and more SPL/EVM chains.
-6. Server-side persistence for Requests, plus invoicing.
+- [x] Generate EVM and Solana keypairs locally.
+- [x] Encrypt secret material with PBKDF2-SHA256 and AES-256-GCM.
+- [x] Password unlock/lock and encrypted backup import/export.
+- [ ] Integrate native EVM signing into Send.
+- [ ] Integrate native Solana signing into Send.
+- [ ] Add transaction simulation, fee estimation and signing-time account/chain checks for native keys.
+- [ ] Add inactivity timeout and a reviewed session-security policy.
+- [ ] Complete independent review of key handling and cryptographic integration.
+- [ ] Run controlled low-value testnet transactions before considering any mainnet use.
 
-See [HANDOVER.md](HANDOVER.md) for open owner decisions: the 1Click fee, the NEAR account, NEAR Auth follow-up, and making the repo public.
+### Phase 2 — NEAR account and authentication
+
+- [ ] Complete NEAR Auth production approval and integrate the supported SDK.
+- [ ] Implement the login callback, session lifecycle, logout and account linking.
+- [ ] Decide how NEAR Auth identity relates to the local EVM/Solana vault.
+- [ ] Implement a native NEAR account experience and NEAR transaction signing.
+- [ ] Design secure recovery, device migration and account replacement before enabling recovery claims.
+- [ ] Keep email login fail-closed until durable storage and session security are ready.
+
+### Phase 3 — NEAR Chain Signatures and chain abstraction
+
+- [ ] Validate current Chain Signatures support and signer contracts for each target chain.
+- [ ] Prototype derivation and signing on testnet.
+- [ ] Build a permissioned signing service with transaction-intent binding, expiry and replay protection.
+- [ ] Decide whether Chain Signatures complements or replaces parts of the local EVM/Solana vault.
+- [ ] Add more EVM networks and supported chains only after signer and transfer paths are tested.
+
+### Phase 4 — NEAR Intents settlement
+
+- [ ] Complete a controlled end-to-end 1Click payment with an approved source wallet and recipient.
+- [ ] Test quote expiry, underpayment, refund, failure and delayed settlement states.
+- [ ] Add robust retry, idempotency and user-facing recovery for interrupted deposits.
+- [ ] Improve route selection using output amount, provider fee, slippage, time estimate and user preferences.
+- [ ] Add payment receipts that explain the selected route and show verifiable transaction references.
+- [ ] Keep quote-only assets clearly separated from assets ORI can actually sign.
+
+### Phase 5 — Private and safer AI
+
+- [ ] Integrate NEAR AI Cloud for selected assistant tasks.
+- [ ] Verify the current TEE attestation flow before making privacy claims.
+- [ ] Minimise prompt data and avoid sending private keys, recovery material or unnecessary portfolio details to any model.
+- [ ] Build explainable scam/risk checks into the payment review.
+- [ ] Keep AI as an assistant: it can prepare and explain actions, but user authorization remains explicit.
+
+### Phase 6 — Policies, requests and everyday payments
+
+- [ ] Move critical spending policies from browser-only storage into enforceable account/contract permissions.
+- [ ] Add revocable, scoped permissions for automation with per-transaction and daily limits.
+- [ ] Add server-backed payment requests, notifications and recipient verification.
+- [ ] Build invoices with line items, chosen settlement asset and exportable receipts.
+- [ ] Add contacts/handles only with a verified ownership and anti-impersonation process.
+- [ ] Evaluate optional stablecoin yield only after protocol, custody, legal and emergency-exit reviews.
+
+### Release gates
+
+- [ ] Security review of wallet generation, encryption, signing and recovery.
+- [ ] Testnet end-to-end tests for every supported chain.
+- [ ] Controlled mainnet test with explicit owner approval and a low-value test amount.
+- [ ] Verify monitoring, support, incident response and recovery procedures.
+- [ ] Update the support matrix and README whenever implementation status changes.
+
+---
+
+## Official NEAR references
+
+- [NEAR Intents documentation](https://docs.near-intents.org/)
+- [1Click API integration guide](https://docs.near-intents.org/near-intents/integration/distribution-channels/1click-api)
+- [NEAR Chain Signatures](https://docs.near.org/chain-abstraction/chain-signatures)
+- [NEAR Auth](https://auth.near.org/)
+- [NEAR AI Cloud documentation](https://docs.near.ai/)
+- [NEAR AI Cloud private inference](https://docs.near.ai/cloud/private-inference)
+- [NEAR access keys](https://docs.near.org/protocol/access-keys)
+- [NEAR meta-transactions](https://docs.near.org/chain-abstraction/meta-transactions)
+
+---
+
+**ORI's direction:** one clear balance, understandable payments across chains, user-controlled authorization, and NEAR-powered settlement. The roadmap is intentionally visible and editable; the implementation status above is the source of truth for what works today.

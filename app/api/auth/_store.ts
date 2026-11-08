@@ -1,15 +1,44 @@
 // Durable state for login codes: one-time use (replay protection) and rate limits.
-// A per-process Map is NOT safe on serverless (instances are many and short-lived), so ORI refuses to issue
-// or accept codes until a real durable store is wired in. No store is configured for ORI today.
+// Vercel functions are ephemeral, so use Upstash Redis REST rather than a process-local Map.
 export interface AuthStore {
-  /** Count one hit for `key` in a sliding window; returns the count including this hit. */
   hit(key: string, windowSec: number): Promise<number>
-  /** Atomically mark a challenge id used. Returns true only the first time. */
   consumeOnce(id: string, ttlSec: number): Promise<boolean>
 }
 let injected: AuthStore | null = null
-/** For tests or a future adapter (e.g. a KV/Redis/DB the owner approves). */
-export function setAuthStore(s: AuthStore | null) { injected = s }
-export function getAuthStore(): AuthStore | null { return injected }
-export const STORE_MISSING = 'Email login codes are not available yet: ORI needs a durable server store for one-time codes and rate limits, and none is configured. You can keep using ORI as a guest.'
+let cached: AuthStore | null = null
+export function setAuthStore(s: AuthStore | null) { injected = s; cached = null }
+
+function upstashStore(url: string, token: string): AuthStore {
+  const base = url.replace(/\\/$/, '')
+  const command = async (parts: string[]) => {
+    const path = parts.map(encodeURIComponent).join('/')
+    const r = await fetch(base + '/' + path, { headers: { authorization: 'Bearer ' + token, accept: 'application/json' } })
+    if (!r.ok) throw new Error('ORI auth storage request failed (' + r.status + ').')
+    const body = await r.json() as { result?: unknown; error?: string }
+    if (body.error) throw new Error('ORI auth storage command failed.')
+    return body.result
+  }
+  return {
+    async hit(key, windowSec) {
+      const n = Number(await command(['incr', key]))
+      if (n === 1) await command(['expire', key, String(windowSec)])
+      return n
+    },
+    async consumeOnce(id, ttlSec) {
+      const result = await command(['set', id, '1', 'EX', String(ttlSec), 'NX'])
+      return result === 'OK'
+    },
+  }
+}
+
+export function getAuthStore(): AuthStore | null {
+  if (injected) return injected
+  if (cached) return cached
+  const env = (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } }).process?.env
+  const url = env?.UPSTASH_REDIS_REST_URL, token = env?.UPSTASH_REDIS_REST_TOKEN
+  if (!url || !token) return null
+  cached = upstashStore(url, token)
+  return cached
+}
+export const STORE_MISSING = 'Email codes are temporarily unavailable: ORI needs UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN for secure one-time code storage.'
 export const LIMITS = { sendPerEmail: 3, sendPerIp: 10, sendWindowSec: 600, verifyAttempts: 5, codeTtlSec: 600 }
