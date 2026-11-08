@@ -61,3 +61,18 @@ test('mode-change invalidates in-flight DEMO so stale celebrate cannot log', () 
   assert.match(doPay, /stale \/ cancelled/)
   assert.match(doPay, /if \(gen === demoPayGen\.current\) setStatus/)
 })
+
+
+test('registered users cannot enter example mode or fall through to simulated payments', () => {
+  assert.match(app, /if \(account && m === 'example'\) return/)
+  assert.match(app, /if \(!isSettlementEnabled\(\)\).*Mainnet payments are not enabled/)
+  assert.match(app, /if \(!demo\) \{ oriSay\('No reviewed mainnet payment plan is available/)
+  assert.match(app, /guest=\{!account\}/)
+  assert.match(app, /resolveHandle\(value, false\)/)
+})
+
+test('guest demo accepts arbitrary syntactically valid usernames without resolving a live payee', () => {
+  assert.match(app, /guest && \/\^@\[a-z0-9\]/)
+  assert.match(app, /setResolvedRecipient\(PREVIEW\.sol\); setResolvedExample\(true\)/)
+  assert.match(app, /simulated delivery/)
+})
