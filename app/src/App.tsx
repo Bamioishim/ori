@@ -569,16 +569,42 @@ export default function App() {
       if (kindOf(recipient) === 'evm') {
         const txHash = await sendBaseUSDC(wallet, recipient, BigInt(Math.round(amt * 1e6)))
         broadcastHash = txHash
-        setSettlement({ kind: 'direct', wallet, txHash, state: 'SUCCESS', destination: recipient, network: 'Base', amount: amt })
-        logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'Base', to: recipient, txHash })
-        addSpent(amt); setExtra(e => e - amt); setStatus('sent'); oriSay(`Sent ${usd(amt)} USDC to ${short(recipient)} on Base. The wallet transaction was submitted.`); return
+        setSettlement({ kind: 'direct', wallet, txHash, state: 'BROADCAST', destination: recipient, network: 'Base', amount: amt })
+        const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base', to: recipient, txHash, explorer: `https://basescan.org/tx/${txHash}`, note: 'Transaction broadcast. Waiting for Base confirmation.' })
+        addSpent(amt); setStatus('sent')
+        oriSay(`Transaction submitted to Base: ${short(txHash)}. Waiting for network confirmation; do not send again.`)
+        let receipt: 'confirmed' | 'failed' | 'pending' = 'pending'
+        try {
+          for (let i = 0; i < 12; i++) {
+            receipt = await baseReceiptState(txHash)
+            if (receipt !== 'pending') break
+            await wait(2500)
+          }
+          if (receipt === 'confirmed') {
+            setSettlement(p => p ? { ...p, state: 'SUCCESS' } : p)
+            updateTransaction(tx.id, { status: 'completed', note: 'Confirmed on Base mainnet.' })
+            oriSay(`Confirmed on Base mainnet. ${usd(amt)} USDC sent to ${short(recipient)}.`)
+          } else if (receipt === 'failed') {
+            setSettlement(p => p ? { ...p, state: 'ERROR', error: 'Base reported a reverted transaction.' } : p)
+            updateTransaction(tx.id, { status: 'failed', note: 'Base receipt confirms the transaction reverted.' })
+            oriSay('Base confirmed that this transaction reverted. Check the explorer receipt before retrying.')
+          } else {
+            updateTransaction(tx.id, { status: 'pending', note: 'Broadcast to Base mainnet. Confirmation is still pending; do not resend.' })
+            oriSay('The Base transaction was broadcast, but confirmation is still pending. Check the transaction hash before retrying.')
+          }
+        } catch (e) {
+          updateTransaction(tx.id, { status: 'pending', note: 'Broadcast to Base mainnet. Receipt lookup failed; do not resend.' })
+          setSettlement(p => p ? { ...p, error: 'Transaction was broadcast. Receipt lookup failed: ' + (e as Error).message } : p)
+          oriSay('Your Base transaction was broadcast. I could not read its receipt, so it remains pending. Do not send again.')
+        }
+        return
       }
       const settlementQuote = await createSettlementQuote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(amt * 1e6)), recipient, refundTo: wallet })
       const txHash = await depositBaseUSDC(wallet, settlementQuote)
       broadcastHash = txHash
       setSettlement({ kind: 'settlement', quote: settlementQuote, wallet, txHash, state: 'BROADCAST', destination: recipient, network: 'Solana', amount: amt })
       const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash, note: 'Deposit submitted to 1Click for settlement', explorer: `https://basescan.org/tx/${txHash}` })
-      addSpent(amt); setExtra(e => e - amt); setStatus('sent')
+      addSpent(amt); setStatus('sent')
       oriSay(`Deposit signed in your wallet. I’m watching 1Click for settlement. Transaction ${short(txHash)}.`)
       for (let i = 0; i < 30; i++) {
         await wait(4000)
@@ -588,7 +614,7 @@ export default function App() {
         updateTransaction(tx.id, { status: s.status === 'SUCCESS' ? 'completed' : s.status === 'FAILED' ? 'failed' : 'pending', note: terminal ? `1Click settlement ${s.status.toLowerCase()}` : `1Click settlement · ${s.status.toLowerCase()}` })
         if (terminal) { oriSay(s.status === 'SUCCESS' ? `Delivered ${usd(amt)} to ${to}. Settlement complete.` : `Settlement ended ${s.status.toLowerCase()}. Check the receipt for details.`); break }
       }
-    } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} No transaction was submitted.`) } } finally { paymentInFlight.current = false }
+    } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} I did not receive a transaction hash. Check your wallet activity before retrying.`) } } finally { paymentInFlight.current = false }
   }
   const doSwap = async (r: DOMRect, v: number, detail: string, demo = false) => { if (!demo) { oriSay('Mainnet swap execution is not connected yet. Nothing was swapped or spent.'); return }; await celebrate(r, setSwapSt); oriSay(`DEMO: simulated ${detail}. Nothing was signed or spent.`) }
   const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
