@@ -29,7 +29,7 @@ import { countProgress, quoteVisible } from './uiLogic'
 import { amountAllowed, canUseMax, exampleHeld, exampleSpendable, pickSigner, readSignerSpendable, sizingKind, spendSourceKey, unknownSpend, visibleSpend, type SpendState } from './spendableBalance'
 import { executeSwap, type SwapReview } from './swapExec'
 import { executePay, preparePay, type PayPlan } from './payExec'
-import { HandleResolveError, isExampleHandle } from './handles'
+import { HandleResolveError } from './handles'
 import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
@@ -295,8 +295,11 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
   useEffect(() => {
     const value = to.trim(); setResolvedRecipient(null); setResolveError(null); setResolveKind(null); setResolvedExample(false)
     if (kindOf(value) === 'sol' || kindOf(value) === 'evm' || !value.startsWith('@')) return
+    if (guest && /^@[a-z0-9][a-z0-9._-]{0,31}$/i.test(value)) {
+      setResolvedRecipient(PREVIEW.sol); setResolvedExample(true); return
+    }
     let dead = false
-    resolveHandle(value, guest).then(r => {
+    resolveHandle(value, false).then(r => {
       if (dead) return
       setResolvedRecipient(r.address); setResolvedExample(!!r.example); setResolveError(null); setResolveKind(null)
     }).catch(e => {
@@ -817,7 +820,7 @@ export default function App() {
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
         {screen === 'scan' && !isHiddenScreen('scan') && <ScanScreen />}
         {screen === 'help' && <HelpScreen ask={ask} />}
-        {screen === 'profile' && <Profile sum={total + extra} hide={hidden} />}
+        {screen === 'profile' && <Profile sum={account ? live.holdings.reduce((n, h) => n + h.usd, 0) : total + extra} hide={hidden} demo={!account} addrs={addrs} holdings={live.holdings} />}
         {screen === 'earn' && !isHiddenScreen('earn') && <Earn />}
         {screen === 'privacy' && !isHiddenScreen('privacy') && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
@@ -903,22 +906,24 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
     <section><Label>REQUESTS ON THIS DEVICE · {requests.length}</Label>{requests.length ? requests.map(r => <button className="tx-row" key={r.id} onClick={() => setSelected(r)}><span className="tx-icon">↓</span><span className="grow"><b>{r.amount} {r.asset}</b><span className="sub">{r.network} · from {r.target}</span></span><span className="tx-right"><small>{r.status}</small></span></button>) : <div className="mono xs dim">No requests yet.</div>}</section>
   </div>
 }
-function Profile({ sum, hide }: { sum: number; hide: boolean }) {
+function Profile({ sum, hide, demo, addrs, holdings }: { sum: number; hide: boolean; demo: boolean; addrs: string[]; holdings: Holding[] }) {
   const [qr, setQr] = useState<string | null>(null)
   const bal = (c: string) => chains.find(x => x.name === c)?.usd || 0
   const scale = sum / (total || 1)
   return <div className="pg profile">
     <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">One account · four chains <Example /></div></div></section>
-    <section><Label>CHAIN ADDRESSES · DEMO</Label>
-      {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
+    <section><Label>{demo ? 'CHAIN ADDRESSES · DEMO' : 'MAINNET WALLET ADDRESSES'}</Label>
+      {demo ? DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
         <ChainMark chain={a.chain} />
         <span className="grow"><b>{a.chain === 'Base' ? 'Base · EVM' : a.chain}</b><span className="sub mono">{a.addr.length > 20 ? short(a.addr) : a.addr}</span></span>
         <span className={'num' + (hide ? ' blurred' : '')}><Money v={bal(a.chain) * scale} cls="sm" /></span>
         <CopyButton text={a.addr} label="" className="picon" aria={'Copy ' + a.chain + ' address'} />
         <button className="picon" aria-label={'Show ' + a.chain + ' QR'} onClick={() => setQr(qr === a.chain ? null : a.chain)}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" /></svg></button>
         <AnimatePresence>{qr === a.chain && <motion.div className="pqr" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring}><QR text={a.addr} /><span className="mono xs dim">Demo address · don’t send real funds</span></motion.div>}</AnimatePresence>
-      </div>)}
-      <div className="ptotal"><span className="grow">All addresses feed one balance</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
-      <div className="mono xs dim">Example data. These are demo addresses: no keys exist and no wallet is created.</div></section>
+      </div>) : addrs.map((addr, i) => <div className="prow" key={addr}><span className="grow"><b>{kindOf(addr) === 'evm' ? 'EVM · Base / Ethereum' : kindOf(addr) === 'sol' ? 'Solana' : 'NEAR'}</b><span className="sub mono">{short(addr)}</span></span><CopyButton text={addr} label="COPY" aria={'Copy address ' + (i + 1)} /></div>)}
+      {!demo && !addrs.length && <div className="mono xs dim">No mainnet wallet is connected yet. Create or connect a wallet in Wallets.</div>}
+      {!demo && holdings.length > 0 && <div className="mono xs dim">{holdings.length} verified asset balance{holdings.length === 1 ? '' : 's'} across connected mainnet wallets.</div>}
+      <div className="ptotal"><span className="grow">{demo ? 'All example addresses · simulated' : 'Verified mainnet balance'}</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
+      <div className="mono xs dim">{demo ? 'Example data. These are demo addresses: no keys exist and no wallet is created.' : 'Mainnet balances are read from connected wallet addresses only. No demo funds are included.'}</div></section>
   </div>
 }
