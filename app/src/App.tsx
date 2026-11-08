@@ -23,6 +23,7 @@ import { saveWallet } from './wallets'
 import { TOKEN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
 import { NearAuthMenu } from './NearAuth'
+import { useIsLoggedIn } from '@fast-auth-near/react-sdk'
 
 type Screen = 'home' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
@@ -434,18 +435,27 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>(initial)
   const [hidden, setHidden] = useState(false)
   const [extra, setExtra] = useState(0)
-  const [mode, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
+  const [mode, setModeS] = useState<Mode>(() => 'live')
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
   const [live, setLive] = useState<LiveState>({ loading: false, holdings: [], errors: [], at: null })
-  const setMode = (m: Mode) => { if (account && m === 'example') return; setModeS(m); localStorage.setItem('mode', m) }
+  const setMode = (m: Mode) => { if ((account || nearLoggedIn || nearAuthLoading) && m === 'example') return; setModeS(m); localStorage.setItem('mode', m) }
   const setAddrs = (a: string[]) => { setAddrsS(a); localStorage.setItem('addrs', JSON.stringify(a)) }
   const lastTotal = useRef<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
   const [settlement, setSettlement] = useState<LivePayment | null>(null)
   const [account, setAccount] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('ori-account') || 'null') } catch { return null } })
+  const { isLoggedIn: nearLoggedIn, isLoading: nearAuthLoading } = useIsLoggedIn()
+  const registered = !!account || !!nearLoggedIn
+  const mainnetSession = registered || nearAuthLoading
+  const guestSession = !mainnetSession
   const [accountOpen, setAccountOpen] = useState(false)
-  useEffect(() => { setMode(account ? 'live' : 'example') }, [account])
+  useEffect(() => { if (!nearAuthLoading || account) setMode(registered ? 'live' : 'example') }, [account, nearLoggedIn, nearAuthLoading])
+  useEffect(() => {
+    if (!registered) return
+    try { const raw = JSON.parse(localStorage.getItem('ori-transactions') || 'null'); const safe = Array.isArray(raw) ? raw.filter((t: any) => !t?.demo) : []; localStorage.setItem('ori-transactions', JSON.stringify(safe)); dispatchEvent(new Event('ori-transactions')) } catch { localStorage.setItem('ori-transactions', '[]') }
+    setExtra(0)
+  }, [registered])
   const [guestId] = useState(() => { const existing = sessionStorage.getItem('ori-guest'); if (existing) return existing; const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); sessionStorage.setItem('ori-guest', id); return id })
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
@@ -536,7 +546,7 @@ export default function App() {
     if (!demo && !isSettlementEnabled()) { oriSay('Mainnet payments are not configured on this deployment. No funds were moved.'); return }
     sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: !demo, lines: demo ? [['Mode', 'GUEST · DEMO'], ['Recipient', to], ['Funds', 'Simulated only · no wallet signing or blockchain transaction']] : undefined, run: () => doPay(r, amt, to, demo) })
   }
-  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { if (account) { oriSay('Mainnet swap execution is not connected yet. Nothing was swapped or spent.'); return }; sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: false, lines: [['Mode', 'GUEST · DEMO'], ['Funds', 'Simulated only · no wallet signing']], run: () => doSwap(r, v, detail, true) }) }
+  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { if (registered) { oriSay('Mainnet swap execution is not connected yet. Nothing was swapped or spent.'); return }; sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: false, lines: [['Mode', 'GUEST · DEMO'], ['Funds', 'Simulated only · no wallet signing']], run: () => doSwap(r, v, detail, true) }) }
   const doPay = async (r: DOMRect, amt: number, to: string, demo = false) => {
     if (paymentInFlight.current) return
     paymentInFlight.current = true
@@ -611,7 +621,7 @@ export default function App() {
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
         {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
-        {screen === 'pay' && <Pay guest={!account} draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
+        {screen === 'pay' && <Pay guest={guestSession} draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
         {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
@@ -621,7 +631,7 @@ export default function App() {
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
         {screen === 'scan' && <ScanScreen />}
         {screen === 'help' && <HelpScreen ask={ask} />}
-        {screen === 'profile' && <Profile sum={account ? live.holdings.reduce((n, h) => n + h.usd, 0) : total + extra} hide={hidden} demo={!account} addrs={addrs} holdings={live.holdings} />}
+        {screen === 'profile' && <Profile sum={mainnetSession ? live.holdings.reduce((n, h) => n + h.usd, 0) : total + extra} hide={hidden} demo={guestSession} addrs={addrs} holdings={live.holdings} />}
         {screen === 'earn' && <Earn />}
         {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
