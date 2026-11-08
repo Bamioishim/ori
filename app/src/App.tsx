@@ -22,8 +22,7 @@ import { logTransaction, updateTransaction, type Transaction } from './transacti
 import { saveWallet } from './wallets'
 import { TOKEN_LOGOS } from './tokenLogos'
 import WalletsScreen from './Wallets'
-import { NearAuthMenu } from './NearAuth'
-import { useIsLoggedIn } from '@fast-auth-near/react-sdk'
+import { NearAuthMenu, useNearAuthStatus } from './NearAuth'
 
 type Screen = 'home' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
@@ -445,7 +444,7 @@ export default function App() {
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
   const [settlement, setSettlement] = useState<LivePayment | null>(null)
   const [account, setAccount] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('ori-account') || 'null') } catch { return null } })
-  const { isLoggedIn: nearLoggedIn, isLoading: nearAuthLoading } = useIsLoggedIn()
+  const { isLoggedIn: nearLoggedIn, isLoading: nearAuthLoading } = useNearAuthStatus()
   const registered = !!account || !!nearLoggedIn
   const mainnetSession = registered || nearAuthLoading
   const guestSession = !mainnetSession
