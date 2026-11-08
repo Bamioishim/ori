@@ -26,7 +26,7 @@ function asExample(h: string): HandleResolution | null {
  * - 5xx / network → service failure (EXAMPLE may still demo; never invent a live payee)
  * Server errors are never treated as a recipient address.
  */
-export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string, apiPath = '/api/resolve'): Promise<HandleResolution> {
+export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string, apiPath = '/api/resolve', allowExamples = true): Promise<HandleResolution> {
   const h = handle.trim().toLowerCase()
   if (!h.startsWith('@')) throw new HandleResolveError('Use a handle such as @tolu.', 'invalid')
   const q = new URLSearchParams({ handle: h })
@@ -34,7 +34,7 @@ export async function resolveHandleWith(fetchImpl: typeof fetch, handle: string,
   try {
     r = await fetchImpl(apiPath + '?' + q.toString(), { headers: { accept: 'application/json' } })
   } catch {
-    const ex = asExample(h)
+    const ex = allowExamples ? asExample(h) : null
     if (ex) return ex
     throw new HandleResolveError('Handle directory is temporarily unavailable. Try again shortly.', 'service')
   }
