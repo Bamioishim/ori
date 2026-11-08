@@ -281,7 +281,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     </section>
     <div className="sbw">
     <section className="sb">
-      <Label>{evmTo ? 'DIRECT WALLET TRANSFER · BASE' : 'BEST ROUTE · NEAR INTENTS'} <LiveTag q={q} /></Label>
+      <Label>{guest ? 'GUEST DEMO · NO CHAIN TRANSACTION' : evmTo ? 'DIRECT WALLET TRANSFER · BASE MAINNET' : 'BEST ROUTE · NEAR INTENTS'} {!guest && <LiveTag q={q} />}</Label>
       <div className="route">
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
         <div className="line" />
@@ -289,7 +289,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={!guest && !preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? (resolvedDemo ? `Guest demo recipient ${to} · not a registered payee` : `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.`) : resolveError || 'Resolving handle to a verified Solana address…'} />
+      <QuoteMeta q={q} extra={guest ? 'Guest demo. No live quote, wallet signing, or blockchain transaction is required.' : !preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? (resolvedDemo ? `Guest demo recipient ${to} · not a registered payee` : `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.`) : resolveError || 'Resolving handle to a verified Solana address…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
