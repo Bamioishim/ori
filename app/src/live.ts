@@ -99,6 +99,18 @@ export async function depositBaseUSDC(account: string, settlement: SettlementQuo
   return sendBaseUSDC(account, settlement.quote.depositAddress, BigInt(amount))
 }
 
+
+export type BaseReceiptState = 'confirmed' | 'failed' | 'pending'
+export async function baseReceiptState(hash: string): Promise<BaseReceiptState> {
+  const r = await fetch(RPC.base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [hash] }), signal: timeout(10000) })
+  const j = await r.json()
+  if (j.error) throw new Error(j.error.message || 'Base receipt lookup failed.')
+  if (!j.result) return 'pending'
+  if (j.result.status === '0x1') return 'confirmed'
+  if (j.result.status === '0x0') return 'failed'
+  return 'pending'
+}
+
 export async function sendBaseUSDC(account: string, recipient: string, amount: bigint): Promise<string> {
   const p = provider()
   if (kindOf(recipient) !== 'evm') throw new Error('Base USDC transfers require an EVM recipient address.')
