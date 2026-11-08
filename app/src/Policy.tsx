@@ -38,9 +38,9 @@ export function PolicyScreen({ s, set }: P) {
   </div>
 }
 
-export type SheetData = { kind: 'pay' | 'swap'; to: string; amount: string; usdv: number; chain: string; fee: number | null; blocked: string | null }
+export type SheetData = { kind: 'pay' | 'swap'; to: string; amount: string; usdv: number; chain: string; fee: number | null; blocked: string | null; demo?: boolean; lines?: [string, string][] }
 export function ConfirmSheet({ d, cfg, onCancel, onConfirm }: { d: SheetData; cfg: Settings; onCancel: () => void; onConfirm: () => void }) {
-  const allow = d.kind === 'swap' || cfg.trusted.includes(d.to.trim())
+  const allow = d.kind === 'swap' || !!d.demo || cfg.trusted.includes(d.to.trim())
   const need = d.usdv > cfg.holdAbove
   const [ack, setAck] = useState(false); const opened = useRef(performance.now()); const dc = useDragControls()
   const [hold, setHold] = useState(false); const t = useRef(0)
@@ -59,12 +59,13 @@ export function ConfirmSheet({ d, cfg, onCancel, onConfirm }: { d: SheetData; cf
     <motion.div className="csheet" drag="y" dragControls={dc} dragListener={false} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: .6 }} onDragEnd={(_, i) => { if (i.offset.y > 110 || i.velocity.y > 600) onCancel() }}
       onPointerDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }} transition={spring} role="dialog" aria-label="Confirm">
       <div className="grabzone" onPointerDown={e => dc.start(e)} style={{ touchAction: 'none' }}><div className="grab" /></div>
-      <div className="sheet-head"><Label>{d.blocked ? 'ORI STOPPED THIS' : 'CONFIRM ' + (d.kind === 'pay' ? 'SEND' : 'SWAP')} <span className="example">SIMULATED</span></Label><button className="mono xs dim" onClick={onCancel}>CANCEL</button></div>
+      <div className="sheet-head"><Label>{d.blocked ? 'ORI STOPPED THIS' : 'CONFIRM ' + (d.kind === 'pay' ? 'SEND' : 'SWAP')} <span className={d.demo ? 'example' : 'live-tag'}>{d.demo ? 'GUEST · DEMO' : 'MAINNET · LIVE'}</span></Label><button className="mono xs dim" onClick={onCancel}>CANCEL</button></div>
       <div className="csum">{d.amount}</div>
       <div className="row"><span className="grow dim">Recipient</span><span className="num">{d.to.length > 24 ? short(d.to) : d.to}{allow && d.kind === 'pay' && <span className="mono xs ok-tag" style={{ marginLeft: 8 }}>ALLOWLISTED</span>}</span></div>
       <div className="row"><span className="grow dim">Amount</span><span className="num">{usd(d.usdv)}</span></div>
       <div className="row"><span className="grow dim">Chain</span><span className="num">{d.chain}</span></div>
       <div className="row"><span className="grow dim">Network fee</span><span className="num">{d.fee === null ? '—' : usd(d.fee)}</span></div>
+      {d.lines?.map(([label, value]) => <div className="row" key={label}><span className="grow dim">{label}</span><span className="num">{value}</span></div>)}
       <div className="row"><span className="grow">Total</span><span className="num">{usd(d.usdv + (d.fee || 0))}</span></div>
       <div className="row"><span className="grow dim">Left today after this</span><span className="num">{usd(Math.max(0, left - d.usdv))}</span></div>
       {warns.map(([k, w], i) => <motion.div key={w} className={'pwarn ' + k} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ ...spring, delay: .08 + i * .05 }}><b>{k === 'bad' ? '×' : k === 'warn' ? '!' : 'i'}</b>{w}</motion.div>)}
