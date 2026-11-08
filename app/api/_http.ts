@@ -1,0 +1,6 @@
+export type ApiRequest = { method?: string; url?: string; headers?: Record<string, string | string[] | undefined>; body?: unknown }
+export type ApiResponse = { statusCode?: number; setHeader: (name: string, value: string) => void; end: (body?: string) => void }
+export function requestUrl(req: ApiRequest): URL { const host = typeof req.headers?.host === 'string' ? req.headers.host : 'localhost'; return new URL(req.url || '/', `https://${host}`) }
+export function requestBody<T = Record<string, unknown>>(req: ApiRequest): T { const body=req.body; if(body && typeof body==='object') return body as T; if(typeof body==='string'){try{return JSON.parse(body) as T}catch{return {} as T}} return {} as T }
+export function sendJson(res: ApiResponse, value: unknown, status=200): void { res.statusCode=status; res.setHeader('content-type','application/json; charset=utf-8'); res.setHeader('cache-control','no-store'); res.end(JSON.stringify(value)) }
+export async function sendResponse(res: ApiResponse, response: Response): Promise<void> { res.statusCode=response.status; response.headers.forEach((value,key)=>res.setHeader(key,value)); res.end(await response.text()) }
