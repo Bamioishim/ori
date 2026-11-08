@@ -86,7 +86,7 @@ function Watch({ addrs, setAddrs, live, refresh }: { addrs: string[]; setAddrs: 
     {live.errors.map(e => <div className="mono xs err" key={e}>{e}</div>)}
   </section>
 }
-function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
+function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, canUseExample, wide = false, go, onTransaction }: { canUseExample: boolean; wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
   const [range, setRange] = useState('1W')
   const [sel, setSel] = useState<string | null>(null)
   const isLive = mode === 'live'
@@ -96,7 +96,7 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
-  if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
+  if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, canUseExample, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
     <AddrRow addr={isLive ? (addrs[0] || 'No mainnet wallet connected') : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
     <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
@@ -156,12 +156,12 @@ function HoldList({ rows, chainRows, sum, hide, sel, setSel }: any) {
 }
 
 function HomeDesk(p: any) {
-  const { hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
+  const { hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, canUseExample, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
   const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
   return <div className="dash">
     <section className="d-card d-hero">
-      <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
-      <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
+      <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} disabled={m === 'example' && !canUseExample} className={mode === m ? 'on' : ''} onClick={() => setMode(m)} >{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
+      <AddrRow addr={isLive ? (addrs[0] || 'No mainnet wallet connected') : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
       <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
       <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
         : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">click to hide</span></>}</div>
@@ -300,8 +300,8 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     </section></div>
     {status === 'sent'
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : 'DEMO · SIMULATED'}</span></Label>
-        <div className="money-r">{usd(n)} <span className="dim">{settlement ? 'sent to' : 'simulated for'} {to}</span></div>
+        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? (settlement.kind === 'direct' ? `BASE MAINNET · ${settlement.state}` : `1CLICK · ${settlement.state}`) : 'DEMO · SIMULATED'}</span></Label>
+        <div className="money-r">{usd(n)} <span className="dim">{settlement?.state === 'SUCCESS' ? 'sent to' : settlement ? 'submitted to' : 'simulated for'} {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → {settlement?.network || destinationNetwork} USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">{settlement?.kind === 'direct' ? `Direct Base transfer · ${settlement.state}` : `NEAR Intents · ${settlement?.state || 'simulated'}`}</span></div>
         {settlement && <><div className="row"><span className="grow">Wallet tx</span><span className="num mono">{short(settlement.txHash)}</span></div>{settlement.kind === 'settlement' && settlement.quote && <div className="row"><span className="grow">Deposit address</span><span className="num mono">{short(settlement.quote.quote.depositAddress)}</span></div>}</>}
@@ -646,7 +646,7 @@ export default function App() {
     <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
+        {screen === 'home' && <Home canUseExample={guestSession} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
         {screen === 'pay' && <Pay guest={guestSession} draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
