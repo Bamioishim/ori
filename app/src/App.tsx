@@ -544,9 +544,9 @@ export default function App() {
   const paymentInFlight = useRef(false)
   const confirm = (r: DOMRect, amt: number, to: string, fee: number | null, demo = false) => {
     if (!demo && !isSettlementEnabled()) { oriSay('Mainnet payments are not configured on this deployment. No funds were moved.'); return }
-    sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: !demo, lines: demo ? [['Mode', 'GUEST · DEMO'], ['Recipient', to], ['Funds', 'Simulated only · no wallet signing or blockchain transaction']] : undefined, run: () => doPay(r, amt, to, demo) })
+    sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, demo, lines: demo ? [['Mode', 'GUEST · DEMO'], ['Recipient', to], ['Funds', 'Simulated only · no wallet signing or blockchain transaction']] : undefined, run: () => doPay(r, amt, to, demo) })
   }
-  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { if (registered) { oriSay('Mainnet swap execution is not connected yet. Nothing was swapped or spent.'); return }; sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: false, lines: [['Mode', 'GUEST · DEMO'], ['Funds', 'Simulated only · no wallet signing']], run: () => doSwap(r, v, detail, true) }) }
+  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { if (registered) { oriSay('Mainnet swap execution is not connected yet. Nothing was swapped or spent.'); return }; sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, demo: true, lines: [['Mode', 'GUEST · DEMO'], ['Funds', 'Simulated only · no wallet signing']], run: () => doSwap(r, v, detail, true) }) }
   const doPay = async (r: DOMRect, amt: number, to: string, demo = false) => {
     if (paymentInFlight.current) return
     paymentInFlight.current = true
