@@ -452,10 +452,10 @@ export default function App() {
   const [accountOpen, setAccountOpen] = useState(false)
   useEffect(() => { if (!nearAuthLoading || account) setMode(registered ? 'live' : 'example') }, [account, nearLoggedIn, nearAuthLoading])
   useEffect(() => {
-    if (!registered) return
+    if (!mainnetSession) return
     try { const raw = JSON.parse(localStorage.getItem('ori-transactions') || 'null'); const safe = Array.isArray(raw) ? raw.filter((t: any) => !t?.demo) : []; localStorage.setItem('ori-transactions', JSON.stringify(safe)); dispatchEvent(new Event('ori-transactions')) } catch { localStorage.setItem('ori-transactions', '[]') }
-    setExtra(0)
-  }, [registered])
+    if (registered) setExtra(0)
+  }, [mainnetSession, registered])
   const [guestId] = useState(() => { const existing = sessionStorage.getItem('ori-guest'); if (existing) return existing; const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); sessionStorage.setItem('ori-guest', id); return id })
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
