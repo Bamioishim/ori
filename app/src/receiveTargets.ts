@@ -21,9 +21,13 @@ export type ReceiveRow = {
   network: ReceiveNetwork
   kind: AddrKind
   address: string | null
-  source: 'wallet' | 'watched' | null
+  source: 'native' | 'wallet' | 'watched' | null
   copyable: boolean
+  /** Native ORI wallet chain that could not be derived (shown as unavailable, never a fake address). */
+  nativeError?: string
 }
+/** Public addresses of the ORI native wallet (NEAR Auth + Chain Signatures). null = not derived. */
+export type NativeAddrs = { near: string; evm: string | null; sol: string | null; errors?: { evm?: string; sol?: string } }
 
 const KIND: Record<ReceiveNetwork, AddrKind> = { Base: 'evm', Ethereum: 'evm', Solana: 'sol', NEAR: 'near' }
 
@@ -32,11 +36,18 @@ export function receiveDirectory(
   wallets: { address: string; chain: string; label?: string; provider?: string }[],
   watched: string[],
   kindOf: (a: string) => AddrKind | null,
+  native: NativeAddrs | null = null,
 ): ReceiveRow[] {
   const targets = receiveTargets(wallets, watched, kindOf)
   return RECEIVE_NETWORKS.map(network => {
+    const kind = KIND[network]
+    if (native) {
+      const addr = kind === 'near' ? native.near : kind === 'evm' ? native.evm : native.sol
+      if (addr && kindOf(addr) === kind) return { network, kind, address: addr, source: 'native', copyable: true }
+    }
+    const nativeError = native ? (kind === 'evm' ? native.errors?.evm : kind === 'sol' ? native.errors?.sol : undefined) || (kind !== 'near' ? 'Not derived yet' : undefined) : undefined
     const hit = targets.find(t => t.networks.includes(network))
-    if (!hit) return { network, kind: KIND[network], address: null, source: null, copyable: false }
+    if (!hit) return { network, kind, address: null, source: null, copyable: false, ...(nativeError ? { nativeError } : {}) }
     return { network, kind: hit.kind, address: hit.address, source: hit.source, copyable: true }
   })
 }

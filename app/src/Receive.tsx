@@ -5,6 +5,7 @@ import { CHAIN_LOGOS } from './tokenLogos'
 import { useManagedWallets } from './wallets'
 import { formatCopyAll, receiveDirectory, validateReceiveAddress, type AddrKind, type ReceiveNetwork } from './receiveTargets'
 import type { Settings } from './settings'
+import { NativeWalletCard, useNativeWallet } from './NativeWallet'
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
 const CURRENCIES = ['USDC', 'USDT', 'ETH', 'SOL']
@@ -21,7 +22,8 @@ export function ReceiveScreen({ watched, cfg, setCfg, openWallets, onAddWatch }:
   onAddWatch: (address: string) => void
 }) {
   const { list } = useManagedWallets()
-  const rows = receiveDirectory(list, watched, classify)
+  const native = useNativeWallet()
+  const rows = receiveDirectory(list, watched, classify, native ? { near: native.nearAccountId, evm: native.evm?.address ?? null, sol: native.sol?.address ?? null, errors: native.errors } : null)
   const blob = formatCopyAll(rows)
   const [adding, setAdding] = useState<ReceiveNetwork | null>(null)
   const [draft, setDraft] = useState('')
@@ -42,6 +44,7 @@ export function ReceiveScreen({ watched, cfg, setCfg, openWallets, onAddWatch }:
       <h2 className="big2">Your addresses</h2>
       <p className="mono xs dim">Copy a real address on Base, Ethereum, Solana or NEAR. ORI never invents keys or demo placeholders. A pasted address is watch-only — ORI does not verify that you own it.</p>
     </section>
+    <NativeWalletCard compact />
     <section>
       {rows.map(row => {
         const missing = !row.copyable || !row.address
@@ -53,7 +56,7 @@ export function ReceiveScreen({ watched, cfg, setCfg, openWallets, onAddWatch }:
             <span className="grow">{row.network}</span>
           </div>
           {missing ? <>
-            <span className="mono xs dim">{row.kind === 'near' ? 'No address added' : 'Not connected'}</span>
+            <span className="mono xs dim">{row.nativeError ? `ORI wallet address unavailable on ${row.network} (${row.nativeError}). Nothing to copy yet.` : row.kind === 'near' ? 'No address added' : 'Not connected'}</span>
             <span className="rowbtns">
               {row.kind !== 'near' && <button type="button" className="ghost" onClick={openWallets}>Connect a wallet</button>}
               <button type="button" className="ghost" onClick={() => { setAdding(row.network); setDraft(''); setErr('') }}>Add existing address</button>
@@ -68,14 +71,14 @@ export function ReceiveScreen({ watched, cfg, setCfg, openWallets, onAddWatch }:
             </form>}
           </> : <>
             <span className="mono xs">{row.address}</span>
-            <span className="mono xs dim">{row.source === 'watched' ? 'Manually added · watch-only (ORI does not verify you own this address)' : 'Connected wallet'}</span>
+            <span className="mono xs dim">{row.source === 'native' ? (row.kind === 'near' ? 'ORI wallet · NEAR Auth · implicit account (activates on first NEAR received)' : 'ORI wallet · Chain Signatures (derived from your NEAR Auth account)') : row.source === 'watched' ? 'Manually added · watch-only (ORI does not verify you own this address)' : 'Connected wallet'}</span>
             {row.kind === 'evm' && <span className="mono xs dim">Same EVM address can receive on Base and Ethereum. Send the matching asset on this network — Base USDC is not Ethereum USDC.</span>}
             <CopyButton text={row.address!} label={`Copy ${row.network} address`} aria={`Copy ${row.network} address`} />
           </>}
         </div>
       })}
       {blob && <CopyButton text={blob} label="Copy populated addresses" />}
-      <p className="mono xs dim">NEAR has no in-app connector. You can receive to an existing NEAR account; sending from ORI on NEAR is not available yet. Connect a wallet to add a new Base, Ethereum or Solana account, or paste one you already have.</p>
+      <p className="mono xs dim">{native ? 'Your ORI wallet addresses come from your NEAR Auth login through NEAR Chain Signatures (MPC signer v1.signer). Sending from the Base, Ethereum and Solana addresses is not wired yet; NEAR sends sign through NEAR Auth.' : 'Create your ORI wallet above to get your own address on every chain, or connect a wallet / paste an address you already have.'}</p>
     </section>
     <section>
       <div className="row"><span className="grow">Preferred receiving currency<br /><span className="mono xs dim">Recipients keep this default until they change it. Routes are shown only when supported.</span></span>
