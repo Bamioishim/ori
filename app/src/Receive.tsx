@@ -71,14 +71,14 @@ export function ReceiveScreen({ watched, cfg, setCfg, openWallets, onAddWatch }:
             </form>}
           </> : <>
             <span className="mono xs">{row.address}</span>
-            <span className="mono xs dim">{row.source === 'native' ? (row.kind === 'near' ? 'ORI wallet · NEAR Auth · implicit account (activates on first NEAR received)' : 'ORI wallet · Chain Signatures (derived from your NEAR Auth account)') : row.source === 'watched' ? 'Manually added · watch-only (ORI does not verify you own this address)' : 'Connected wallet'}</span>
+            <span className="mono xs dim">{row.source === 'native' ? (row.kind === 'near' ? 'ORI wallet · receive-only · NEAR Auth implicit account (activates on first NEAR received)' : 'ORI wallet · receive-only · Chain Signatures (derived from your NEAR Auth account)') : row.source === 'watched' ? 'Manually added · watch-only (ORI does not verify you own this address)' : 'Connected wallet'}</span>
             {row.kind === 'evm' && <span className="mono xs dim">Same EVM address can receive on Base and Ethereum. Send the matching asset on this network — Base USDC is not Ethereum USDC.</span>}
             <CopyButton text={row.address!} label={`Copy ${row.network} address`} aria={`Copy ${row.network} address`} />
           </>}
         </div>
       })}
       {blob && <CopyButton text={blob} label="Copy populated addresses" />}
-      <p className="mono xs dim">{native ? 'Your ORI wallet addresses come from your NEAR Auth login through NEAR Chain Signatures (MPC signer v1.signer). Sending from the Base, Ethereum and Solana addresses is not wired yet; NEAR sends sign through NEAR Auth.' : 'Create your ORI wallet above to get your own address on every chain, or connect a wallet / paste an address you already have.'}</p>
+      <p className="mono xs dim">{native ? 'Your ORI wallet addresses come from your NEAR Auth login through NEAR Chain Signatures (MPC signer v1.signer). They are receive-only for now: sending from them (including NEAR) needs a NEAR signing relayer that is not set up yet. Funds sent here stay safe and become spendable once signing is enabled.' : 'Create your ORI wallet above to get your own address on every chain, or connect a wallet / paste an address you already have.'}</p>
     </section>
     <section>
       <div className="row"><span className="grow">Preferred receiving currency<br /><span className="mono xs dim">Recipients keep this default until they change it. Routes are shown only when supported.</span></span>

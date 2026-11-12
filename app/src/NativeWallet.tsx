@@ -9,6 +9,7 @@ import { logTransaction, updateTransaction } from './transactions'
 import { price as priceOf, tokens } from './live'
 import { nearBalance, nearFee, nearSendCheck, spendable, validateNearRecipient, YOCTO } from './oriWallet'
 import { prepareNearTransfer, sendPreparedNear, type PreparedNear } from './nearAuth'
+import { ORI_WALLET_RECEIVE_ONLY, oriWalletCanSend } from './sessionMode'
 
 export function useNativeWallet() {
   const [wallet, setWallet] = useState<NativeWallet | null>(() => loadNativeWallet())
@@ -46,14 +47,16 @@ export function NativeWalletCard({ compact = false }: { compact?: boolean }) {
 
   const stateLine = !wallet ? null : session ? 'Signed in with NEAR Auth' : 'Signed out · addresses saved on this device (public only)'
   return <section className="native-wallet">
-    <div className="label">ORI WALLET · NEAR AUTH</div>
+    <div className="label">ORI WALLET · NEAR AUTH{!oriWalletCanSend(relayerUrl()) && <span className="example" style={{ marginLeft: 8 }}>RECEIVE-ONLY</span>}</div>
     {!wallet ? <>
       {!compact && <h3>Your own wallet, no seed phrase</h3>}
       <p className="mono xs dim">ORI creates your wallet from a NEAR Auth login. Use a passkey or your email on the NEAR Auth screen; signing in again with the same login recovers the same wallet on any device. No private key or recovery phrase is ever shown or stored by ORI: the key is split across NEAR’s MPC network.</p>
+      {!oriWalletCanSend(relayerUrl()) && <p className="mono xs dim" role="note">{ORI_WALLET_RECEIVE_ONLY}</p>}
       <button className="cta compact" disabled={sdk !== 'ready' || !!busy} onClick={() => create(false)}>{busy === 'login' ? <Dots size={5} label="Waiting for NEAR Auth" /> : busy === 'derive' ? <Dots size={5} label="Deriving addresses" /> : sdk === 'loading' ? 'Loading NEAR Auth…' : 'Create ORI wallet'}</button>
       {sdk === 'error' && <p className="mono xs err why">NEAR Auth could not load{loadErr ? ` (${loadErr})` : ''}. The rest of ORI still works; try again later.</p>}
     </> : <>
       <div className="row"><span className="grow"><b>NEAR account</b><span className="sub mono">{wallet.nearAccountId.slice(0, 10)}…{wallet.nearAccountId.slice(-6)}</span></span><a className="mono xs" href={`${NEAR_AUTH.explorer}/address/${wallet.nearAccountId}`} target="_blank" rel="noreferrer">nearblocks</a></div>
+      {!oriWalletCanSend(relayerUrl()) && <p className="mono xs dim" role="note">{ORI_WALLET_RECEIVE_ONLY}</p>}
       <p className="mono xs dim">{stateLine}. Recover it by signing in to NEAR Auth with the same login (same passkey or same email) you used to create it. A different login opens a different wallet.</p>
       <span className="rowbtns">
         {!session && <button className="ghost" disabled={sdk !== 'ready' || !!busy} onClick={() => create(false)}>{busy === 'login' || busy === 'derive' ? <Dots size={5} label="Signing in" /> : 'Sign in to ORI wallet'}</button>}
@@ -87,6 +90,7 @@ export function NativeNearSend({ cfg }: { cfg: Settings }) {
   useEffect(() => { let dead = false; tokens().then(ts => { if (!dead) { const v = priceOf(ts, 'NEAR', 'near'); setPx(v > 0 ? v : null) } }).catch(() => !dead && setPx(null)); nearFee().then(f => !dead && setFee(f)).catch(() => !dead && setFee(null)); return () => { dead = true } }, [])
   useEffect(() => { let dead = false; setBal(undefined); if (!w) return; nearBalance(w.nearAccountId).then(b => !dead && setBal(b ? spendable(b) : null)).catch(() => !dead && setBal(null)); return () => { dead = true } }, [w?.nearAccountId])
   if (!w) return <><div className="mono xs dim why">Sending NEAR uses your ORI wallet. Create it first; it takes one NEAR Auth sign-in.</div><NativeWalletCard compact /></>
+  if (!oriWalletCanSend(relayer)) return <div className="mono xs why" role="note"><b>RECEIVE-ONLY</b> · {ORI_WALLET_RECEIVE_ONLY}</div>
   const units = toUnits(amt, YOCTO)
   const usd = units && px ? Number(fromUnits(units, YOCTO, 8)) * px : 0
   const recipientError = to ? validateNearRecipient(to, w.nearAccountId) : null

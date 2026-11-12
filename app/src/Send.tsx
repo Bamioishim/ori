@@ -53,11 +53,11 @@ export function SendScreen({ cfg, preset, openWallets }: { cfg: Settings; preset
     <section className="pad-top"><h2 className="big2">Send<br /><span className="dim">to any wallet address.</span></h2>
       <div className="mono xs dim">Same-network transfer from your own wallet. No ORI account needed on the other side, and no cross-chain route.</div></section>
     <section>
-      <div className="row"><span className="grow">Asset · network</span><select className="history-filter" value={key} onChange={e => { setKey(e.target.value); setStage('edit') }} aria-label="Asset and network">{options.map(o => <option key={o} value={o}>{o.replace('|', ' · ')}{o === 'NEAR|NEAR' ? ' (ORI wallet)' : unsupportedReason(findAsset(o.split('|')[0], o.split('|')[1])) ? ' (unavailable)' : ''}</option>)}</select></div>
+      <div className="row"><span className="grow">Asset · network</span><select className="history-filter" value={key} onChange={e => { setKey(e.target.value); setStage('edit') }} aria-label="Asset and network">{options.map(o => <option key={o} value={o}>{o.replace('|', ' · ')}{o === 'NEAR|NEAR' ? ' (ORI wallet · receive-only)' : unsupportedReason(findAsset(o.split('|')[0], o.split('|')[1])) ? ' (unavailable)' : ''}</option>)}</select></div>
       {isNear ? <NativeNearSend cfg={cfg} />
         : blocked ? <div className="mono xs err why">{blocked}</div>
         : !from ? <><div className="mono xs dim why">Connect a {chain === 'sol' ? 'Solana' : 'EVM'} wallet to send {a?.sym} on {a?.net}.</div>
-          {native && <div className="mono xs dim why">Your ORI wallet can receive on {a?.net}, but sending from its {chain === 'sol' ? 'Solana' : 'EVM'} address needs Chain Signatures signing, which ORI has not wired yet. Nothing will be sent from it.</div>}
+          {native && <div className="mono xs dim why">Your ORI wallet can receive on {a?.net}, but sending from its {chain === 'sol' ? 'Solana' : 'EVM'} address needs Chain Signatures signing, which ORI has not wired yet (ORI wallets are receive-only). Nothing will be sent from it.</div>}
           <button className="ghost" onClick={openWallets}>Connect a wallet</button></>
         : <>
           <div className="row"><span className="grow">From<br /><span className="mono xs dim">{short(from)} · your wallet signs</span></span></div>

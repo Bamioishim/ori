@@ -17,12 +17,13 @@ function Num({ v, onChange, step = 10 }: { v: number; onChange: (n: number) => v
 }
 type P = { s: Settings; set: (p: Partial<Settings>) => void }
 
-export function SettingsScreen({ s, set, mode, setMode, watch }: P & { mode: 'example' | 'live'; setMode: (m: 'example' | 'live') => void; watch: React.ReactNode }) {
+export function SettingsScreen({ s, set, mode, setMode, watch, modeLocked = false }: P & { mode: 'example' | 'live'; setMode: (m: 'example' | 'live') => void; watch: React.ReactNode; modeLocked?: boolean }) {
   const [sure, setSure] = useState(false)
   return <div className="pg">
     <section className="pad-top"><Label>SETTINGS · STORED ON THIS DEVICE</Label><h2 className="big2">Your ORI,<br /><span className="dim">your rules.</span></h2>
       <div className="row"><span className="grow">Data mode<br /><span className="mono xs dim">Example data, or real balances read from your watched addresses</span></span>
-        <Seg v={mode} opts={[['example', 'Example'], ['live', 'Live · watch-only']]} onChange={setMode} /></div></section>
+        {modeLocked ? <span className="mono xs">LIVE · MAINNET ONLY</span> : <Seg v={mode} opts={[['example', 'Example'], ['live', 'Live · watch-only']]} onChange={setMode} />}</div>
+      {modeLocked && <div className="mono xs dim">Registered sessions use mainnet data only. Example data is available in guest sessions.</div>}</section>
     <section>{watch}</section>
     <section><Label>PAYMENTS</Label>
       <div className="row"><span className="grow">Preferred receiving currency<br /><span className="mono xs dim">Recipients keep this default until they change it. Routes are shown only when supported.</span></span>
@@ -76,7 +77,8 @@ export function SecurityScreen({ s, set }: P) {
 }
 
 const FAQ: [string, string][] = [
-  ['Is my money at risk in this preview?', 'ORI holds no keys. In example mode, payments and swaps are simulated. In live mode, direct sends and payments ask your own wallet to sign real transactions, so only sign what you mean to send.'],
+  ['Is my money at risk in this preview?', 'ORI holds no keys. As a guest, Pay is a DEMO: nothing is signed, deposited or spent, and it is labelled DEMO everywhere. Once you are registered (Gmail account or ORI wallet), ORI uses mainnet data only and Pay and Send ask your own connected wallet to sign real transactions, so only sign what you mean to send.'],
+  ['Can I send from my ORI wallet?', 'Not yet. ORI wallets (created with NEAR Auth) are receive-only for now: they can receive on NEAR, Base, Ethereum and Solana, but sending needs a NEAR signing relayer that is not set up. Use a connected wallet such as MetaMask or Phantom to send.'],
   ['Where do balances come from?', 'In Example mode they’re made-up numbers. In Live mode ORI reads the public addresses you add in Settings through public RPCs. It’s read-only.'],
   ['What does the scam check do?', 'Before a payment, the recipient goes through GoPlus address security, live. Flagged addresses are blocked and logged in Security.'],
   ['How do the spending limits work?', 'A per-payment cap and a daily cap are checked inside the ORI app, on the payment and swap cards and again right before ORI asks your wallet to sign. They are not on-chain and do not cover transactions you sign outside ORI. Above your hold threshold you must slide all the way across to confirm (or press Enter twice). Ori warns you before you hit a cap.'],

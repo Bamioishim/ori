@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { short } from './live'
 import { type Transaction, useTransactions } from './transactions'
 import { txAmountLabel, txStatusLabel } from './historyLabels'
+import { visibleHistory, type SessionKind } from './sessionMode'
 
 const ago = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
 const icon = (t: Transaction['kind']) => t === 'receive' ? '↓' : t === 'create' ? '+' : t === 'swap' ? '⇄' : '↑'
@@ -38,15 +39,15 @@ function TxRow({ tx, compact, onSelect }: { tx: Transaction; compact?: boolean; 
   </button>
 }
 
-export function HistoryScreen({ onSelect }: { onSelect: (tx: Transaction) => void }) {
-  const list = useTransactions(); const [filter, setFilter] = useState<'all' | Transaction['kind']>('all')
+export function HistoryScreen({ onSelect, kind = 'guest' }: { onSelect: (tx: Transaction) => void; kind?: SessionKind }) {
+  const list = visibleHistory(useTransactions(), kind); const [filter, setFilter] = useState<'all' | Transaction['kind']>('all')
   const shown = filter === 'all' ? list : list.filter(t => t.kind === filter)
   return <div className="pg history-page"><section className="pad-top"><div className="sechead"><div><div className="label">HISTORY</div><h2 className="big2">Your activity.</h2></div><select className="history-filter" value={filter} onChange={e => setFilter(e.target.value as typeof filter)}><option value="all">All types</option><option value="send">Send</option><option value="receive">Receive</option><option value="swap">Swap</option><option value="create">Create</option></select></div></section>
-    <section>{shown.map(tx => <TxRow key={tx.id} tx={tx} onSelect={onSelect} />)}{!shown.length && <div className="mono xs dim">No transactions yet.</div>}</section>
+    <section>{shown.map(tx => <TxRow key={tx.id} tx={tx} onSelect={onSelect} />)}{!shown.length && <div className="mono xs dim">{kind === 'registered' ? 'No mainnet transactions yet. Demo activity is hidden in registered sessions.' : 'No transactions yet.'}</div>}</section>
   </div>
 }
 
-export function RecentTransactions({ max = 4, onSelect }: { max?: number; onSelect: (tx: Transaction) => void }) {
-  const list = useTransactions().slice(0, max)
+export function RecentTransactions({ max = 4, onSelect, kind = 'guest' }: { max?: number; onSelect: (tx: Transaction) => void; kind?: SessionKind }) {
+  const list = visibleHistory(useTransactions(), kind).slice(0, max)
   return <>{list.map(tx => <TxRow key={tx.id} tx={tx} compact onSelect={onSelect} />)}</>
 }

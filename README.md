@@ -38,6 +38,18 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 
 ---
 
+## Mainline branch (`ori-mainline`, Nov 12 2026)
+
+`ori-mainline` is the consolidated working branch for the NEAR hackathon. It starts from `native-wallets-mainnet` and brings in the Nov 8 `fix/guest-mainnet-auth-transfer` work by hand:
+
+- **Guest vs registered separation.** Guests get example data and **DEMO-only Pay** (labelled *GUEST DEMO · NO CHAIN TRANSACTION*; no wallet, no deposit, logged as DEMO). A session is **registered** once there is a Gmail account or an ORI wallet on the device: it is locked to live mainnet data, DEMO activity is hidden from History, Profile shows only real addresses, and Pay never falls back to a simulated success (example handles and a deployment without settlement are **blocked** with "No funds were moved").
+- **Receipts.** Base sends report *confirmed / failed / pending* from the on-chain receipt (`sendEvm` polling), never success on broadcast alone.
+- **Durable email-code store.** `api/auth/_store.ts` supports Upstash Redis REST (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`). Without both, Gmail codes still fail closed (503).
+- **Vercel Node handlers.** Kept the `api/_runtime.ts` `adapt()` Node↔Web adapter (exact body bytes, tested) instead of the Nov 8 `_http.ts` helpers.
+- **Startup.** A visible error boundary replaces blank frames; the intro starts on the wordmark.
+- **ORI wallets are receive-only.** No NEAR signing relayer is funded, so ORI-created wallets can receive on NEAR, Base, Ethereum and Solana but cannot send; the UI says so on Receive, Send, Profile and Help. Use a connected wallet (MetaMask, Phantom) to send.
+- Dropped: the `native-wallet-vault` (password vault) approach. That branch is left untouched.
+
 ## Status at a glance
 
 | Area | State |
@@ -267,6 +279,9 @@ Names only. **Never commit values.** Copy `app/.env.example` for local use and s
 | `GOOGLE_OAUTH_CLIENT_SECRET` | server | `api/auth/send-code.ts` | OAuth2 client secret |
 | `GMAIL_OAUTH_REFRESH_TOKEN` | server | `api/auth/send-code.ts` | OAuth2 refresh token |
 | `ORI_AUTH_CODE_SECRET` | server | `api/auth/*` | secret used to hash and verify one-time codes |
+| `UPSTASH_REDIS_REST_URL` | server | `api/auth/_store.ts` | Upstash Redis REST endpoint for one-time codes and rate limits (https only) |
+| `UPSTASH_REDIS_REST_TOKEN` | server | `api/auth/_store.ts` | Upstash REST token; missing → email codes fail closed |
+| `VITE_ORI_NEAR_RELAYER_URL` | browser (build time) | `src/oriWallet.ts` | optional NEAR signing relayer; unset → ORI wallets are receive-only |
 
 Never prefix a server variable with `VITE_`; that would ship it to the browser.
 

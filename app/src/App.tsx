@@ -36,6 +36,8 @@ import { saveWallet } from './wallets'
 import { TOKEN_LOGOS, CHAIN_LOGOS } from './tokenLogos'
 import { startTapToTalk, speechSupported } from './listen'
 import WalletsScreen from './Wallets'
+import { useNativeWallet } from './NativeWallet'
+import { canUseExample, effectiveMode, payRoute, sessionKind, EXAMPLE_REGISTERED, type SessionKind } from './sessionMode'
 
 type Screen = 'home' | 'send' | 'receive' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
@@ -105,7 +107,7 @@ function Watch({ addrs, setAddrs, live, refresh }: { addrs: string[]; setAddrs: 
     {live.errors.map(e => <div className="mono xs err" key={e}>{e}</div>)}
   </section>
 }
-function Home({ profile, hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { profile: React.ReactNode; wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
+function Home({ kind, profile, hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { kind: SessionKind; profile: React.ReactNode; wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
   const [range, setRange] = useState('1W')
   const [sel, setSel] = useState<string | null>(null)
   const isLive = mode === 'live'
@@ -115,7 +117,7 @@ function Home({ profile, hidden, setHidden, extra, mode, setMode, live, addrs, s
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
-  if (wide) return <HomeDesk {...{ profile, hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
+  if (wide) return <HomeDesk {...{ kind, profile, hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
     {profile}
     <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
@@ -188,11 +190,11 @@ function HoldList({ rows, chainRows, sum, hide, sel, setSel, go }: any) {
 }
 
 function HomeDesk(p: any) {
-  const { profile, hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
+  const { kind, profile, hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
   const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
   return <div className="dash">
     <section className="d-card d-hero">
-      <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
+      <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} disabled={m === 'example' && !canUseExample(kind)} title={m === 'example' && !canUseExample(kind) ? 'Example data is for guest sessions only' : undefined} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
       {profile}
       <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
       <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
@@ -234,7 +236,7 @@ function HomeDesk(p: any) {
     </section>
     <section className="d-card d-act">
       <div className="sechead"><Label>RECENT ACTIVITY</Label><button className="label linkish" onClick={() => go('history')}>SEE ALL →</button></div>
-      <RecentTransactions max={5} onSelect={onTransaction} />
+      <RecentTransactions max={5} kind={kind} onSelect={onTransaction} />
     </section>
   </div>
 }
@@ -277,7 +279,7 @@ function ConfirmBtn({ label, blocked, limit, status, busyLabel, onGo, onLimit, b
 }
 
 type LivePayment = { kind: 'settlement' | 'direct'; quote?: SettlementQuote; wallet: string; txHash: string; state: SettlementStatus['status'] | 'BROADCAST' | 'SUCCESS' | 'ERROR'; destination: string; network: string; amount: number; error?: string }
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null, demo?: boolean) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement, guest }: { guest: boolean; draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null, demo?: boolean) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
@@ -327,6 +329,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
   const st = (ok: string) => !cfg.scam ? 'CHECK OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : ok
   const n = n0
   const limit = n > 0 ? limitCheck(cfg, n) : null
+  const demoPay = guest || resolvedExample // guests only ever simulate; registered sessions pay on mainnet
   return <div className="split pay-split">
     <section className="pad-top sa">
       <Label>PAY · TO @HANDLE OR ADDRESS · RECEIVE {cfg.preferredReceivingCurrency} {trusted && <span className="live-tag">TRUSTED</span>}</Label>
@@ -336,7 +339,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     </section>
     <div className="sbw">
     <section className="sb">
-      <Label>{evmTo ? 'DIRECT WALLET TRANSFER · BASE' : 'BEST ROUTE · NEAR INTENTS'} <LiveTag q={q} /></Label>
+      <Label>{guest ? 'GUEST DEMO · NO CHAIN TRANSACTION' : evmTo ? 'DIRECT WALLET TRANSFER · BASE MAINNET' : 'BEST ROUTE · NEAR INTENTS'} <LiveTag q={q} /></Label>
       <div className="route">
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
         <div className="line" />
@@ -345,7 +348,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? (resolvedExample ? `DEMO handle ${to} → ${short(resolvedRecipient)} · simulated pay only · not a verified live payee` : `Verified handle ${to} → ${short(resolvedRecipient)}`) : resolveError ? (resolveKind === 'service' ? resolveError : resolveError) : 'Resolving handle…'} />
+      <QuoteMeta q={q} extra={guest ? 'Guest demo: live numbers for illustration only. No wallet opens and nothing is signed, deposited or spent. Sign in for mainnet payments.' : !preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? (resolvedExample ? `DEMO handle ${to} → ${short(resolvedRecipient)} · simulated pay only · not a verified live payee` : `Verified handle ${to} → ${short(resolvedRecipient)}`) : resolveError ? (resolveKind === 'service' ? resolveError : resolveError) : 'Resolving handle…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
@@ -356,7 +359,7 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     </section></div>
     {status === 'sent'
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : (resolvedExample ? 'DEMO · SIMULATED' : 'SIMULATED')}</span></Label>
+        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : (demoPay ? 'DEMO · SIMULATED' : 'SIMULATED')}</span></Label>
         <div className="money-r">{usd(n)} <span className="dim">{settlement ? 'sent' : 'demo · not sent'} to {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → {settlement?.network || destinationNetwork} USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">{settlement?.kind === 'direct' ? `Direct Base transfer · ${settlement.state}` : `NEAR Intents · ${settlement?.state || 'simulated'}`}</span></div>
@@ -365,8 +368,8 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement?.kind === 'direct' ? 'Your connected wallet' : settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : resolvedExample ? 'review DEMO payment ' + usd(n) : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? (resolveKind === 'service' ? resolveError : `Handle unresolved: ${resolveError}`) : to.trim().startsWith('@') && !resolvedRecipient && !evmTo && !solTo ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel={resolvedExample ? 'Ori is simulating' : 'Ori is delivering'}
-        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null, !!resolvedExample) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
+      : <ConfirmBtn btn={cta} label={`${demoPay ? 'review DEMO payment ' + usd(n) : evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? (resolveKind === 'service' ? resolveError : `Handle unresolved: ${resolveError}`) : to.trim().startsWith('@') && !resolvedRecipient && !evmTo && !solTo ? 'Resolving handle…' : !demoPay && !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel={demoPay ? 'Ori is simulating' : 'Ori is delivering'}
+        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null, demoPay) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
@@ -554,10 +557,11 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>(initial)
   const [hidden, setHidden] = useState(false)
   const [extra, setExtra] = useState(0)
-  const [mode, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
+  const [modeReq, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
   const [live, setLive] = useState<LiveState>({ loading: false, holdings: [], errors: [], at: null })
   const setMode = (m: Mode) => {
+    if (m === 'example' && !canUseExample(kindRef.current)) { oriSay('Registered sessions use mainnet data only. Example data is for guests.'); return }
     setModeS(m); localStorage.setItem('mode', m)
     // Abort pending review/confirm when UI data mode changes; invalidate in-flight DEMO so it cannot log after cancel
     demoPayGen.current += 1
@@ -570,6 +574,12 @@ export default function App() {
   const [settlement, setSettlement] = useState<LivePayment | null>(null)
   const [account, setAccount] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('ori-account') || 'null') } catch { return null } })
   const [accountOpen, setAccountOpen] = useState(false)
+  // Guest vs registered: a Gmail account or an ORI wallet on this device makes the session registered (mainnet only).
+  const nativeWallet = useNativeWallet()
+  const kind: SessionKind = sessionKind({ account, nativeWallet })
+  const kindRef = useRef(kind); kindRef.current = kind
+  const mode = effectiveMode(modeReq, kind)
+  useEffect(() => { if (kind !== 'registered') return; demoPayGen.current += 1; sheetAction.current = 'cancel'; setSheet(null); setStatus('idle'); setSwapSt('idle'); setExtra(0); paymentInFlight.current = false }, [kind])
   const [guestId] = useState(() => { const existing = sessionStorage.getItem('ori-guest'); if (existing) return existing; const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); sessionStorage.setItem('ori-guest', id); return id })
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
@@ -675,10 +685,12 @@ export default function App() {
   const demoPayGen = useRef(0)
   const confirm = async (r: DOMRect, amt: number, to: string, fee: number | null, demo = false) => {
     sheetAction.current = 'idle'
-    // DEMO path (e.g. @tolu example): isolated even when VITE_ORI_SETTLEMENT_MODE=live. No dry:false, wallet, or fake tx.
-    if (demo || isExampleHandle(to) || !isSettlementEnabled()) {
+    // Guest → DEMO only. Registered → mainnet only; never a simulated success (blocked instead).
+    const route = payRoute({ kind, exampleHandle: demo || isExampleHandle(to), settlementEnabled: isSettlementEnabled() })
+    if (route.route === 'blocked') { oriSay(route.reason); return }
+    if (route.route === 'demo') {
       const demoLines: [string, string][] = [['Mode', 'DEMO · simulated'], ['Recipient', to.trim()], ['Route', 'Base USDC → Solana USDC (quoted dry · not deposited)'], ['Signing', 'None · demo does not open a wallet'], ['History', 'Logged as DEMO · separate from real spending']]
-      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, lines: demo || isExampleHandle(to) ? demoLines : undefined, run: () => doPay(r, amt, to, undefined, true) })
+      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, lines: demoLines, run: () => doPay(r, amt, to, undefined, true) })
       return
     }
     try { // live verified only: build the exact plan the wallet will sign
@@ -696,6 +708,7 @@ export default function App() {
     { const why = limitCheck(cfg, amt); if (why) { overLimit(r, why, `Payment of ${usd(amt)} to ${to}`); return } } // re-check at the signing boundary, not only on the card
     // DEMO / non-settlement simulation: honest receipt + demo ledger. No wallet, no dry:false, no fake txHash/explorer.
     if (demo || !plan) {
+      if (kind === 'registered') { oriSay(demo ? EXAMPLE_REGISTERED : 'No reviewed live plan for this payment, so nothing was sent.'); return }
       if (isSettlementEnabled() && !demo && !isExampleHandle(to)) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
       if (paymentInFlight.current) return
       paymentInFlight.current = true
@@ -789,7 +802,7 @@ export default function App() {
       </div>
       <button className="side-account" onClick={() => setAccountOpen(true)}><span className="account-dot" />{account ? `@${account.username}` : 'Sign in / Login'}<span className="mono xs dim">{account ? 'ACCOUNT' : 'GUEST'}</span></button>
       <button className="side-ask" onClick={() => ask()}><span className="dot" />Ask Ori anything<span className="mono xs dim">CLICK</span></button>
-      <p className="mono xs dim side-foot">Preview · {mode === 'live' ? 'live watch-only' : 'example data'} · nothing is signed</p>
+      <p className="mono xs dim side-foot">{kind === 'registered' ? 'Registered · mainnet data only · your wallet signs every send' : `Guest · ${mode === 'live' ? 'live watch-only' : 'example data'} · payments are DEMO only`}</p>
     </aside>}
     {wide && <button className="mic top-mic" onClick={heyOri} aria-label={listenSt === 'listening' ? 'Stop listening' : 'Open chat and talk to Ori'} title={listenSt === 'listening' ? 'Listening — click to stop' : 'Click to talk to Ori. Not always listening.'} aria-pressed={listenSt === 'listening'}>
         <span className="dot" aria-hidden />
@@ -801,20 +814,20 @@ export default function App() {
       {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'send') setSendPreset(to ? { sym: to.split('|')[0], net: to.split('|')[1] } : null); if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
-        {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
+        {screen === 'home' && <Home kind={kind} profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'send') setSendPreset(to ? { sym: to.split('|')[0], net: to.split('|')[1] } : null); if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
+        {screen === 'pay' && <Pay guest={kind === 'guest'} draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
         {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} uiMode={mode} onConfirm={confirmSwap} onLimit={overLimit} />}
         {screen === 'send' && <SendScreen key={sendPreset ? sendPreset.sym + sendPreset.net : 'send'} cfg={cfg} preset={sendPreset} openWallets={() => goTo('wallets')} />}
         {screen === 'receive' && <ReceiveScreen watched={addrs} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} onAddWatch={a => { const t = a.trim(); if (!t || addrs.some(x => x.toLowerCase() === t.toLowerCase())) return; setAddrs([...addrs, t]) }} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
-        {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
+        {screen === 'history' && <HistoryScreen kind={kind} onSelect={setSelectedTransaction} />}
         {screen === 'wallets' && <WalletsScreen />}
-        {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
+        {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} modeLocked={!canUseExample(kind)} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
         {screen === 'security' && <SecurityScreen s={cfg} set={setCfg} />}
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
         {screen === 'scan' && !isHiddenScreen('scan') && <ScanScreen />}
         {screen === 'help' && <HelpScreen ask={ask} />}
-        {screen === 'profile' && <Profile sum={total + extra} hide={hidden} />}
+        {screen === 'profile' && <Profile sum={kind === 'registered' ? live.holdings.reduce((a, h) => a + h.usd, 0) : total + extra} hide={hidden} registered={kind === 'registered'} addrs={addrs} native={nativeWallet ? { near: nativeWallet.nearAccountId, evm: nativeWallet.evm?.address ?? null, sol: nativeWallet.sol?.address ?? null } : null} />}
         {screen === 'earn' && !isHiddenScreen('earn') && <Earn />}
         {screen === 'privacy' && !isHiddenScreen('privacy') && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
@@ -900,12 +913,30 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
     <section><Label>REQUESTS ON THIS DEVICE · {requests.length}</Label>{requests.length ? requests.map(r => <button className="tx-row" key={r.id} onClick={() => setSelected(r)}><span className="tx-icon">↓</span><span className="grow"><b>{r.amount} {r.asset}</b><span className="sub">{r.network} · from {r.target}</span></span><span className="tx-right"><small>{r.status}</small></span></button>) : <div className="mono xs dim">No requests yet.</div>}</section>
   </div>
 }
-function Profile({ sum, hide }: { sum: number; hide: boolean }) {
+function Profile({ sum, hide, registered = false, addrs = [], native = null }: { sum: number; hide: boolean; registered?: boolean; addrs?: string[]; native?: { near: string; evm: string | null; sol: string | null } | null }) {
   const [qr, setQr] = useState<string | null>(null)
   const bal = (c: string) => chains.find(x => x.name === c)?.usd || 0
   const scale = sum / (total || 1)
+  if (registered) {
+    // Registered: real public addresses only (ORI wallet + addresses you added). No demo rows, no demo funds.
+    const rows: { chain: string; addr: string; src: string }[] = []
+    if (native) { rows.push({ chain: 'NEAR', addr: native.near, src: 'ORI wallet · receive-only' }); if (native.evm) rows.push({ chain: 'Base', addr: native.evm, src: 'ORI wallet · receive-only' }); if (native.sol) rows.push({ chain: 'Solana', addr: native.sol, src: 'ORI wallet · receive-only' }) }
+    for (const a of addrs) { const k = kindOf(a); if (k && !rows.some(r => r.addr.toLowerCase() === a.toLowerCase())) rows.push({ chain: k === 'evm' ? 'Base' : k === 'sol' ? 'Solana' : 'NEAR', addr: a, src: 'Watch-only address' }) }
+    return <div className="pg profile">
+      <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">Registered · mainnet only</div></div></section>
+      <section><Label>MAINNET ADDRESSES</Label>
+        {rows.map(r => <div className="prow" key={r.chain + r.addr}>
+          <ChainMark chain={r.chain} />
+          <span className="grow"><b>{r.chain === 'Base' ? 'Base / Ethereum · EVM' : r.chain}</b><span className="sub mono">{r.addr.length > 20 ? short(r.addr) : r.addr} · {r.src}</span></span>
+          <CopyButton text={r.addr} label="" className="picon" aria={'Copy ' + r.chain + ' address'} />
+        </div>)}
+        {!rows.length && <div className="mono xs dim">No mainnet address yet. Create your ORI wallet in Receive, or add an address in Settings.</div>}
+        <div className="ptotal"><span className="grow">Verified balance · watched addresses</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
+        <div className="mono xs dim">Only balances read from mainnet are shown. Demo funds are excluded. ORI wallets are receive-only until a NEAR signing relayer is set up.</div></section>
+    </div>
+  }
   return <div className="pg profile">
-    <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">One account · four chains <Example /></div></div></section>
+    <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">Guest preview · one account · four chains <Example /></div></div></section>
     <section><Label>CHAIN ADDRESSES · DEMO</Label>
       {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
         <ChainMark chain={a.chain} />

@@ -160,7 +160,7 @@ export function relayerUrl(env: Record<string, unknown> = (import.meta as any).e
   const u = String(env.VITE_ORI_NEAR_RELAYER_URL || '').trim()
   return /^https:\/\/[^\s]+$/.test(u) ? u.replace(/\/$/, '') : null
 }
-export const NO_RELAYER = 'NEAR Auth signing needs a relayer: a server with a funded NEAR account that submits the approved request to fast-auth.near. ORI has none configured yet, so nothing can be signed or sent.'
+export const NO_RELAYER = 'ORI wallets are receive-only for now. NEAR Auth signing needs a relayer (a server with a funded NEAR account that submits the approved request to fast-auth.near), and ORI has none configured yet, so nothing can be signed or sent.'
 
 /** Fail-closed pre-sign check for a native NEAR send. Same client-side spending-limit rail as every other ORI send. */
 export function nearSendCheck(o: { to: string; self: string; units: bigint | null; fee: bigint | null; spendable: bigint | null; usd: number; caps: Caps; spent: number; relayer: string | null }): string | null {
