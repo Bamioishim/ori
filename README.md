@@ -2,12 +2,12 @@
 
 ![ORI](brand/og.png)
 
-> ⚠️ **Not payment-ready.** ORI is a hackathon prototype. No real payment, swap, or wallet signature has been verified end to end on mainnet. Spending limits are browser-side only (not on-chain). Do not use it with funds you are not prepared to lose. Production can ask a **connected** wallet to sign real transfers; ORI does **not** create custodial wallets yet.
+> ⚠️ **Not payment-ready.** ORI is a hackathon prototype. No real payment, swap, or wallet signature has been verified end to end on mainnet. Spending limits are browser-side only (not on-chain). Do not use it with funds you are not prepared to lose. The live preview can ask a **connected** wallet (MetaMask, Phantom) to sign a real transfer; that path has only been mock-tested. ORI-created wallets are receive-only (the NEAR signing relayer was skipped).
 
-**Live preview:** https://ori-preview.vercel.app/ (production deployment of commit `6bf4ff8`, built with `VITE_ORI_SETTLEMENT_MODE=live`)
+**Live preview:** https://ori-preview.vercel.app/ — a **preview** deployment of the `ori-mainline` branch (not a production deploy), built with `VITE_ORI_SETTLEMENT_MODE=live`.
 
-> ⚠️ **The production site is not a simulation.** It was built with the **live** settlement flag.
-> - **Direct Send** (same-chain ETH/USDC/SOL/SPL) asks your **real wallet** to sign a **real transfer**.
+> ⚠️ **The preview is not a simulation.** It was built with the **live** settlement flag.
+> - **Direct Send** (same-chain ETH/USDC/SOL/SPL) asks your **real connected wallet** to sign a **real transfer**.
 > - **Live Pay and Swap** request real quotes and deposits. The Node/Web runtime adapter is fixed; endpoints respond. Real mainnet signing and settlement are still **not** end-to-end verified, so do not treat cross-chain Pay/Swap as ready.
 > - Only connect a wallet and sign if you mean to move real funds. No funds have been moved by the team.
 
@@ -44,7 +44,7 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 
 - **Guest vs registered separation.** Guests get example data and **DEMO-only Pay** (labelled *GUEST DEMO · NO CHAIN TRANSACTION*; no wallet, no deposit, logged as DEMO). A session is **registered** once there is a Gmail account or an ORI wallet on the device: it is locked to live mainnet data, DEMO activity is hidden from History, Profile shows only real addresses, and Pay never falls back to a simulated success (example handles and a deployment without settlement are **blocked** with "No funds were moved").
 - **Receipts.** Base sends report *confirmed / failed / pending* from the on-chain receipt (`sendEvm` polling), never success on broadcast alone.
-- **Durable email-code store.** `api/auth/_store.ts` supports Upstash Redis REST (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, or the Vercel Marketplace pair `KV_REST_API_URL` + `KV_REST_API_TOKEN`). Without a complete pair, email codes fail closed (503).
+- **Email login.** One-time Gmail codes are sent through Resend when `RESEND_API_KEY` is set (default From: `ORI <onboarding@resend.dev>`), with Gmail OAuth as the fallback if Resend is unset. Codes and rate limits are stored in Upstash Redis REST (`UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`, or the Vercel Marketplace pair `KV_REST_API_URL` + `KV_REST_API_TOKEN`). This path was verified end-to-end on 12 Nov 2026 on the preview: a code was delivered and accepted. On Resend's free plan without a custom domain, codes only deliver to the Resend account owner's address; other inboxes fail until a domain is added. The UI only accepts `@gmail.com` addresses. Without a complete store pair or a mailer, send-code fails closed (503).
 - **Vercel Node handlers.** Kept the `api/_runtime.ts` `adapt()` Node↔Web adapter (exact body bytes, tested) instead of the Nov 8 `_http.ts` helpers.
 - **Startup.** A visible error boundary replaces blank frames; the intro starts on the wordmark.
 - **ORI wallets are receive-only.** No NEAR signing relayer is funded, so ORI-created wallets can receive on NEAR, Base, Ethereum and Solana but cannot send; the UI says so on Receive, Send, Profile and Help. Use a connected wallet (MetaMask, Phantom) to send.
@@ -56,17 +56,17 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 |---|---|
 | Frontend UI (Home, Send, Receive, Swap, Pay, History, Policy, Account) | Deployed and browser-checked on desktop by the team; **phone / iPhone speech not verified** |
 | Public 1Click token list and dry-run quotes from the browser | Working on the deployment (215 tokens on Nov 5) |
-| Native same-chain Send / Receive (connected wallets) | Implemented for supported assets; **active on production** for already-connected/imported wallets; mock-tested only — not verified with a real mainnet signature by the team |
-| ORI-created native wallets (passkey + email recovery) | **Built on branch `native-wallets-mainnet` (preview only).** NEAR Auth mainnet login → MPC-derived NEAR implicit account + Chain Signatures addresses (EVM `ethereum-1` for Base/Ethereum, Solana `solana-1`), shown on Receive with Copy. NEAR send signs through NEAR Auth but is **disabled until a signing relayer exists** (`VITE_ORI_NEAR_RELAYER_URL`). Sending from the EVM/Solana addresses is **not wired**. First real login is **blocked**: no ORI URL is on the NEAR Auth app's allowed callback list yet |
+| Native same-chain Send / Receive (connected wallets) | Implemented for supported assets; **active on the live preview** for already-connected/imported wallets; mock-tested only — not verified with a real mainnet signature by the team |
+| ORI-created native wallets (passkey + email recovery) | **Built on `ori-mainline`** (from `native-wallets-mainnet`). NEAR Auth mainnet login → MPC-derived NEAR implicit account + Chain Signatures addresses (EVM `ethereum-1` for Base/Ethereum, Solana `solana-1`), shown on Receive with Copy. These wallets are **receive-only by design**: the NEAR signing relayer was skipped, so NEAR send is **disabled until** `VITE_ORI_NEAR_RELAYER_URL` is set, and sending from the EVM/Solana addresses is **not wired**. First real creation/login is **blocked** until NEAR Auth / Peersyst allow ORI's callback URLs (including `https://ori-preview.vercel.app`) |
 | Live cross-chain Pay and Swap (`/api/quote` + `/api/status`) | Runtime adapter fixed at `6bf4ff8`. Public checks: `/api/resolve` for `@tolu` → 404 (not a registered recipient); `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405. Code + mocks exist; **real mainnet settlement not end-to-end verified** |
 | Demo Pay `@tolu` | Explicit **EXAMPLE · SIMULATED** receipt/history path only — no funds, not a registered live recipient |
-| Gmail code registration/login | **Not functional** until mail is provisioned: store supports Upstash/KV; send-code still fails closed (503) without Resend or Gmail OAuth |
-| NEAR Auth (production) | **Approved** 6 Nov 2026 (client `b6UA35Hea4utXEzCwwoTPnyikGiqwyiq`, domain `login.auth.near.org`). On 9 Nov 2026 Auth0 still returned *Callback URL mismatch* for `https://ori-preview.vercel.app`, preview URLs and localhost, so the allowed callback/web-origin URLs must be added by NEAR Auth before anyone can sign in |
+| Gmail code registration/login | **Working on the preview.** Codes are sent through Resend (Gmail OAuth fallback) and stored in Upstash Redis. Verified end-to-end on 12 Nov 2026. The UI only accepts `@gmail.com`. On Resend's free plan without a custom domain, codes only deliver to the Resend account owner's address. Without a store or mailer, the endpoints still fail closed (503) |
+| NEAR Auth (mainnet) | **Approved** 6 Nov 2026 (client `b6UA35Hea4utXEzCwwoTPnyikGiqwyiq`, domain `login.auth.near.org`). On 9 Nov 2026 Auth0 still returned *Callback URL mismatch* for `https://ori-preview.vercel.app`, preview URLs and localhost, so the allowed callback/web-origin URLs must be added by NEAR Auth / Peersyst before anyone can create or restore an ORI wallet |
 | Spending limits | Enforced only inside the ORI browser app (no on-chain or backend enforcement) |
-| NEAR as a send origin | Quote-only today — no NEAR signing from ORI |
+| NEAR as a send origin | Quote-only for connected wallets. An ORI-wallet NEAR send path exists in code but is disabled without a signing relayer |
 
 **Two modes, don't confuse them.**
-- **Production (https://ori-preview.vercel.app/) is built with `VITE_ORI_SETTLEMENT_MODE=live`.** Pay and Swap reviews are labelled **"LIVE · YOUR WALLET SIGNS"** and call `/api/quote`. The Node/Web runtime adapter is fixed; real mainnet signing/settlement is still not end-to-end verified. Direct Send never depends on this flag: it always uses a **connected** real wallet (ORI does not create one).
+- **The live preview (https://ori-preview.vercel.app/) is built with `VITE_ORI_SETTLEMENT_MODE=live`.** It is a preview deployment, not a production deploy. Pay and Swap reviews are labelled **"LIVE · YOUR WALLET SIGNS"** and call `/api/quote`. The Node/Web runtime adapter is fixed; real mainnet signing/settlement is still not end-to-end verified. Direct Send never depends on this flag: it always uses a **connected** real wallet. ORI-created wallets cannot send.
 - **Local builds default to example mode** (`.env.example` sets `preview`). Pay and Swap confirmations are then simulations labelled **"EXAMPLE · SIMULATED"**, and nothing is signed. Direct Send still uses a real wallet if you connect one.
 
 ---
@@ -80,9 +80,10 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 
 ### Receive
 - Always lists **Base, Ethereum, Solana and NEAR**. A row shows a connected or watch-only address you can copy, or **Not connected** / **No address added** (those cannot be copied).
-- ORI never invents addresses or keys. **Watch-only** means you pasted a public address; ORI does not verify that you own it, and it cannot sign or move anything from it.
+- A created ORI wallet lists derived receive-only addresses on Base, Ethereum, Solana and NEAR (NEAR Auth + Chain Signatures). Creating one is blocked until NEAR Auth allows ORI's callback URLs.
+- **Watch-only** means you pasted a public address; ORI does not verify that you own it, and it cannot sign or move anything from it. Connected wallets and watch-only addresses you add yourself are listed the same way.
 - The same EVM address can appear on both Base and Ethereum; send the matching asset on the network you pick.
-- You can connect a wallet on the existing Wallets screen or add an existing address, including a NEAR account. Receiving to NEAR works; sending from ORI on NEAR is not available yet.
+- You can connect a wallet on the existing Wallets screen or add an existing address, including a NEAR account. Receiving to NEAR works; sending from an ORI-created wallet is not available (receive-only).
 - Copy one row, or copy only the populated addresses. See your **preferred receiving currency**.
 
 ### Send (same-chain, direct)
@@ -117,7 +118,7 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 ### Account
 - **Guest mode** always works. Profiles are **device-local**.
 - Log out keeps the profile on the device (`ori-known-profiles`) and does not touch wallets.
-- Gmail code registration and login are built but **not functional yet** (see Known limitations).
+- Gmail code registration and login **work on the preview** (Resend + Upstash; verified 12 Nov 2026). See Known limitations for the Resend-domain restriction. Profiles stay device-local.
 
 ### Hidden for the submission
 `HIDDEN_SCREENS = ['scan', 'earn', 'privacy']` in `app/src/config.ts`.
@@ -136,7 +137,7 @@ These are UI only. None of them changes signing, limits, the review sheet or the
 - **Settlement times (~22s, ~37s, etc.):** the UI formats the provider’s `quote.timeEstimate` when a **fresh quote for the current route** is present. That field is an estimate of seconds after deposit confirms — not quote latency, not a guarantee, and **not proof the on-screen number is fresh**. ORI does not hardcode 22 or 37. Dry public samples (Africa/Lagos 2026-11-05 23:57) returned distinct raw values per route (SOL→Base USDC 22, Base USDC→Solana USDC 32, Base USDC→SOL 34, ETH→SOL 42, SOL→ETH 27). If the public quote call fails, ORI cannot verify an ETA. The badge is **PROVIDER QUOTE** (or STALE / REFRESHING), never a LIVE settlement claim; changing route clears the previous ETA immediately.
 - **Tabs and segments:** the Tokens/Chains tabs and the Settings segments share one spring tab control, with arrow-key support.
 - **Dropdowns:** styled history and token pickers. The send-asset picker groups tokens by chain and shows a "QUOTE ONLY" chip for sources ORI can't sign.
-- **Gmail code:** a single 6-digit field that handles paste and autofill. The separate 4-digit recovery PIN is labelled as device-only. Gmail login itself is still not functional (503).
+- **Gmail code:** a single 6-digit field that handles paste and autofill. The separate 4-digit recovery PIN is labelled as device-only. Login codes are sent through `/api/auth/send-code` (Resend preferred).
 - **Send form errors** are announced (`role="alert"`), mark the field invalid and shake once.
 - **Hey ORI:** tap-to-talk shows decorative listening bars. They are not a microphone level, and there is no wake word.
 - **Chat composer:** labelled as a local rule-based assistant, not an AI model.
@@ -299,7 +300,7 @@ cd app && npm test
 ```
 Use the prescribed loader (`tests/register.mjs` resolves the `.js` import specifiers used in `api/`). Don't run `node --test` raw.
 
-Currently: **171 node tests and 31 static checks pass**. They cover:
+The suite is **171 node tests and 31 static checks** (not re-run for this docs-only update). They cover:
 - limits;
 - quote time;
 - Receive targets;
@@ -311,37 +312,36 @@ Currently: **171 node tests and 31 static checks pass**. They cover:
 - Pay: binding, wrong chain or account, refusal, refunds and spend holds, failed receipts;
 - Swap UI state.
 
-**What the tests do not prove:** everything above runs with **mocked** wallets, RPCs and provider responses. No real transfer, signature, 1Click non-dry quote or status response, mail delivery, or phone/mobile check has been done.
+**What the tests do not prove:** everything above runs with **mocked** wallets, RPCs, provider responses and mail delivery. The 171 node tests and 31 static checks were not re-run for this docs-only update. A real email-login delivery was verified on the preview on 12 Nov 2026 (Resend → account-owner Gmail, then accepted by `/api/auth/verify-code`). No real transfer, wallet signature, 1Click non-dry quote or status response, or phone/mobile check has been done.
 
 ---
 
 ## Deployment
 
-- The existing Vercel project **`ori-preview`** (root directory `app`) serves https://ori-preview.vercel.app/. That is currently `6bf4ff8`, built with `VITE_ORI_SETTLEMENT_MODE=live`. The Node/Web runtime adapter (relative URL + exact Buffer body copy) is in this commit. Direct Send can request signatures from a **connected** wallet; real mainnet settlement is still not end-to-end verified.
+- The existing Vercel project **`ori-preview`** (root directory `app`) serves https://ori-preview.vercel.app/. That alias is a **preview** deployment of `ori-mainline` (not a production deploy), built with `VITE_ORI_SETTLEMENT_MODE=live`. The Node/Web runtime adapter (relative URL + exact Buffer body copy) was fixed at `6bf4ff8` and is in this branch. Direct Send can request signatures from a **connected** wallet; real mainnet settlement is still not end-to-end verified.
 - Guardrails:
-  - Deploy only to that project.
-  - Production already has `VITE_ORI_SETTLEMENT_MODE=live`. Don't attempt real cross-chain payments until the owner approves a controlled recipient and wallet test.
+  - Deploy only to that project, and prefer preview deploys of `ori-mainline` (do not treat the alias as production).
+  - The preview already has `VITE_ORI_SETTLEMENT_MODE=live`. Don't attempt real cross-chain payments until the owner approves a controlled recipient and wallet test.
   - Keep every secret in Vercel environment variables.
   - Don't remove the JWT guard without the owner's fee decision.
   - Only the owner decides when the repo goes public.
-  - NEAR Auth approval (when it arrives) does not by itself ship ORI-created wallets — custody/signer/recovery/gas still have to be built.
+  - NEAR Auth is already approved for mainnet. That does not unblock wallet creation until ORI's callback URLs are allowed, and it does not enable sending from ORI wallets (the signing relayer was skipped).
 
 ---
 
 ## Known limitations
 
-1. **Node/Web runtime adapter — fixed at `6bf4ff8`.** Handlers use a shared `adapt()` wrapper (`app/api/_runtime.ts`) so Node `(req, res)` and Web `Request` both work: absolute URL construction for relative paths, and exact Buffer body bytes (no pooled `ArrayBuffer` leak). Prior unit coverage included runtime/body regressions; earlier suite reported **138 unit + 31 activation** checks passing (not re-run for this docs update). Public smoke previously seen: `/api/resolve?handle=tolu` → 404; `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405.
+1. **Node/Web runtime adapter — fixed at `6bf4ff8`.** Handlers use a shared `adapt()` wrapper (`app/api/_runtime.ts`) so Node `(req, res)` and Web `Request` both work: absolute URL construction for relative paths, and exact Buffer body bytes (no pooled `ArrayBuffer` leak). The tree now has **171 node tests and 31 static checks** (not re-run for this docs update). Public smoke previously seen: `/api/resolve?handle=tolu` → 404; `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405.
 2. **Not payment-ready / not security-on-chain.** No real mainnet payment, swap or wallet signature has been verified end to end. Spending limits are browser-side only.
-3. **ORI does not create wallets yet.** Native Send/Receive work only with wallets the user already connects or imports. Desired product direction is ORI-created wallets with passkey + email recovery; custody, signer, recovery and gas for that path are **unimplemented**. NEAR Auth production access is **pending** (see Status at a glance); approval alone does not implement those features.
+3. **ORI-created wallets cannot be created yet, and are receive-only.** The create/restore flow is built (NEAR Auth passkey or email → MPC-derived addresses, recover by signing in with the same login). It is **blocked** until NEAR Auth / Peersyst allow ORI's callback URLs. Once created, an ORI wallet can receive on NEAR, Base, Ethereum and Solana, but cannot send: the NEAR signing relayer was skipped (`VITE_ORI_NEAR_RELAYER_URL` unset), and EVM/Solana sending from those derived addresses is not wired. Connected MetaMask/Phantom wallets can send on the supported paths; that has only been mock-tested.
 4. **Provider timeouts.** On Nov 5, 1Click dry quotes sometimes timed out on the provider's side. No real non-dry quote or live settlement response has been fully traced end to end.
-5. **Email login is not fully functional.** Codes need:
-   - a durable `AuthStore` (`app/api/auth/_store.ts`) with atomic rate limits and one-time code consumption — Upstash Redis REST, via `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` or the Marketplace pair `KV_REST_API_URL` + `KV_REST_API_TOKEN`;
-   - a signed server session (`ORI_AUTH_CODE_SECRET`);
-   - a mail provider: `RESEND_API_KEY` (preferred; optional `RESEND_FROM_EMAIL`) or the Gmail OAuth variables.
-
-   Without a store or without a mail provider, the endpoints return **503**. Profiles are device-local, with no cross-device restore.
+5. **Email login works on the preview, with limits.** Resend + Upstash + `ORI_AUTH_CODE_SECRET` were verified end-to-end on 12 Nov 2026. Remaining limits:
+   - the Account UI only accepts `@gmail.com` addresses;
+   - on Resend's free plan without a custom domain, codes only deliver to the Resend account owner's address; other inboxes fail until a domain is added;
+   - profiles are device-local, with no cross-device restore;
+   - without a store or without a mail provider, the endpoints still return **503**.
 6. **Limits are browser-only.** See Security Center above.
-7. **No NEAR signing from ORI.** NEAR can appear as quote-only; there is no ORI NEAR send path and no Chain Signatures.
+7. **No NEAR signing is enabled from ORI today.** For connected wallets, NEAR is quote-only (no NEAR send path). For ORI-created wallets, Chain Signatures addresses are derived for receiving, and a NEAR send path exists in code, but it is disabled without a funded signing relayer.
 8. **Mobile / iPhone speech has not been verified.**
 
 ---
@@ -357,6 +357,7 @@ Currently: **171 node tests and 31 static checks pass**. They cover:
 | `/api/quote` 503 "Live settlement is not configured." | `ORI_1CLICK_JWT` missing (by design) |
 | `/api/quote` GET → 405 / `/api/status` without depositAddress → 400 | expected method/validation responses after the runtime fix |
 | Email code returns 503 | no durable auth store, or no Resend/Gmail mail provider (by design) |
+| Email code never arrives (non-owner inbox) | Resend free plan without a custom domain only delivers to the account owner's address |
 | "Your wallet is not on Base/Ethereum. Nothing was sent." | the wallet refused or failed to switch chains |
 | "The wallet account changed…" | the selected account differs from the one reviewed; review again |
 | A payment is blocked by a limit | adjust it in Policy; a corrupt limit value fails closed |
@@ -365,16 +366,16 @@ Currently: **171 node tests and 31 static checks pass**. They cover:
 
 ## Roadmap
 
-**Implemented (mock-tested):** native Send and Receive for **connected/imported** wallets, catalog-driven swap quotes, guarded live swap and Pay execution paths, SPL USDC/USDT, Gmail code flow (fail-closed), profile control, settlement-time display, limit disclosure, click-only Hey ORI, Node/Web runtime adapter.
+**Implemented (mock-tested unless noted):** native Send and Receive for **connected/imported** wallets, catalog-driven swap quotes, guarded live swap and Pay execution paths, SPL USDC/USDT, Gmail code flow (Resend + Upstash, verified end-to-end on the preview on 12 Nov 2026), ORI-created wallet derivation (receive-only; creation blocked on NEAR Auth callbacks), profile control, settlement-time display, limit disclosure, click-only Hey ORI, Node/Web runtime adapter.
 
-**Not built yet:** ORI-created wallets (passkey + email recovery), custody/signer/recovery/gas for that path.
+**Not available yet:** creating or restoring an ORI wallet (NEAR Auth callback URLs not allowed), sending from an ORI-created wallet (relayer skipped; EVM/Solana send not wired), a real connected-wallet transfer test, cross-device profile restore.
 
 **Next:**
-1. After NEAR Auth approval (currently pending): design/build ORI-created wallet creation — approval alone is not implementation.
+1. After NEAR Auth / Peersyst allow ORI's callback URLs: first real ORI wallet creation. Mainnet approval already arrived on 6 Nov 2026; callbacks are still the blocker.
 2. A controlled live test with a small amount, approved by the owner.
-3. A durable auth store, a signed session and mail configuration.
+3. A custom Resend domain so login codes can reach inboxes other than the account owner's.
 4. A mobile / iPhone speech QA pass.
-5. NEAR signing and more SPL/EVM chains.
+5. A NEAR signing relayer (if sending from ORI wallets is wanted) and more SPL/EVM chains.
 6. Server-side persistence for Requests, plus invoicing.
 
 See [HANDOVER.md](HANDOVER.md) for open owner decisions: the 1Click fee, the NEAR account, NEAR Auth follow-up, and making the repo public.
