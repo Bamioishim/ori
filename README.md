@@ -44,7 +44,7 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 
 - **Guest vs registered separation.** Guests get example data and **DEMO-only Pay** (labelled *GUEST DEMO · NO CHAIN TRANSACTION*; no wallet, no deposit, logged as DEMO). A session is **registered** once there is a Gmail account or an ORI wallet on the device: it is locked to live mainnet data, DEMO activity is hidden from History, Profile shows only real addresses, and Pay never falls back to a simulated success (example handles and a deployment without settlement are **blocked** with "No funds were moved").
 - **Receipts.** Base sends report *confirmed / failed / pending* from the on-chain receipt (`sendEvm` polling), never success on broadcast alone.
-- **Durable email-code store.** `api/auth/_store.ts` supports Upstash Redis REST (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`). Without both, Gmail codes still fail closed (503).
+- **Durable email-code store.** `api/auth/_store.ts` supports Upstash Redis REST (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, or the Vercel Marketplace pair `KV_REST_API_URL` + `KV_REST_API_TOKEN`). Without a complete pair, email codes fail closed (503).
 - **Vercel Node handlers.** Kept the `api/_runtime.ts` `adapt()` Node↔Web adapter (exact body bytes, tested) instead of the Nov 8 `_http.ts` helpers.
 - **Startup.** A visible error boundary replaces blank frames; the intro starts on the wordmark.
 - **ORI wallets are receive-only.** No NEAR signing relayer is funded, so ORI-created wallets can receive on NEAR, Base, Ethereum and Solana but cannot send; the UI says so on Receive, Send, Profile and Help. Use a connected wallet (MetaMask, Phantom) to send.
@@ -60,7 +60,7 @@ It is being built for the NEAR hackathon (build window 1–14 Nov 2026). Product
 | ORI-created native wallets (passkey + email recovery) | **Built on branch `native-wallets-mainnet` (preview only).** NEAR Auth mainnet login → MPC-derived NEAR implicit account + Chain Signatures addresses (EVM `ethereum-1` for Base/Ethereum, Solana `solana-1`), shown on Receive with Copy. NEAR send signs through NEAR Auth but is **disabled until a signing relayer exists** (`VITE_ORI_NEAR_RELAYER_URL`). Sending from the EVM/Solana addresses is **not wired**. First real login is **blocked**: no ORI URL is on the NEAR Auth app's allowed callback list yet |
 | Live cross-chain Pay and Swap (`/api/quote` + `/api/status`) | Runtime adapter fixed at `6bf4ff8`. Public checks: `/api/resolve` for `@tolu` → 404 (not a registered recipient); `/api/status` without `depositAddress` → 400; `/api/quote` GET → 405. Code + mocks exist; **real mainnet settlement not end-to-end verified** |
 | Demo Pay `@tolu` | Explicit **EXAMPLE · SIMULATED** receipt/history path only — no funds, not a registered live recipient |
-| Gmail code registration/login | **Not functional** (fail-closed 503): durable store, signed session and mail provisioning still missing |
+| Gmail code registration/login | **Not functional** until mail is provisioned: store supports Upstash/KV; send-code still fails closed (503) without Resend or Gmail OAuth |
 | NEAR Auth (production) | **Approved** 6 Nov 2026 (client `b6UA35Hea4utXEzCwwoTPnyikGiqwyiq`, domain `login.auth.near.org`). On 9 Nov 2026 Auth0 still returned *Callback URL mismatch* for `https://ori-preview.vercel.app`, preview URLs and localhost, so the allowed callback/web-origin URLs must be added by NEAR Auth before anyone can sign in |
 | Spending limits | Enforced only inside the ORI browser app (no on-chain or backend enforcement) |
 | NEAR as a send origin | Quote-only today — no NEAR signing from ORI |
@@ -202,7 +202,7 @@ Browser (React 19 + Vite + TS)
      ├─ quote.ts    → 1Click /quote (dry:false), route validated against the trusted catalog (_catalog.ts)
      ├─ status.ts   → 1Click /status
      ├─ resolve.ts  → @handle → verified Solana address (ORI_HANDLE_DIRECTORY)
-     └─ auth/       → send-code / verify-code (Gmail OAuth2 mail, AuthStore)
+     └─ auth/       → send-code / verify-code (Resend or Gmail OAuth2 mail, AuthStore)
 ```
 Boundaries:
 - The 1Click JWT stays on the server.
@@ -273,14 +273,18 @@ Names only. **Never commit values.** Copy `app/.env.example` for local use and s
 | `VITE_ORI_SETTLEMENT_MODE` | browser (build time) | `src/live.ts` | `live` enables real settlement flows; anything else (default `preview`) = example mode |
 | `ORI_1CLICK_JWT` | server | `api/_oneclick.ts` | 1Click API key; missing → `/api/quote` and `/api/status` return 503 |
 | `ORI_HANDLE_DIRECTORY` | server | `api/resolve.ts` | JSON allowlist of `@handle` → verified Solana address |
-| `GMAIL_OAUTH_USER` | server | `api/auth/send-code.ts` | Gmail sender account |
-| `GMAIL_OAUTH_FROM` | server | `api/auth/send-code.ts` | From header (defaults to the user) |
-| `GOOGLE_OAUTH_CLIENT_ID` | server | `api/auth/send-code.ts` | OAuth2 client |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | server | `api/auth/send-code.ts` | OAuth2 client secret |
-| `GMAIL_OAUTH_REFRESH_TOKEN` | server | `api/auth/send-code.ts` | OAuth2 refresh token |
+| `RESEND_API_KEY` | server | `api/auth/_mail.ts` | Resend API key; when set, login codes are sent through Resend |
+| `RESEND_FROM_EMAIL` | server | `api/auth/_mail.ts` | Resend From header (defaults to `ORI <onboarding@resend.dev>`) |
+| `GMAIL_OAUTH_USER` | server | `api/auth/_mail.ts` | Gmail sender account (fallback if Resend is unset) |
+| `GMAIL_OAUTH_FROM` | server | `api/auth/_mail.ts` | Gmail From header (defaults to the user) |
+| `GOOGLE_OAUTH_CLIENT_ID` | server | `api/auth/_mail.ts` | OAuth2 client |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | server | `api/auth/_mail.ts` | OAuth2 client secret |
+| `GMAIL_OAUTH_REFRESH_TOKEN` | server | `api/auth/_mail.ts` | OAuth2 refresh token |
 | `ORI_AUTH_CODE_SECRET` | server | `api/auth/*` | secret used to hash and verify one-time codes |
 | `UPSTASH_REDIS_REST_URL` | server | `api/auth/_store.ts` | Upstash Redis REST endpoint for one-time codes and rate limits (https only) |
-| `UPSTASH_REDIS_REST_TOKEN` | server | `api/auth/_store.ts` | Upstash REST token; missing → email codes fail closed |
+| `UPSTASH_REDIS_REST_TOKEN` | server | `api/auth/_store.ts` | Upstash REST token; missing → email codes fail closed unless the KV_* pair is set |
+| `KV_REST_API_URL` | server | `api/auth/_store.ts` | Vercel Marketplace alias for the Upstash REST URL; accepted only with `KV_REST_API_TOKEN` |
+| `KV_REST_API_TOKEN` | server | `api/auth/_store.ts` | Vercel Marketplace alias for the Upstash REST token |
 | `VITE_ORI_NEAR_RELAYER_URL` | browser (build time) | `src/oriWallet.ts` | optional NEAR signing relayer; unset → ORI wallets are receive-only |
 
 Never prefix a server variable with `VITE_`; that would ship it to the browser.
@@ -295,7 +299,7 @@ cd app && npm test
 ```
 Use the prescribed loader (`tests/register.mjs` resolves the `.js` import specifiers used in `api/`). Don't run `node --test` raw.
 
-Currently: **90 node tests and 31 static checks pass**. They cover:
+Currently: **171 node tests and 31 static checks pass**. They cover:
 - limits;
 - quote time;
 - Receive targets;
@@ -330,12 +334,12 @@ Currently: **90 node tests and 31 static checks pass**. They cover:
 2. **Not payment-ready / not security-on-chain.** No real mainnet payment, swap or wallet signature has been verified end to end. Spending limits are browser-side only.
 3. **ORI does not create wallets yet.** Native Send/Receive work only with wallets the user already connects or imports. Desired product direction is ORI-created wallets with passkey + email recovery; custody, signer, recovery and gas for that path are **unimplemented**. NEAR Auth production access is **pending** (see Status at a glance); approval alone does not implement those features.
 4. **Provider timeouts.** On Nov 5, 1Click dry quotes sometimes timed out on the provider's side. No real non-dry quote or live settlement response has been fully traced end to end.
-5. **Gmail login is not functional.** It needs:
-   - a durable `AuthStore` (`app/api/auth/_store.ts`; `getAuthStore()` returns null today) with atomic rate limits and one-time code consumption, e.g. Redis/KV;
-   - a signed server session;
-   - the Gmail OAuth / mail provisioning variables.
+5. **Email login is not fully functional.** Codes need:
+   - a durable `AuthStore` (`app/api/auth/_store.ts`) with atomic rate limits and one-time code consumption — Upstash Redis REST, via `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` or the Marketplace pair `KV_REST_API_URL` + `KV_REST_API_TOKEN`;
+   - a signed server session (`ORI_AUTH_CODE_SECRET`);
+   - a mail provider: `RESEND_API_KEY` (preferred; optional `RESEND_FROM_EMAIL`) or the Gmail OAuth variables.
 
-   None are configured, so the endpoints return **503**. Profiles are device-local, with no cross-device restore.
+   Without a store or without a mail provider, the endpoints return **503**. Profiles are device-local, with no cross-device restore.
 6. **Limits are browser-only.** See Security Center above.
 7. **No NEAR signing from ORI.** NEAR can appear as quote-only; there is no ORI NEAR send path and no Chain Signatures.
 8. **Mobile / iPhone speech has not been verified.**
@@ -352,7 +356,7 @@ Currently: **90 node tests and 31 static checks pass**. They cover:
 | `/api/*` 404 locally | Vite dev/preview doesn't host functions |
 | `/api/quote` 503 "Live settlement is not configured." | `ORI_1CLICK_JWT` missing (by design) |
 | `/api/quote` GET → 405 / `/api/status` without depositAddress → 400 | expected method/validation responses after the runtime fix |
-| Gmail code returns 503 | no durable auth store configured (by design) |
+| Email code returns 503 | no durable auth store, or no Resend/Gmail mail provider (by design) |
 | "Your wallet is not on Base/Ethereum. Nothing was sent." | the wallet refused or failed to switch chains |
 | "The wallet account changed…" | the selected account differs from the one reviewed; review again |
 | A payment is blocked by a limit | adjust it in Policy; a corrupt limit value fails closed |

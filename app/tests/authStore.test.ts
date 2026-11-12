@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { getAuthStore, setAuthStore, upstashStore } from '../api/auth/_store.ts'
+import { getAuthStore, setAuthStore, upstashStore, redisCreds } from '../api/auth/_store.ts'
 import { sendCode, verifyCode } from '../api/auth/_codes.ts'
 
 // Fake Upstash REST endpoint: POST JSON command array → { result }.
@@ -23,6 +23,15 @@ test('no Upstash env → no store (email codes fail closed)', () => {
   assert.equal(getAuthStore({ UPSTASH_REDIS_REST_URL: 'https://x.upstash.io' }), null)
   assert.equal(getAuthStore({ UPSTASH_REDIS_REST_URL: 'http://insecure', UPSTASH_REDIS_REST_TOKEN: 't' }), null)
   assert.ok(getAuthStore({ UPSTASH_REDIS_REST_URL: 'https://x.upstash.io', UPSTASH_REDIS_REST_TOKEN: 't' }))
+})
+test('Vercel Marketplace KV_REST_API_* names are accepted as a pair; official names win; mixed pairs are ignored', () => {
+  setAuthStore(null)
+  assert.equal(getAuthStore({ KV_REST_API_URL: 'https://kv.upstash.io' }), null)
+  assert.equal(getAuthStore({ KV_REST_API_URL: 'http://insecure', KV_REST_API_TOKEN: 't' }), null)
+  assert.ok(getAuthStore({ KV_REST_API_URL: 'https://kv.upstash.io', KV_REST_API_TOKEN: 't' }))
+  assert.deepEqual(redisCreds({ KV_REST_API_URL: 'https://kv.upstash.io', KV_REST_API_TOKEN: 'kv' }), { url: 'https://kv.upstash.io', token: 'kv' })
+  assert.deepEqual(redisCreds({ UPSTASH_REDIS_REST_URL: 'https://official.upstash.io', UPSTASH_REDIS_REST_TOKEN: 'official', KV_REST_API_URL: 'https://kv.upstash.io', KV_REST_API_TOKEN: 'kv' }), { url: 'https://official.upstash.io', token: 'official' })
+  assert.equal(redisCreds({ UPSTASH_REDIS_REST_URL: 'https://official.upstash.io', KV_REST_API_TOKEN: 'kv' }), null)
 })
 test('Upstash adapter: windowed counter, one-time consume, bearer auth, namespaced keys', async () => {
   const u = fakeUpstash(); const s = upstashStore('https://x.upstash.io/', 'tok', u.f)

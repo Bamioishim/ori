@@ -49,7 +49,7 @@ All "IMPLEMENTED" items are mocked/unit/static tested only unless noted. Earlier
 | Live swap / Pay execution | Code + mocks exist; runtime responds; **real mainnet signing/settlement not end-to-end verified** |
 | Demo Pay `@tolu` | EXAMPLE · SIMULATED receipt/history only — no funds; not a registered live recipient |
 | Swap with settlement off | EXAMPLE simulation, labelled as such |
-| Gmail code register/login | BLOCKED in production: durable store / session / mail provisioning missing → fail-closed 503 |
+| Gmail code register/login | Store supports Upstash/KV; still BLOCKED without a mail provider (Resend preferred, Gmail OAuth fallback) or session secret → fail-closed 503 |
 | NEAR Auth (production) | **Pending.** Official form submitted ~00:02 WAT 6 Nov 2026 (origin + callback `https://ori-preview.vercel.app`, initial MAU under 1000). Follow-up to Peersyst general contact ~01:53 WAT. Last Gmail check (inbox + spam + trash) **09:20 WAT 6 Nov 2026**: **no approval/reply**. No timeline. Approval ≠ wallet implementation |
 | Spending limits | Browser app only, fail-closed; no backend or contract enforcement |
 | iPhone / mobile speech | Not end-to-end verified |
@@ -63,10 +63,10 @@ IMPLEMENTED, behavior-tested with mocks only (`app/tests/pay.test.ts`).
 
 ## Honest blockers (as of 6 Nov 2026, commit `6bf4ff8`)
 - **ORI-created wallets not built.** Connect/import-first does not meet the desired core (passkey + email recovery). Custody, signer, recovery and gas remain unimplemented. **NEAR Auth production access is pending** (see status table); when approved it enables work — it does not ship wallet features by itself.
-- **Gmail code auth returns 503.** The missing pieces:
-  1. A durable store for `AuthStore` (`app/api/auth/_store.ts`, `getAuthStore()` currently returns null), e.g. a Redis/KV. It must provide atomic `hit` (rate limits) and `consumeOnce` (one-time codes).
+- **Gmail code auth returns 503 until mail is provisioned.** The pieces:
+  1. A durable store for `AuthStore` (`app/api/auth/_store.ts`) — Upstash Redis REST (`UPSTASH_REDIS_REST_*` or Marketplace `KV_REST_API_*`). It must provide atomic `hit` (rate limits) and `consumeOnce` (one-time codes).
   2. A signed server session: none exists, and profiles are device-local.
-  3. Mail delivery / provisioning env (OAuth client + refresh + from/user names, plus `ORI_AUTH_CODE_SECRET`). Delivery has never been tested.
+  3. Mail delivery: `RESEND_API_KEY` (preferred; optional `RESEND_FROM_EMAIL`) or Gmail OAuth (`GMAIL_OAUTH_*` / `GOOGLE_OAUTH_*`), plus `ORI_AUTH_CODE_SECRET`. Delivery has never been tested.
 
   All of this needs Bamio's decision. Names only; never commit values or personal addresses.
 - **Provider / live settlement:** runtime adapter is fixed; real non-dry quote → deposit → SUCCESS on mainnet has not been verified end to end. 1Click dry quotes sometimes timed out on Nov 5.

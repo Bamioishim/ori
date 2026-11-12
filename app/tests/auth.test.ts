@@ -10,7 +10,12 @@ test('fails closed with no durable store (current production state)', async () =
   const r = await sendCode('a@gmail.com', '1.1.1.1', 'register', { store: null, secret, send: async () => {} }); assert.equal(r.status, 503); assert.match(String(r.body.error), /durable server store/)
   assert.equal((await verifyCode('x.y', '123456', { store: null, secret })).status, 503)
 })
-test('fails closed with no Gmail/secret config', async () => { assert.equal((await sendCode('a@gmail.com', 'ip', 'login', { store: memStore() })).status, 503) })
+test('fails closed with no mail/secret config', async () => {
+  const { MAIL_MISSING } = await import('../api/auth/_mail.ts')
+  const r = await sendCode('a@gmail.com', 'ip', 'login', { store: memStore(), secret: 'test-secret-not-real' })
+  assert.equal(r.status, 503); assert.equal(r.body.error, MAIL_MISSING)
+  assert.equal((await sendCode('a@gmail.com', 'ip', 'login', { store: memStore(), send: async () => {} })).status, 503)
+})
 test('register code verifies once; replay rejected', async () => {
   const { sent, deps } = mk(); const s = await sendCode('A@gmail.com', 'ip', 'register', deps); assert.equal(s.status, 200)
   const ch = String(s.body.challenge); assert.doesNotMatch(ch, new RegExp(sent[0])) // code not in challenge

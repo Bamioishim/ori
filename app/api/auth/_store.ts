@@ -1,7 +1,8 @@
 // Durable state for login codes: one-time use (replay protection) and rate limits.
 // A per-process Map is NOT safe on serverless (instances are many and short-lived), so ORI refuses to issue
 // or accept codes until a real durable store is configured. Supported store: Upstash Redis REST
-// (UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN, server-only). Without both, email codes fail closed.
+// (UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN, server-only). Vercel Marketplace may inject
+// KV_REST_API_URL + KV_REST_API_TOKEN instead; those names are accepted as a matching pair. Without a pair, email codes fail closed.
 export interface AuthStore {
   /** Count one hit for `key` in a sliding window; returns the count including this hit. */
   hit(key: string, windowSec: number): Promise<number>
@@ -38,12 +39,21 @@ export function upstashStore(url: string, token: string, f: Fetch = (u, i) => fe
   }
 }
 
+/** Prefer the documented Upstash names; fall back to a complete Vercel Marketplace KV_* pair. Do not mix the two. */
+export function redisCreds(env: Record<string, string | undefined>): { url: string; token: string } | null {
+  const official = env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN ? { url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN } : null
+  const marketplace = env.KV_REST_API_URL && env.KV_REST_API_TOKEN ? { url: env.KV_REST_API_URL, token: env.KV_REST_API_TOKEN } : null
+  const picked = official || marketplace
+  if (!picked || !/^https:\/\//.test(picked.url)) return null
+  return picked
+}
+
 export function getAuthStore(env: Record<string, string | undefined> = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {}): AuthStore | null {
   if (injected) return injected
-  const url = env.UPSTASH_REDIS_REST_URL, token = env.UPSTASH_REDIS_REST_TOKEN
-  if (!url || !token || !/^https:\/\//.test(url)) return null
-  const key = url + '|' + token.length
-  if (!cached || cached.key !== key) cached = { key, store: upstashStore(url, token) }
+  const creds = redisCreds(env)
+  if (!creds) return null
+  const key = creds.url + '|' + creds.token.length
+  if (!cached || cached.key !== key) cached = { key, store: upstashStore(creds.url, creds.token) }
   return cached.store
 }
 export const STORE_MISSING = 'Email login codes are not available yet: ORI needs a durable server store for one-time codes and rate limits, and none is configured. You can keep using ORI as a guest.'
