@@ -20,7 +20,7 @@ export async function sendCode(email: string, ip: string, purpose: string, d: De
   const now = (d.now || Date.now)(), rnd = d.random || (() => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] })
   const code = String(100000 + (rnd() % 900000)), jti = b64url(crypto.getRandomValues(new Uint8Array(16))), exp = now + LIMITS.codeTtlSec * 1000
   const payload = b64url(bytes(JSON.stringify({ e, p: purpose, exp, jti, h: await hmac(code + ':' + jti, d.secret) })))
-  try { await d.send(e, code) } catch { return { status: 502, body: { error: 'The login code could not be sent. Check the mail provider configuration.' } } }
+  try { await d.send(e, code) } catch { return { status: 502, body: { error: "We couldn't send the code. Try again in a minute." } } }
   return { status: 200, body: { challenge: payload + '.' + await hmac(payload, d.secret), expiresAt: exp } }
 }
 
