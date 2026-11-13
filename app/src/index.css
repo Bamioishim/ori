@@ -434,3 +434,4 @@ html,main,.pg{scroll-padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 .money.masked{letter-spacing:.04em} /* leftover unused; blur path restored */
 .native-wallet details{margin-top:8px;overflow-wrap:anywhere}.native-wallet details div{margin:4px 0}
 .receive-pg .row.col>.mono.xs{overflow-wrap:anywhere}
+.resend{display:block;margin:10px auto 0}.resend:disabled{opacity:.5;cursor:default}.code-sent b{color:var(--white);overflow-wrap:anywhere}
