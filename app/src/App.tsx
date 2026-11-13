@@ -20,7 +20,7 @@ import { ReceiveScreen } from './Receive'
 import { SendScreen } from './Send'
 import { balanceOf, estimateFee, findAsset, preSignCheck, sendEvm, sendSol, sendSpl, toUnits, unsupportedReason, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
 import { EVM_CHAINS as EVM_CATALOG_CHAINS, normalizeTokens, originAdapter, type CatalogToken } from '../api/_catalog.ts'
-import { formatEta, isQuoteStale, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
+import { etaLabel, isQuoteStale, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
 import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
@@ -343,8 +343,8 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
       <div className="route">
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
         <div className="line" />
-        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? formatEta(q.q.eta) : q.loading ? <Dots size={4} /> : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
-        {q.q && <div className="mono xs dim why">Provider timeEstimate {q.q.eta == null ? 'missing → Time unavailable' : `${q.q.eta}s (estimate after deposit confirms, not a guarantee) · quoted ${fmtT(q.q.at)}`}</div>}
+        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? etaLabel(q.q.eta) : q.loading ? <Dots size={4} /> : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
+        {q.q && <div className="mono xs dim why">Provider timeEstimate {q.q.eta == null ? 'missing → Time unavailable' : `${q.q.eta}s from 1Click for this route (a per-route estimate after the deposit confirms; it does not change with the amount, not a guarantee) · quoted ${fmtT(q.q.at)}`}</div>}
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
@@ -384,7 +384,7 @@ function LiveTag({ q }: { q: { q: Quote | null; loading: boolean; err: string | 
 function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: string | null }; extra: string | null }) {
   if (q.err) return <div className="mono xs err why">Live quote unavailable: {q.err}. Nothing was sent.</div>
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : extra || 'Enter an amount for a live quote.'}</div>
-  return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {formatEta(q.q.eta)} after deposit · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
+  return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {etaLabel(q.q.eta)} after deposit (1Click per-route estimate) · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
 export type SwapPlan = { review: SwapReview; asset: AssetDef; settlement: SettlementQuote; label: string; lines: [string, string][] }
 function Swap({ refundEvm, preset, status, cfg, uiMode, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; uiMode: Mode; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null, plan?: SwapPlan) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
@@ -477,7 +477,7 @@ function Swap({ refundEvm, preset, status, cfg, uiMode, onConfirm, onLimit }: { 
     <section className="sb">
       <Label>QUOTE <LiveTag q={q} /></Label>
       <div className="row"><span className="grow">Rate</span>{q.q && n ? <PriceFlow text={`1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}`} /> : <span className="num">—</span>}</div>
-      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? (formatEta(q.q.eta) + (q.q.eta != null ? ` · quoted ${fmtT(q.q.at)}` : '')) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
+      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? (etaLabel(q.q.eta) + (q.q.eta != null ? ` · quoted ${fmtT(q.q.at)}` : '')) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
       <div className="row"><span className="grow">Minimum received</span>{q.q ? <PriceFlow text={fmtOut(q.q.minOut) + ' ' + to.s} /> : <span className="num">—</span>}</div>
       <QuoteMeta q={q} extra={routeNote || 'Network fee is paid in your wallet; the total fee above is the provider spread/fees from the quote. ORI adds no app fee. ' + (live ? 'Review fetches a binding quote; your wallet signs one direct deposit. No token approvals.' : 'EXAMPLE mode: confirming simulates with these live numbers. Nothing is signed or sent.')} />
@@ -488,7 +488,7 @@ function Swap({ refundEvm, preset, status, cfg, uiMode, onConfirm, onLimit }: { 
         <div className="money-r">{sent.n} {sent.from} <span className="dim">→ {fmtOut(sent.q.amountOut)} {sent.to}</span></div>
         <div className="row"><span className="grow">Value in</span><span className="num">{usd(sent.q.amountInUsd)}</span></div>
         <div className="row"><span className="grow">Quoted fee</span><span className="num">{usd(sent.q.fee)}</span></div>
-        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · {live ? 'live' : 'simulated'} · {formatEta(sent.q.eta)}</span></div>
+        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · {live ? 'live' : 'simulated'} · {etaLabel(sent.q.eta)}</span></div>
         <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)}{live ? '' : ' · dry run'}</span></div>
       </motion.div>
       : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={balBlock && (spend.kind !== 'example' || !(n > 0) || overBal) ? balBlock : !canQuote ? (routeNote || 'No quote for this route') : q.err && !q.q ? 'Live quote unavailable' : !q.q ? (q.loading ? 'Waiting for a live quote' : 'No live quote yet · try again') : liveBlock || (prep && prep.startsWith('Getting') ? prep : null)} limit={limit} status={status} busyLabel="Ori is swapping"

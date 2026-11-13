@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { parseTimeEstimate, formatEta, isQuoteStale, TIME_UNAVAILABLE } from '../src/quoteTime.ts'
+import { parseTimeEstimate, formatEta, etaLabel, isQuoteStale, TIME_UNAVAILABLE } from '../src/quoteTime.ts'
 
 test('maps documented timeEstimate seconds', () => {
   assert.equal(parseTimeEstimate(37), 37); assert.equal(parseTimeEstimate(120), 120); assert.equal(parseTimeEstimate('15'), 15)
@@ -49,4 +49,8 @@ test('useQuote clears quote on dep change and tags PROVIDER/STALE not LIVE settl
   assert.doesNotMatch(app, /LIVE QUOTE/) // dry quotes must not wear a LIVE settlement badge
   assert.match(app, /PROVIDER QUOTE/)
   assert.match(app, /STALE QUOTE/)
+})
+
+test('etaLabel marks provider figures as estimates and never labels a missing one', () => {
+  assert.equal(etaLabel(32), '~32s est.'); assert.equal(etaLabel(22), '~22s est.'); assert.equal(etaLabel(null), TIME_UNAVAILABLE)
 })

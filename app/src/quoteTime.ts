@@ -17,3 +17,6 @@ export function formatEta(eta: number | null | undefined): string {
 }
 
 export const isQuoteStale = (at: string | undefined, now = Date.now(), maxAge = QUOTE_MAX_AGE_MS) => { const t = at ? Date.parse(at) : NaN; return !Number.isFinite(t) || now - t > maxAge }
+
+// UI label: the provider's figure is a per-route estimate (it does not change with the amount), so say so.
+export const etaLabel = (eta: number | null | undefined) => { const f = formatEta(eta); return f === TIME_UNAVAILABLE ? f : f + ' est.' }
