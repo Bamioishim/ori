@@ -62,3 +62,11 @@ test('mailerFromEnv is undefined when no provider is configured', () => {
   assert.equal(mailerFromEnv({}), undefined)
   assert.ok(mailerFromEnv({ RESEND_API_KEY: 're_test' }, async () => new Response('{}', { status: 200 })))
 })
+
+test('selectMailer: Gmail app password beats the Resend sandbox sender, but not a verified Resend sender', () => {
+  const app = { GMAIL_SMTP_USER: 'sender@gmail.com', GMAIL_APP_PASSWORD: 'abcd efgh ijkl mnop' }
+  assert.deepEqual(selectMailer(app), { kind: 'gmail-app', user: 'sender@gmail.com', from: 'ORI <sender@gmail.com>' })
+  assert.equal(selectMailer({ RESEND_API_KEY: 're_test', ...app })?.kind, 'gmail-app')
+  assert.equal(selectMailer({ RESEND_API_KEY: 're_test', RESEND_FROM_EMAIL: 'ORI <codes@example.com>', ...app })?.kind, 'resend')
+  assert.equal(selectMailer({ GMAIL_SMTP_USER: 'sender@gmail.com' }), null)
+})
