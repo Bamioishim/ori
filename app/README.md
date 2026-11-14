@@ -7,12 +7,10 @@ The first settlement slice now has a guarded Vercel API boundary in `api/quote.t
 
 Copy `.env.example` when configuring a local environment. Never commit a real JWT, wallet key, or mail-provider secret.
 
-Account recovery uses a short-lived Gmail code through the server-only `/api/auth/send-code` and `/api/auth/verify-code` routes. Delivery uses Gmail SMTP XOAUTH2 through server-only `GMAIL_OAUTH_USER`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN`, `GMAIL_OAUTH_FROM`, and `ORI_AUTH_CODE_SECRET` variables. The current browser profile is restored only when the verified Gmail matches its saved local ORI profile; a shared account database is still required for cross-device restoration.
+Account recovery uses a short-lived Gmail code through the server-only `/api/auth/send-code` and `/api/auth/verify-code` routes. Delivery prefers Resend when `RESEND_API_KEY` is set (`RESEND_FROM_EMAIL` defaults to `ORI <onboarding@resend.dev>`), and otherwise uses Gmail SMTP XOAUTH2 through server-only `GMAIL_OAUTH_USER`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN`, and `GMAIL_OAUTH_FROM`. `ORI_AUTH_CODE_SECRET` signs the one-time challenge. The current browser profile is restored only when the verified Gmail matches its saved local ORI profile; a shared account database is still required for cross-device restoration.
 
 The Request screen creates a local payment-request record with amount, token, network, handle/address, a copyable `ori://` link, and QR code. It is intentionally a preview slice: requests are not yet server-backed, delivered as notifications, or settled automatically.
 
 The microphone control explicitly requests `getUserMedia` access before starting Web Speech recognition. If the browser previously blocked access, allow Microphone for the site in browser permissions and tap the control again. Core token rows use maintained Trust Wallet asset logos with local vector fallbacks.
-
-NEAR Auth mainnet is wired through `@fast-auth-near/react-sdk` and `@fast-auth-near/javascript-provider`. Open **More** and use the **NEAR Auth** row to authenticate through `login.auth.near.org`; ORI then displays the derived NEAR public key and supports sign-out. The public client ID is configured with `VITE_NEAR_AUTH_CLIENT_ID` (the approved mainnet ID is used as a safe fallback). No Auth0 client secret is included in the browser. A live mainnet transaction still requires a separate explicit recipient, amount, policy check, and signing-flow review.
 
 Name: `src/config.ts`. Accent colour: `--accent` in `src/index.css`.

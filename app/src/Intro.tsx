@@ -8,7 +8,7 @@ export function useIntro(): [Stage, () => void] {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
   const play = q.get('intro') === '1' || (!sessionStorage.getItem('ori-intro') && q.get('intro') !== '0' && !reduce)
   const freeze = q.get('stage') as Stage | null // for screenshots
-  const [stage, setStage] = useState<Stage>(freeze || (play ? 'black' : 'done'))
+  const [stage, setStage] = useState<Stage>(freeze || (play ? 'mark' : 'done')) // start on the wordmark, never a blank black frame
   useEffect(() => {
     if (freeze || stage === 'done') return
     sessionStorage.setItem('ori-intro', '1')

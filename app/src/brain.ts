@@ -1,3 +1,4 @@
+import { formatEta } from './quoteTime'
 import { DEMO_ADDRS } from './mock'
 // Ori's local intent engine. Rule-based, no LLM, no API keys. Answers from live app state,
 // live 1Click prices / dry quotes, live GoPlus checks, and a small built-in knowledge base.
@@ -26,10 +27,10 @@ const DEFAULT_CHIPS = ['What’s my balance?', 'What are my limits?', 'Anything 
 const KB: [RegExp, string, string[]?][] = [
   [/what(’|')?s ori|what is ori|about (ori|this app)|what does (ori|this app) do/, 'ORI is one balance for all your money across Base, Ethereum, Solana and NEAR. You pay or swap from that one balance, and ORI picks the route. In this preview the data is example or watch-only, and payments are simulated.', ['How does NEAR Intents work?', 'What’s live in this preview?']],
   [/intent|route|routing|1click|solver/, 'NEAR Intents: you state the outcome you want, like “50 USDC arrives on Solana”, and solvers compete to fill it. ORI asks 1Click for a dry-run quote, so you see the fee, the minimum out and the ETA before anything happens. In this preview nothing is ever submitted.', ['How much to send $50 to Solana?']],
-  [/safe|scam|drain|secure|trust (ori|this)/, 'Safety checks: every recipient goes through a live GoPlus address check, and flagged addresses are blocked. Your spending caps are enforced, and anything above your hold threshold needs a press-and-hold. This preview has no keys and signs nothing.', ['Check an address', 'Open security']],
+  [/safe|scam|drain|secure|trust (ori|this)/, 'Safety checks: every recipient goes through a live GoPlus address check, and flagged addresses are blocked. Your spending caps are checked inside the ORI app before it asks your wallet to sign (not on-chain, and they don’t cover anything you sign outside ORI). Anything above your hold threshold needs a full slide to confirm. ORI holds no keys; your own wallet signs.', ['Check an address', 'Open security']],
   [/yield|earn|apy|interest/, 'Yield Guard: only idle stablecoins above your liquid floor go into blue-chip lending (Aave, Kamino, Rhea), with per-protocol caps. It auto-exits on a depeg or a sharp TVL drop. In this preview the Earn numbers are example data.', ['Open earn']],
-  [/privacy|private|hidden|track|explorer/, 'Privacy: each chain address is derived separately, so there’s no public link between them. Incoming payments use fresh addresses, and the AI reasoning is designed to run in confidential compute. You can also hide your balance on screen anytime.', ['Hide my balance', 'Open privacy']],
-  [/chain signature/, 'Chain Signatures let one NEAR account control addresses on other chains through MPC signing. That’s how ORI can hold Base, Ethereum and Solana from a single account. Nothing is signed in this preview.'],
+  [/privacy|private|hidden|track|explorer/, 'Privacy today: you can hide your balance on screen, and I run locally on this device with no AI model. Separate per-chain addresses, fresh deposit addresses and private AI in NEAR AI Cloud are planned, not built yet. On-chain amounts are always public per address.', ['Hide my balance']],
+  [/chain signature/, 'Chain Signatures let one NEAR account control addresses on other chains through MPC signing. ORI plans to use them for Base, Ethereum and Solana from one account, but that isn’t built yet: today ORI watches addresses you add or connect. Nothing is signed in this preview.'],
   [/fee|cost|cheap/, 'Fees come straight from the live solver quote. For a stablecoin hop like Base USDC to Solana USDC they’re usually cents. Ask me for a quote and I’ll show you the exact number.', ['How much to send $50 to Solana?']],
   [/live|simulat|real|fake|preview|demo/, 'What’s live in this preview: prices and dry-run quotes from 1Click, GoPlus scam checks, and watch-only balances read from public RPCs. Simulated: payments, swaps, yield, and handle-to-address lookup. Nothing is signed or sent.', ['Open help']],
   [/wallet|key|seed|sign up|account|login/, 'This preview has no wallet, keys or login. You can add public addresses in Settings to watch real balances, read-only.', ['Open settings']],
@@ -93,7 +94,7 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
   if (/(open|go to|show|take me to|run|start).*(scan|approval|revoke)/.test(t)) return { text: 'Opening the scam & approval scanner.', act: { k: 'go', screen: 'scan' } }
   if (/(my )?(limits?|caps?|policy|threshold|allowlist|spending rules)\b/.test(t) && !/set|change|raise|lower/.test(t)) {
     const c = ctx.settings, left = Math.max(0, c.daily - ctx.spent)
-    return { text: `Your policy: daily cap ${usd(c.daily)} (${usd(left)} left today), per-transaction cap ${usd(c.perPay)}, and anything above ${usd(c.holdAbove)} needs a hold to confirm. Allowlist: ${c.trusted.join(', ') || 'empty'}. Sends to anyone else get flagged.`, chips: ['Open policy', 'What did you block?', 'Set daily cap to 300'] }
+    return { text: `Your policy: daily cap ${usd(c.daily)} (${usd(left)} left today), per-transaction cap ${usd(c.perPay)}, and anything above ${usd(c.holdAbove)} needs a full slide to confirm. Allowlist: ${c.trusted.join(', ') || 'empty'}. Sends to anyone else get flagged.`, chips: ['Open policy', 'What did you block?', 'Set daily cap to 300'] }
   }
   if (/block|stopp|denied|rejected/.test(t)) {
     const b = blockedLog()
@@ -113,7 +114,7 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
   m = t.match(/(?:how much|cost|fee|quote).*?(?:send|move|bridge)\s+\$?\s*([\d,.]+)\s*(?:usdc|dollars|usd)?\s+to\s+(solana|sol)\b/) || t.match(/(?:send|move|bridge)\s+\$?\s*([\d,.]+)\s*(?:usdc|dollars|usd)?\s+to\s+(solana)\b.*(?:cost|fee|how much)?/)
   if (m) { const n = num(m[1]); try {
     const q = await quote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(n * 1e6)), recipient: PREVIEW.sol, refundTo: PREVIEW.evm, outDecimals: 6 })
-    return { text: `Live dry quote: send ${usd(n)} of USDC from Base and about ${q.amountOut.toFixed(2)} USDC lands on Solana in about ${q.eta}s. The fee is ${usd(q.fee)}, and the minimum out is ${q.minOut.toFixed(2)}.`, chips: [`Pay tolu ${n} USDC`], mood: 'happy' }
+    return { text: `Live dry quote: send ${usd(n)} of USDC from Base and about ${q.amountOut.toFixed(2)} USDC lands on Solana${q.eta ? ` about ${formatEta(q.eta).replace('~', '')} after the deposit confirms` : ' (settlement time unavailable)'}. The fee is ${usd(q.fee)}, and the minimum out is ${q.minOut.toFixed(2)}.`, chips: [`Pay tolu ${n} USDC`], mood: 'happy' }
   } catch (e) { return { text: `I couldn’t get a live quote (${(e as Error).message}). Nothing was sent.`, mood: 'think' } } }
 
   // swap X SOL to USDC
@@ -125,7 +126,7 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
     let extra = ''
     try { const flip = a === 'USDC'; const q = await quote({ from: flip ? ASSET.baseUSDC : ASSET.SOL, to: flip ? ASSET.SOL : ASSET.baseUSDC, amount: BigInt(Math.round(n * 10 ** (flip ? 6 : 9))), recipient: flip ? PREVIEW.sol : PREVIEW.evm, refundTo: flip ? PREVIEW.evm : PREVIEW.sol, outDecimals: flip ? 9 : 6 })
       extra = ` The live quote is about ${q.amountOut.toLocaleString('en-US', { maximumFractionDigits: flip ? 4 : 2 })} ${b}, with a fee of ${usd(q.fee)}.` } catch { }
-    return { text: `Swap card ready: ${n} ${a} to ${b}.${extra} Hold to confirm. It’s simulated.`, act: { k: 'swap', amt: String(n), flip: a === 'USDC' } }
+    return { text: `Swap card ready: ${n} ${a} to ${b}.${extra} Review it, then confirm.`, act: { k: 'swap', amt: String(n), flip: a === 'USDC' } }
   }
   // pay
   m = t.match(/(?:pay|send|give|transfer)\s+(@?[a-z][\w.@-]*)\s+\$?\s*([\d,.]+|[a-z]+)\s*(?:usdc|usd|dollars|bucks)?/) 
@@ -134,7 +135,7 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
   if (m && to && amt) {
     const n = num(amt); const who = to.startsWith('@') || to.includes('.') || to.startsWith('0x') || /^\+?\d+$/.test(to) ? to : '@' + to
     const over = n > ctx.settings.perPay ? ` Heads up: that’s over your per-payment cap of ${usd(ctx.settings.perPay)}, so I’ll block it.` : n > ctx.settings.daily - ctx.spent ? ` Heads up: that passes your daily cap.` : ''
-    return { text: `Payment card ready: ${usd(n)} to ${who}. Check it, then ${n > ctx.settings.holdAbove ? 'hold' : 'tap'} to pay.${over}`, act: { k: 'pay', to: who, amt: String(n) }, mood: over ? 'worried' : undefined }
+    return { text: `Payment card ready: ${usd(n)} to ${who}. Check it, then ${n > ctx.settings.holdAbove ? 'slide' : 'tap'} to pay.${over}`, act: { k: 'pay', to: who, amt: String(n) }, mood: over ? 'worried' : undefined }
   }
   // price
   if (/price|worth|how much is|trading at|value of|cost of/.test(t) && S(t)) {

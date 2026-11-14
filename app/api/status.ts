@@ -1,6 +1,7 @@
 import { json, oneClick } from './_oneclick.js'
+import { adapt } from './_runtime.js'
 
-export default async function handler(request: Request) {
+async function webHandler(request: Request) {
   if (request.method !== 'GET') return json({ error: 'Method not allowed.' }, 405)
   const url = new URL(request.url)
   const depositAddress = url.searchParams.get('depositAddress')?.trim()
@@ -10,3 +11,5 @@ export default async function handler(request: Request) {
   if (depositMemo) params.set('depositMemo', depositMemo)
   return oneClick('/status?' + params.toString(), { method: 'GET' })
 }
+
+export default adapt(webHandler)

@@ -2,8 +2,8 @@ import { LogoH } from './Logo'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { motion, AnimatePresence } from 'motion/react'
-import { APP_NAME } from './config'
-import { addSpent, limitCheck, logBlocked, setFmt, spentToday, usd, useSettings, type Settings } from './settings'
+import { APP_NAME, isHiddenScreen } from './config'
+import { reserveSpend, releaseSpend, addSpent, limitCheck, logBlocked, setFmt, spentToday, usd, useSettings, type Settings } from './settings'
 import { SettingsScreen, SecurityScreen, HelpScreen } from './Screens'
 import { PolicyScreen, ScanScreen, ConfirmSheet, Feed, type SheetData } from './Policy'
 import { answer, DEFAULT_CHIPS, type Act, type Reply } from './brain'
@@ -14,17 +14,32 @@ import Intro, { useIntro } from './Intro'
 import { Dots, Check } from './Loaders'
 import { LayoutGroup } from 'motion/react'
 import Ori, { type OriApi } from './Ori'
-import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, depositBaseUSDC, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, sendBaseUSDC, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
-import { handleHeard, requestMicrophoneAccess, speak, speechSupported, startListening } from './voice'
+import { ASSET, PREVIEW, connectBaseWallet, createSettlementQuote, goplus, isSettlementEnabled, kindOf, quote, readPortfolio, resolveHandle, settlementStatus, short, tokens, type Holding, type Quote, type Risk, type SettlementQuote, type SettlementStatus } from './live'
+import { speak } from './voice'
+import { ReceiveScreen } from './Receive'
+import { SendScreen } from './Send'
+import { balanceOf, estimateFee, findAsset, preSignCheck, sendEvm, sendSol, sendSpl, toUnits, unsupportedReason, type AssetDef, type EvmProvider, type SolProvider } from './transfers'
+import { EVM_CHAINS as EVM_CATALOG_CHAINS, normalizeTokens, originAdapter, type CatalogToken } from '../api/_catalog.ts'
+import { etaLabel, isQuoteStale, QUOTE_MAX_AGE_MS, TIME_UNAVAILABLE } from './quoteTime'
 import AccountSheet, { type Account } from './Account'
+import { signOut } from './session'
 import { HistoryScreen, RecentTransactions, TransactionDetail } from './History'
+import { CopyButton, PillTabs, PriceFlow, TokenSearch } from './ui'
+import { countProgress, quoteVisible } from './uiLogic'
+import { amountAllowed, canUseMax, exampleHeld, exampleSpendable, pickSigner, readSignerSpendable, sizingKind, spendSourceKey, unknownSpend, visibleSpend, type SpendState } from './spendableBalance'
+import { executeSwap, type SwapReview } from './swapExec'
+import { executePay, preparePay, type PayPlan } from './payExec'
+import { HandleResolveError, isExampleHandle } from './handles'
+import { useManagedWallets } from './wallets'
 import { logTransaction, updateTransaction, type Transaction } from './transactions'
 import { saveWallet } from './wallets'
-import { TOKEN_LOGOS } from './tokenLogos'
+import { TOKEN_LOGOS, CHAIN_LOGOS } from './tokenLogos'
+import { startTapToTalk, speechSupported } from './listen'
 import WalletsScreen from './Wallets'
-import { NearAuthMenu } from './NearAuth'
+import { useNativeWallet } from './NativeWallet'
+import { canUseExample, effectiveMode, payRoute, sessionKind, EXAMPLE_REGISTERED, type SessionKind } from './sessionMode'
 
-type Screen = 'home' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
+type Screen = 'home' | 'send' | 'receive' | 'pay' | 'swap' | 'request' | 'policy' | 'scan' | 'earn' | 'privacy' | 'settings' | 'security' | 'help' | 'profile' | 'history' | 'wallets'
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32 }
 
 const CHAIN_COL: Record<string, string> = { Base: '#7F9BB8', Solana: '#9C8AAE', Ethereum: '#8E98A6', NEAR: '#8FA88A' }
@@ -45,6 +60,12 @@ const glyphs: Record<string, React.ReactNode> = {
   NEAR: <><path d="M7 17V7l10 10V7" /></>,
 }
 function Glyph({ s }: { s: string }) { return <span className="glyph">{TOKEN_LOGOS[s] && <img src={TOKEN_LOGOS[s]} alt="" onError={e => e.currentTarget.remove()} />}<svg viewBox="0 0 24 24">{glyphs[s]}</svg></span> }
+const CHAIN_GLYPH: Record<string, string> = { Ethereum: 'ETH', Solana: 'SOL', NEAR: 'NEAR' }
+function ChainMark({ chain }: { chain: string }) {
+  const src = CHAIN_LOGOS[chain], fb = CHAIN_GLYPH[chain]
+  return <span className="pchip" style={{ background: chainCol(chain) }} aria-hidden>{src && <img src={src} alt="" onError={e => e.currentTarget.remove()} />}{fb ? <svg viewBox="0 0 24 24">{glyphs[fb]}</svg> : null}</span>
+}
+
 const series: Record<string, number[]> = (() => { const mk = (n: number, seed: number, drift: number) => { let v = 100, x = seed; return Array.from({ length: n }, (_, i) => { x = (x * 9301 + 49297) % 233280; v = v * .8 + (100 + (x / 233280 - 0.5) * 6) * .2; return v + i * drift * 4 }) }; return { '1D': mk(48, 3, .03), '1W': mk(56, 7, .02), '1M': mk(60, 11, .04), '1Y': mk(72, 5, .06) } })()
 function Spark({ range }: { range: string }) {
   const d = series[range], W = 340, H = 92, mn = Math.min(...d), mx = Math.max(...d)
@@ -59,11 +80,12 @@ function Spark({ range }: { range: string }) {
     <circle cx={last[0] - 2} cy={last[1]} r="2.5" fill="#F5F4F1" />
   </svg>
 }
+const REDUCED = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
 function useCount(target: number) {
   const [v, setV] = useState(0)
   const from = useRef(0)
-  useEffect(() => { let r = 0; const t0 = performance.now(), a = from.current; const f = (t: number) => { const k = Math.min((t - t0) / 1400, 1); const nv = a + (target - a) * (1 - Math.pow(1 - k, 4)); from.current = nv; setV(nv); if (k < 1) r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => cancelAnimationFrame(r) }, [target])
-  return v
+  useEffect(() => { if (REDUCED) { from.current = target; return } let r = 0; const t0 = performance.now(), a = from.current; const f = (t: number) => { const k = countProgress(t, t0, 1400); const nv = a + (target - a) * (1 - Math.pow(1 - k, 4)); from.current = nv; setV(nv); if (k < 1) r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => cancelAnimationFrame(r) }, [target])
+  return REDUCED ? target : v
 }
 function Money({ v, cls = '' }: { v: number; cls?: string }) {
   const [w, c] = v.toFixed(2).split('.')
@@ -85,7 +107,7 @@ function Watch({ addrs, setAddrs, live, refresh }: { addrs: string[]; setAddrs: 
     {live.errors.map(e => <div className="mono xs err" key={e}>{e}</div>)}
   </section>
 }
-function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
+function Home({ kind, profile, hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, refresh, wide = false, go, onTransaction }: { kind: SessionKind; profile: React.ReactNode; wide?: boolean; go?: (s: Screen, to?: string, amt?: string) => void; onTransaction: (tx: Transaction) => void; hidden: boolean; setHidden: (v: boolean) => void; extra: number; mode: Mode; setMode: (m: Mode) => void; live: LiveState; addrs: string[]; setAddrs: (a: string[]) => void; refresh: () => void }) {
   const [range, setRange] = useState('1W')
   const [sel, setSel] = useState<string | null>(null)
   const isLive = mode === 'live'
@@ -95,17 +117,17 @@ function Home({ hidden, setHidden, extra, mode, setMode, live, addrs, setAddrs, 
   const v = useCount(sum)
   const hide = hidden
   const empty = isLive && !live.loading && !live.holdings.length
-  if (wide) return <HomeDesk {...{ hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
+  if (wide) return <HomeDesk {...{ kind, profile, hidden, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go: go!, onTransaction }} />
   return <div className="mh">
-    <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
+    {profile}
     <button className={'mh-bal' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hidden)} aria-label="Tap to hide balance"><Money v={v} cls="big" /></button>
     <div className="mh-chg">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `Live · ${addrs.length} address${addrs.length === 1 ? '' : 'es'}` : 'Add an address in Settings'}</span> : <><span className="up">▲ 1.37%</span><span className="dim">+$38.62 · 24h</span><Example /></>}</div>
     <Tiles go={go!} />
     <Promo go={go!} />
     {isLive && <Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />}
-    {!empty && <HoldList rows={rows} chainRows={chainRows} sum={sum} hide={hide} sel={sel} setSel={setSel} />}
+    {!empty && <HoldList rows={rows} chainRows={chainRows} sum={sum} hide={hide} sel={sel} setSel={setSel} go={go} />}
     <section>
-      <div className="sechead"><Label>ORI ACTIVITY</Label><button className="label linkish" onClick={() => go?.('scan')}>SCANNER →</button></div>
+      <div className="sechead"><Label>ORI ACTIVITY</Label>{!isHiddenScreen('scan') && <button className="label linkish" onClick={() => go?.('scan')}>SCANNER →</button>}</div>
       <Feed max={4} />
     </section>
   </div>
@@ -116,17 +138,30 @@ function Mini({ seed, up }: { seed: string; up: boolean }) {
   const pts = Array.from({ length: 14 }, (_, i) => { h = (h * 1103515245 + 12345) >>> 0; const t = i / 13; return [t * 60, 14 + (up ? -1 : 1) * (t * 10 - 5) + ((h % 1000) / 1000 - .5) * 9] })
   return <svg className="mini" viewBox="0 0 60 28" aria-hidden><path d={pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')} fill="none" stroke={up ? '#6FE3C2' : '#C98A8A'} strokeWidth="1.4" strokeLinejoin="round" /></svg>
 }
-function AddrRow({ addr }: { addr: string }) {
-  const [ok, setOk] = useState(false)
-  return <button className="mh-addr mono" onClick={() => { navigator.clipboard?.writeText(addr).catch(() => {}); setOk(true); setTimeout(() => setOk(false), 1400) }} aria-label="Copy address">
-    {short(addr)}<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
-    {ok && <span className="copied">COPIED</span>}</button>
+// Per-asset Send / Receive. Send is only offered where ORI can actually sign a same-network transfer.
+function AssetActions({ sym, chain, go, compact = false }: { sym: string; chain: string; go: (s: Screen, to?: string) => void; compact?: boolean }) {
+  const a = findAsset(sym, chain), why = unsupportedReason(a)
+  return <span className={'asset-actions' + (compact ? ' compact' : '')} onClick={e => e.stopPropagation()}>
+    <button className="ghost" disabled={!!why} title={why || `Send ${sym} on ${chain}`} onClick={() => go('send', `${sym}|${chain}`)}>Send</button>
+    <button className="ghost" onClick={() => go('receive')}>Receive</button>
+    {why && !compact && <span className="mono xs dim">{why}</span>}</span>
+}
+// Replaces the old EVM address line above the balance: who is signed in, with profile and log out.
+function ProfileChip({ account, onAccount, onProfile, onLogout }: { account: Account | null; onAccount: () => void; onProfile: () => void; onLogout: () => void }) {
+  const [open, setOpen] = useState(false)
+  return <div className="mh-profile">
+    <button className="mh-addr mono" onClick={() => setOpen(o => !o)} aria-expanded={open} aria-haspopup="menu"><span className="account-dot" />{account ? `@${account.username}` : 'Guest'}<span className="dim">{open ? '▴' : '▾'}</span></button>
+    {open && <div className="mh-menu" role="menu">
+      <button role="menuitem" onClick={() => { setOpen(false); onProfile() }}>Profile</button>
+      <button role="menuitem" onClick={() => { setOpen(false); onAccount() }}>{account ? 'Account' : 'Sign in / Register'}</button>
+      {account && <button role="menuitem" onClick={() => { setOpen(false); onLogout() }}>Log out</button>}
+    </div>}</div>
 }
 function Tiles({ go }: { go: (s: Screen, to?: string, amt?: string) => void }) {
   const T: [string, string, () => void, React.ReactNode][] = [
-    ['Send', 'send', () => go('pay', '', ''), <path d="M12 19V5M6 11l6-6 6 6" />],
+    ['Send', 'send', () => go('send'), <path d="M12 19V5M6 11l6-6 6 6" />],
     ['Swap', 'swap', () => go('swap'), <path d="M7 4v14M4 15l3 3 3-3M17 20V6M14 9l3-3 3 3" />],
-    ['Pay', 'pay', () => go('pay', '@tolu', '20'), <path d="M12 5v14M5 12h14" />]]
+    ['Receive', 'receive', () => go('receive'), <path d="M12 5v14M6 13l6 6 6-6" />]]
   return <div className="tiles">{T.map(([l, k, f, ic]) => <motion.button key={k} className="tile" whileTap={{ scale: .96 }} onClick={f}>
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ic}</svg><span>{l}</span></motion.button>)}</div>
 }
@@ -138,14 +173,15 @@ function Promo({ go }: { go: (s: Screen) => void }) {
       <button className="promo-go" onClick={() => go('policy')}>Open Policy</button></div>
     <img src="/ori-mark.svg" alt="" className="promo-art" /></motion.div>}</AnimatePresence>
 }
-function HoldList({ rows, chainRows, sum, hide, sel, setSel }: any) {
+function HoldList({ rows, chainRows, sum, hide, sel, setSel, go }: any) {
+  const [open, setOpen] = useState<number | null>(null)
   const [tab, setTab] = useState<'tokens' | 'chains'>('tokens')
   return <section className="hl">
-    <div className="hl-tabs">{(['tokens', 'chains'] as const).map(t => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t === 'tokens' ? 'Tokens' : 'Chains'}</button>)}</div>
-    {tab === 'tokens' ? rows.map((a: any, i: number) => <div className="trow" key={i}><Glyph s={a.sym} />
+    <PillTabs id="holdings" className="hl-tabs" value={tab} onChange={setTab} options={[['tokens', 'Tokens'], ['chains', 'Chains']]} />
+    {tab === 'tokens' ? rows.map((a: any, i: number) => <Fragment key={i}><div className="trow" role="button" tabIndex={0} aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}><Glyph s={a.sym} />
       <span className="grow"><b>{NAMES[a.sym] || a.sym}</b><span className="sub">{a.sym} · {a.chain}</span></span>
       <Mini seed={a.sym} up={(a.d24 ?? 0) >= 0} />
-      <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>)
+      <span className={'r' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /><span className={'sub ' + ((a.d24 ?? 0) < 0 ? 'neg' : 'up')}>{a.d24 === null ? '—' : ((a.d24 < 0 ? '▼ ' : '▲ ') + Math.abs(a.d24).toFixed(2) + '%')}</span></span></div>{open === i && go && <AssetActions sym={a.sym} chain={a.chain} go={go} />}</Fragment>)
     : <><div className="alloc">{chainRows.map((c: any) => <i key={c.name} style={{ flex: c.usd, background: chainCol(c.name) }} className={sel === c.name ? 'sel' : ''} />)}</div>
       {chainRows.map((c: any) => <button className={'arow trow' + (sel === c.name ? ' sel' : '')} key={c.name} onClick={() => setSel(sel === c.name ? null : c.name)}>
         <span className="dot" style={{ background: chainCol(c.name) }} /><span className="grow"><b>{c.name}</b><span className="sub">{(c.usd / (sum || 1) * 100).toFixed(1)}% of balance</span></span>
@@ -154,12 +190,12 @@ function HoldList({ rows, chainRows, sum, hide, sel, setSel }: any) {
 }
 
 function HomeDesk(p: any) {
-  const { hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
+  const { kind, profile, hidden: hide, setHidden, mode, setMode, live, addrs, setAddrs, refresh, isLive, rows, chainRows, sum, v, empty, range, setRange, sel, setSel, go, onTransaction } = p
   const [to, setTo] = useState('@tolu'), [amt, setAmt] = useState('50')
   return <div className="dash">
     <section className="d-card d-hero">
-      <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
-      <AddrRow addr={isLive && addrs[0] ? addrs[0] : '0x7094b3c1e2f0a9d8c4b2e1f6a3d5c7e9b1f42242'} />
+      <div className="modes">{(['example', 'live'] as Mode[]).map(m => <button key={m} disabled={m === 'example' && !canUseExample(kind)} title={m === 'example' && !canUseExample(kind) ? 'Example data is for guest sessions only' : undefined} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>{m === 'live' ? 'Watch-only · live' : 'Example data'}{mode === m && <motion.i layoutId="md" transition={spring} />}</button>)}</div>
+      {profile}
       <button className={'total' + (hide ? ' blurred' : '') + (isLive && live.loading && !live.at ? ' loading' : '')} onClick={() => setHidden(!hide)} aria-label="Click to hide balance"><Money v={v} /></button>
       <div className="delta">{isLive ? <span className="dim">{live.loading ? <Dots size={5} label="Reading balances" /> : live.at ? `${addrs.length} address${addrs.length === 1 ? '' : 'es'} · live` : 'Add an address'}</span>
         : <><span>+$38.62</span><span className="dim">+1.37% · 24h</span><span className="dim">·</span><span className="dim">click to hide</span></>}</div>
@@ -179,7 +215,7 @@ function HomeDesk(p: any) {
     {isLive && <section className="d-card d-watch"><Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} /></section>}
     {!empty && <section className="d-card d-chains">
       <div className="sechead"><Label>BY CHAIN</Label><span className="label">{chainRows.length} CHAINS</span></div>
-      <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th></tr></thead><tbody>
+      <table className="tbl"><thead><tr><th>Chain</th><th>Share</th><th className="rt">%</th><th className="rt">Value</th><th className="rt">Actions</th></tr></thead><tbody>
         {chainRows.map((c: any) => <tr key={c.name} className={sel === c.name ? 'sel' : ''} onMouseEnter={() => setSel(c.name)} onMouseLeave={() => setSel(null)}>
           <td><span className="dot" style={{ background: chainCol(c.name) }} /> {c.name}</td><td className="sharec"><i style={{ width: (c.usd / (sum || 1) * 100) + '%', background: chainCol(c.name) }} /></td>
           <td className="rt mono">{(c.usd / (sum || 1) * 100).toFixed(1)}</td><td className={'rt' + (hide ? ' blurred' : '')}><Money v={c.usd} cls="sm" /></td></tr>)}
@@ -191,47 +227,59 @@ function HomeDesk(p: any) {
         {rows.map((a: any, i: number) => <tr key={i}><td><span className="tcell"><Glyph s={a.sym} /><b>{a.sym}</b></span></td><td className="dim">{a.chain}</td><td className="dim">{a.role}</td>
           <td className={'rt mono' + (hide ? ' blurred' : '')}>{a.amt.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
           <td className={'rt mono' + (a.d24 !== null && a.d24 < 0 ? ' neg' : '')}>{a.d24 === null ? '—' : (a.d24 > 0 ? '+' : '') + a.d24.toFixed(1) + '%'}</td>
-          <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td></tr>)}
+          <td className={'rt' + (hide ? ' blurred' : '')}><Money v={a.usd} cls="sm" /></td><td className="rt"><AssetActions sym={a.sym} chain={a.chain} go={go} compact /></td></tr>)}
       </tbody></table>
     </section>}
     <section className="d-card d-feed">
-      <div className="sechead"><Label>ORI ACTIVITY · POLICY EVENTS</Label><span><button className="label linkish" onClick={() => go('policy')}>POLICY →</button> <button className="label linkish" onClick={() => go('scan')}>SCANNER →</button></span></div>
+      <div className="sechead"><Label>ORI ACTIVITY · POLICY EVENTS</Label><span><button className="label linkish" onClick={() => go('policy')}>POLICY →</button>{!isHiddenScreen('scan') && <> <button className="label linkish" onClick={() => go('scan')}>SCANNER →</button></>}</span></div>
       <Feed max={6} />
     </section>
     <section className="d-card d-act">
       <div className="sechead"><Label>RECENT ACTIVITY</Label><button className="label linkish" onClick={() => go('history')}>SEE ALL →</button></div>
-      <RecentTransactions max={5} onSelect={onTransaction} />
+      <RecentTransactions max={5} kind={kind} onSelect={onTransaction} />
     </section>
   </div>
 }
 
 function useQuote(args: Parameters<typeof quote>[0] | null, dep: string) {
-  const [st, setSt] = useState<{ q: Quote | null; loading: boolean; err: string | null }>({ q: null, loading: false, err: null })
+  // forKey binds the quote to the request key so a previous route's ETA can never render as current.
+  const [st, setSt] = useState<{ q: Quote | null; loading: boolean; err: string | null; forKey: string }>({ q: null, loading: false, err: null, forKey: '' })
+  const quoteSeq = useRef(0)
   useEffect(() => {
-    if (!args) { setSt({ q: null, loading: false, err: null }); return }
-    let dead = false; setSt(s => ({ ...s, loading: true, err: null }))
-    const t = setTimeout(() => quote(args).then(q => !dead && setSt({ q, loading: false, err: null })).catch(e => !dead && setSt({ q: null, loading: false, err: e.message })), 450)
-    return () => { dead = true; clearTimeout(t) }
+    if (!args) { setSt({ q: null, loading: false, err: null, forKey: dep }); return }
+    let dead = false; const id = ++quoteSeq.current
+    // Route/amount change: wipe the previous quote immediately (no leftover settlement ETA from the previous route).
+    setSt({ q: null, loading: true, err: null, forKey: dep })
+    const run = (soft = false) => quote(args).then(q => {
+      if (dead || id !== quoteSeq.current) return
+      setSt({ q, loading: false, err: null, forKey: dep })
+    }).catch(e => {
+      if (dead || id !== quoteSeq.current) return
+      // Soft refresh may keep the same-route quote; hard failures and route changes clear it.
+      setSt(s => ({ q: soft && s.forKey === dep ? s.q : null, loading: false, err: e.message, forKey: dep }))
+    })
+    const t = setTimeout(() => run(false), 450)
+    const r = setInterval(() => { setSt(s => s.forKey === dep ? { ...s, loading: !s.q } : s); run(true) }, QUOTE_MAX_AGE_MS)
+    return () => { dead = true; clearTimeout(t); clearInterval(r) }
   }, [dep])
-  return st
+  // Only the quote that matches the current key is visible to callers.
+  const q = quoteVisible(st, dep)
+  return { q, loading: st.forKey === dep && st.loading, err: st.forKey === dep ? st.err : null, forKey: st.forKey }
 }
 const fmtT = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
 export type Draft = { to: string; amt: string; k: number }
 const FLAGGED = /drain|scam|claim-airdrop/i // local demo heuristic for handles; real addresses go to GoPlus
-function ConfirmBtn({ label, need, blocked, limit, status, busyLabel, onGo, onLimit, btn }: { label: string; need: boolean; blocked: string | null; limit: string | null; status: string; busyLabel: string; onGo: (r: DOMRect) => void; onLimit: (r: DOMRect, why: string) => void; btn?: React.RefObject<HTMLButtonElement | null> }) {
+function ConfirmBtn({ label, blocked, limit, status, busyLabel, onGo, onLimit, btn }: { label: string; need: boolean; blocked: string | null; limit: string | null; status: string; busyLabel: string; onGo: (r: DOMRect) => void; onLimit: (r: DOMRect, why: string) => void; btn?: React.RefObject<HTMLButtonElement | null> }) {
   const own = useRef<HTMLButtonElement>(null); const cta = btn || own
-  const [hold, setHold] = useState(false); const timer = useRef(0)
   const go = () => { const r = cta.current!.getBoundingClientRect(); if (limit) { onLimit(r, limit); return } onGo(r) }
-  const start = () => { if (blocked || status !== 'idle' || limit) return; if (!need) return; navigator.vibrate?.(12); setHold(true); timer.current = window.setTimeout(() => { setHold(false); navigator.vibrate?.([18, 40, 18]); go() }, 750) }
-  const cancel = () => { clearTimeout(timer.current); setHold(false) }
-  return <button ref={cta} className={'cta hold sa2 mint' + (need ? ' needhold' : '') + (hold ? ' holding' : '') + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'}
-    onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onPointerCancel={cancel} onContextMenu={e => e.preventDefault()} onClick={() => { if ((limit || !need) && !blocked && status === 'idle') go() }}>
-    <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : (need ? 'Hold to ' : 'Tap to ') + label}</button>
+  // A tap only opens the review sheet; above the approval threshold the sheet itself requires the full slide.
+  return <button ref={cta} className={'cta hold sa2 mint' + (limit && status === 'idle' ? ' over' : '')} disabled={!!blocked || status !== 'idle'} onClick={() => { if (!blocked && status === 'idle') go() }}>
+    <span className="fill" />{blocked ? blocked : status === 'running' ? <Dots size={7} label={busyLabel} /> : status === 'done' ? <Check size={26} /> : limit ? 'Over your limit · review' : 'Tap to ' + label}</button>
 }
 
 type LivePayment = { kind: 'settlement' | 'direct'; quote?: SettlementQuote; wallet: string; txHash: string; state: SettlementStatus['status'] | 'BROADCAST' | 'SUCCESS' | 'ERROR'; destination: string; network: string; amount: number; error?: string }
-function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement }: { draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
+function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit, settlement, guest }: { guest: boolean; draft: Draft; status: 'idle' | 'running' | 'done' | 'sent'; onConfirm: (r: DOMRect, amt: number, to: string, fee: number | null, demo?: boolean) => void; onRisk: (r: DOMRect | null, why?: string) => void; onEvent: (t: string) => void; refundTo: string; cfg: Settings; onLimit: (r: DOMRect, why: string, what: string) => void; settlement: LivePayment | null }) {
   const [to, setTo] = useState(draft.to)
   const [amt, setAmt] = useState(draft.amt)
   const [checked, setChecked] = useState(false)
@@ -244,11 +292,22 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
     return () => { dead = true; clearTimeout(t) } }, [to, cfg.scam])
   const [resolvedRecipient, setResolvedRecipient] = useState<string | null>(null)
   const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolveKind, setResolveKind] = useState<'unregistered' | 'service' | 'invalid' | null>(null)
+  const [resolvedExample, setResolvedExample] = useState(false)
   useEffect(() => {
-    const value = to.trim(); setResolvedRecipient(null); setResolveError(null)
-    if (!isSettlementEnabled() || kindOf(value) === 'sol' || !value.startsWith('@')) return
+    const value = to.trim(); setResolvedRecipient(null); setResolveError(null); setResolveKind(null); setResolvedExample(false)
+    if (kindOf(value) === 'sol' || kindOf(value) === 'evm' || !value.startsWith('@')) return
     let dead = false
-    resolveHandle(value).then(r => { if (!dead) setResolvedRecipient(r.address) }).catch(e => { if (!dead) setResolveError((e as Error).message) })
+    resolveHandle(value).then(r => {
+      if (dead) return
+      setResolvedRecipient(r.address); setResolvedExample(!!r.example); setResolveError(null); setResolveKind(null)
+    }).catch(e => {
+      if (dead) return
+      // Never show a service status code as the recipient. Clear stale resolution.
+      setResolvedRecipient(null); setResolvedExample(false)
+      if (e instanceof HandleResolveError) { setResolveError(e.message); setResolveKind(e.kind) }
+      else { setResolveError((e as Error).message || 'Handle lookup failed.'); setResolveKind('service') }
+    })
     return () => { dead = true }
   }, [to])
   const local = cfg.scam && FLAGGED.test(to)
@@ -262,112 +321,179 @@ function Pay({ draft, status, onConfirm, onRisk, onEvent, refundTo, cfg, onLimit
   const destinationAsset = solTo || resolvedRecipient ? ASSET.solUSDC : ASSET.baseUSDC
   const destinationNetwork = solTo || resolvedRecipient ? 'Solana' : 'Base'
   const preferredSupported = cfg.preferredReceivingCurrency === 'USDC'
-  const q = useQuote(!evmTo && n0 > 0 ? { from: ASSET.baseUSDC, to: destinationAsset, amount: BigInt(Math.round(n0 * 1e6)), recipient: liveRecipient || PREVIEW.evm, refundTo, outDecimals: 6 } : null, `${n0}|${liveRecipient || ''}|${destinationAsset}|${refundTo}`)
+  // No quote while handle resolution failed (clears stale provider quote). Example/verified recipients OK.
+  const canQuotePay = !evmTo && n0 > 0 && !resolveError && (!!liveRecipient || !to.trim().startsWith('@'))
+  const q = useQuote(canQuotePay ? { from: ASSET.baseUSDC, to: destinationAsset, amount: BigInt(Math.round(n0 * 1e6)), recipient: liveRecipient || PREVIEW.evm, refundTo, outDecimals: 6 } : null, `${n0}|${liveRecipient || ''}|${destinationAsset}|${refundTo}|${resolveError || ''}`)
   useEffect(() => () => onRisk(null), [])
   const trusted = cfg.trusted.includes(to.trim())
   const st = (ok: string) => !cfg.scam ? 'CHECK OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : ok
   const n = n0
   const limit = n > 0 ? limitCheck(cfg, n) : null
+  const demoPay = guest || resolvedExample // guests only ever simulate; registered sessions pay on mainnet
   return <div className="split pay-split">
     <section className="pad-top sa">
       <Label>PAY · TO @HANDLE OR ADDRESS · RECEIVE {cfg.preferredReceivingCurrency} {trusted && <span className="live-tag">TRUSTED</span>}</Label>
       <input className="field" value={to} onChange={e => setTo(e.target.value)} disabled={status !== 'idle'} />
       <div className="amount"><span>$</span><input value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" disabled={status !== 'idle'} /></div>
-      <div className="mono dim xs">They receive USDC on Solana · their choice of chain{limit ? <><br /><span className="limitnote">{limit}</span></> : n > cfg.holdAbove ? ` · hold required above ${usd(cfg.holdAbove)}` : ''}</div>
+      <div className="mono dim xs">They receive USDC on Solana · their choice of chain{limit ? <><br /><span className="limitnote">{limit}</span></> : n > cfg.holdAbove ? ` · slide to confirm above ${usd(cfg.holdAbove)}` : ''}</div>
     </section>
     <div className="sbw">
     <section className="sb">
-      <Label>{evmTo ? 'DIRECT WALLET TRANSFER · BASE' : 'BEST ROUTE · NEAR INTENTS'} <LiveTag q={q} /></Label>
+      <Label>{guest ? 'GUEST DEMO · NO CHAIN TRANSACTION' : evmTo ? 'DIRECT WALLET TRANSFER · BASE MAINNET' : 'BEST ROUTE · NEAR INTENTS'} <LiveTag q={q} /></Label>
       <div className="route">
         <div className="step"><span className="mono xs dim">FROM</span><span>USDC · Base</span><span className="num">{q.q ? usd(q.q.amountInUsd) : usd(n)}</span></div>
         <div className="line" />
-        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? `~${q.q.eta}s` : q.loading ? <Dots size={4} /> : '—'}</span></div>
+        <div className="step"><span className="mono xs dim">VIA</span><span>Solver quote · 1Click</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? etaLabel(q.q.eta) : q.loading ? <Dots size={4} /> : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
+        {q.q && <div className="mono xs dim why">Provider timeEstimate {q.q.eta == null ? 'missing → Time unavailable' : `${q.q.eta}s from 1Click for this route (a per-route estimate after the deposit confirms; it does not change with the amount, not a guarantee) · quoted ${fmtT(q.q.at)}`}</div>}
         <div className="line" />
         <div className="step"><span className="mono xs dim">TO</span><span>USDC · {destinationNetwork}</span><span className={'num' + (q.loading ? ' pulse' : '')}>{q.q ? q.q.amountOut.toFixed(2) + ' USDC' : q.loading ? <Dots size={4} /> : '—'}</span></div>
       </div>
-      <QuoteMeta q={q} extra={!preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? `Resolved ${to} → ${short(resolvedRecipient)} · verified handle directory.` : resolveError || 'Resolving handle to a verified Solana address…'} />
+      <QuoteMeta q={q} extra={guest ? 'Guest demo: live numbers for illustration only. No wallet opens and nothing is signed, deposited or spent. Sign in for mainnet payments.' : !preferredSupported ? `${cfg.preferredReceivingCurrency} receiving routes are not enabled for this ORI infrastructure yet.` : evmTo ? 'Direct Base transfer: no solver or destination-chain conversion.' : solTo ? null : resolvedRecipient ? (resolvedExample ? `DEMO handle ${to} → ${short(resolvedRecipient)} · simulated pay only · not a verified live payee` : `Verified handle ${to} → ${short(resolvedRecipient)}`) : resolveError ? (resolveKind === 'service' ? resolveError : resolveError) : 'Resolving handle…'} />
     </section>
     <section className="sb">
       <Label>SCAM CHECK {!cfg.scam && <span className="live-tag dimtag">OFF</span>}</Label>
-      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{resolveError || (resolvedRecipient ? `${to} → ${short(resolvedRecipient)}` : !cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source)}</span></span><span className={'mono xs' + ((flagged && checked) || resolveError ? ' bad' : '')}>{resolveError ? 'UNRESOLVED' : resolvedRecipient ? 'RESOLVED · LIVE' : !cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
+      <div className="row"><span className="grow">Recipient address<br /><span className="mono xs dim">{resolveError || (resolvedRecipient ? `${resolvedExample ? 'EXAMPLE · ' : ''}${to} → ${short(resolvedRecipient)}` : !cfg.scam ? 'Scam check is off in Security' : !checked ? 'GoPlus address security…' : risk?.state === 'flagged' ? risk.flags.join(' · ') : risk?.state === 'unsupported' ? (local ? 'local pattern match' : 'Not an EVM address · GoPlus check skipped') : risk?.state === 'error' ? 'GoPlus unreachable · ' + risk.source : risk?.source)}</span></span><span className={'mono xs' + ((flagged && checked) || resolveError ? ' bad' : '')}>{resolveError ? 'UNRESOLVED' : resolvedRecipient ? (resolvedExample ? 'RESOLVED · EXAMPLE' : 'RESOLVED') : !cfg.scam ? 'OFF' : !checked ? 'CHECKING…' : flagged ? 'BLOCKED' : risk?.state === 'clean' ? 'CLEAN · LIVE' : risk?.state === 'error' ? 'UNVERIFIED' : 'NOT CHECKED'}</span></div>
       <div className="row"><span className="grow">Token contract</span><span className="mono xs">{checked ? 'USDC · CANONICAL' : 'CHECKING…'}</span></div>
       <div className="row"><span className="grow">Drainer / approval risk</span><span className={'mono xs' + (flagged && checked ? ' bad' : '')}>{st('NO APPROVAL NEEDED')}</span></div>
       <div className="row"><span className="grow">Spending limits</span><span className={'mono xs' + (limit ? ' bad' : '')}>{limit ? 'OVER CAP' : `${usd(Math.max(0, cfg.daily - spentToday()))} LEFT TODAY`}</span></div>
     </section></div>
     {status === 'sent'
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : 'SIMULATED'}</span></Label>
-        <div className="money-r">{usd(n)} <span className="dim">sent to {to}</span></div>
+        <Label>RECEIPT <span className={settlement ? 'live-tag' : 'example'}>{settlement ? 'LIVE SETTLEMENT' : (demoPay ? 'DEMO · SIMULATED' : 'SIMULATED')}</span></Label>
+        <div className="money-r">{usd(n)} <span className="dim">{settlement ? 'sent' : 'demo · not sent'} to {to}</span></div>
         <div className="row"><span className="grow">Route</span><span className="num">Base USDC → {settlement?.network || destinationNetwork} USDC</span></div>
         <div className="row"><span className="grow">Settled via</span><span className="num">{settlement?.kind === 'direct' ? `Direct Base transfer · ${settlement.state}` : `NEAR Intents · ${settlement?.state || 'simulated'}`}</span></div>
         {settlement && <><div className="row"><span className="grow">Wallet tx</span><span className="num mono">{short(settlement.txHash)}</span></div>{settlement.kind === 'settlement' && settlement.quote && <div className="row"><span className="grow">Deposit address</span><span className="num mono">{short(settlement.quote.quote.depositAddress)}</span></div>}</>}
-        <div className="row"><span className="grow">Quoted fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
+        <div className="row"><span className="grow">Quoted fee</span>{q.q ? <PriceFlow text={usd(q.q.fee)} /> : <span className="num">—</span>}</div>
         <div className="row"><span className="grow">Delivered by</span><span className="num">{settlement?.kind === 'direct' ? 'Your connected wallet' : settlement ? 'Base wallet → 1Click' : 'Ori'}</span></div>
         {settlement?.error && <div className="mono xs err why">{settlement.error}</div>}
       </motion.div>
-      : <ConfirmBtn btn={cta} label={`${evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? 'Handle unresolved' : isSettlementEnabled() && !liveRecipient ? 'Resolving handle…' : !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel="Ori is delivering"
-        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
+      : <ConfirmBtn btn={cta} label={`${demoPay ? 'review DEMO payment ' + usd(n) : evmTo ? 'review direct Base transfer' : 'review ' + usd(n) + ' payment'}`} need={false} blocked={!preferredSupported ? `${cfg.preferredReceivingCurrency} route unavailable` : resolveError ? (resolveKind === 'service' ? resolveError : `Handle unresolved: ${resolveError}`) : to.trim().startsWith('@') && !resolvedRecipient && !evmTo && !solTo ? 'Resolving handle…' : !demoPay && !evmTo && !q.q && !q.loading ? 'No live quote' : !checked ? null : flagged ? 'Blocked · flagged address' : null} limit={limit} status={status === 'idle' && !checked ? 'idle' : status} busyLabel={demoPay ? 'Ori is simulating' : 'Ori is delivering'}
+        onGo={r => { if (checked) nebulaThink(); return checked && onConfirm(r, n, to, q.q ? q.q.fee : null, demoPay) }} onLimit={(r, w) => onLimit(r, w, `Payment of ${usd(n)} to ${to}`)} />}
   </div>
 }
 
 function LiveTag({ q }: { q: { q: Quote | null; loading: boolean; err: string | null } }) {
-  return q.q ? <span className="live-tag">LIVE QUOTE</span> : q.loading ? <span className="live-tag dimtag"><Dots size={4} label="Fetching quote" /></span> : q.err ? <span className="live-tag dimtag">OFFLINE</span> : null
+  // Dry public quotes: "PROVIDER" means the numbers came from 1Click this request, not that settlement is live.
+  if (q.q) {
+    const stale = isQuoteStale(q.q.at)
+    return <span className={'live-tag' + (stale ? ' dimtag' : '')}>{stale ? 'STALE QUOTE' : q.loading ? 'REFRESHING' : 'PROVIDER QUOTE'}</span>
+  }
+  return q.loading ? <span className="live-tag dimtag"><Dots size={4} label="Fetching quote" /></span> : q.err ? <span className="live-tag dimtag">QUOTE FAILED</span> : null
 }
 function QuoteMeta({ q, extra }: { q: { q: Quote | null; loading: boolean; err: string | null }; extra: string | null }) {
   if (q.err) return <div className="mono xs err why">Live quote unavailable: {q.err}. Nothing was sent.</div>
   if (!q.q) return <div className="mono xs dim why">{q.loading ? <Dots size={5} label="Asking solvers" /> : extra || 'Enter an amount for a live quote.'}</div>
-  return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · ETA ~{q.q.eta}s · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
+  return <div className="mono xs dim why">Fee {usd(q.q.fee)} ({(q.q.fee / q.q.amountInUsd * 100).toFixed(2)}%) · min out {q.q.minOut.toFixed(2)} · 1% slippage · settles {etaLabel(q.q.eta)} after deposit (1Click per-route estimate) · quoted {fmtT(q.q.at)}<br />Dry-run only (dry:true): no deposit address is issued and nothing can be sent.{extra ? <><br />{extra}</> : null}</div>
 }
-function Swap({ refundEvm, preset, status, cfg, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
+export type SwapPlan = { review: SwapReview; asset: AssetDef; settlement: SettlementQuote; label: string; lines: [string, string][] }
+function Swap({ refundEvm, preset, status, cfg, uiMode, onConfirm, onLimit }: { refundEvm: string; preset: { amt: string; flip: boolean; k: number }; status: 'idle' | 'running' | 'done' | 'sent'; cfg: Settings; uiMode: Mode; onConfirm: (r: DOMRect, usdv: number, detail: string, fee: number | null, plan?: SwapPlan) => void; onLimit: (r: DOMRect, why: string, what: string) => void }) {
   const [flip, setFlip] = useState(preset.flip)
   const [amt, setAmt] = useState(preset.amt)
   useEffect(() => { setFlip(preset.flip); setAmt(preset.amt) }, [preset.k])
-  const [px, setPx] = useState<{ sol: number; usdc: number } | null>(null)
-  useEffect(() => { tokens().then(ts => setPx({ sol: ts.find(t => t.assetId === ASSET.SOL)!.price, usdc: ts.find(t => t.assetId === ASSET.baseUSDC)!.price })).catch(() => { }) }, [])
+  // Token choices come from the live 1Click catalog (normalized + validated), not a hardcoded pair.
+  const [cat, setCat] = useState<CatalogToken[]>([])
+  useEffect(() => { tokens().then(ts => setCat(normalizeTokens(ts))).catch(() => setCat([])) }, [])
+  const px = cat.length ? true : null
+  const [ids, setIds] = useState<[string, string]>([ASSET.SOL, ASSET.baseUSDC])
+  useEffect(() => { if (preset.flip) setIds([ASSET.baseUSDC, ASSET.SOL]) }, [preset.k]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [fromId, toId] = flip ? [ids[1], ids[0]] : ids
+  const setFromId = (v: string) => setIds(flip ? [ids[0], v] : [v, ids[1]]), setToId = (v: string) => setIds(flip ? [v, ids[1]] : [ids[0], v])
+  const chainLabel = (b: string) => ({ eth: 'Ethereum', base: 'Base', sol: 'Solana', near: 'NEAR', arb: 'Arbitrum', op: 'Optimism', pol: 'Polygon', bsc: 'BNB Chain', avax: 'Avalanche', btc: 'Bitcoin' } as Record<string, string>)[b] || b
+  const tk = (id: string) => { const t = cat.find(x => x.assetId === id); return t ? { s: t.symbol, c: chainLabel(t.blockchain), b: t.blockchain, id: t.assetId, d: t.decimals, p: t.price || undefined, t } : null }
+  const from = tk(fromId) || { s: '…', c: '', b: '', id: fromId, d: 9, p: undefined, t: null }
+  const to = tk(toId) || { s: '…', c: '', b: '', id: toId, d: 6, p: undefined, t: null }
+  const previewAddr = (b: string) => EVM_CATALOG_CHAINS.has(b) ? (refundEvm || PREVIEW.evm) : b === 'sol' ? PREVIEW.sol : b === 'near' ? 'preview.near' : null
+  const exec = from.t ? originAdapter(from.t) : null
+  const routeNote = !cat.length ? 'Token list unavailable.' : from.id === to.id ? 'Same asset on the same chain: use Send (direct transfer).' : from.b === to.b && from.s === to.s ? 'Same asset on the same chain: use Send (direct transfer).' : !previewAddr(to.b) ? `ORI can't validate ${to.c} addresses yet, so no quote.` : !exec ? `Quote only: ORI can't sign a deposit from ${from.s} on ${from.c} yet.` : null
   const n = +amt || 0
-  const from = flip ? { s: 'USDC', c: 'Base', id: ASSET.baseUSDC, d: 6, p: px?.usdc } : { s: 'SOL', c: 'Solana', id: ASSET.SOL, d: 9, p: px?.sol }
-  const to = flip ? { s: 'SOL', c: 'Solana', id: ASSET.SOL, d: 9, p: px?.sol } : { s: 'USDC', c: 'Base', id: ASSET.baseUSDC, d: 6, p: px?.usdc }
-  const q = useQuote(n > 0 ? { from: from.id, to: to.id, amount: BigInt(Math.round(n * 10 ** from.d)), recipient: to.c === 'Base' ? refundEvm : PREVIEW.sol, refundTo: from.c === 'Base' ? refundEvm : PREVIEW.sol, outDecimals: to.d } : null, `${n}|${flip}`)
+  const units = from.t ? toUnits(amt, from.d) : null
+  const canQuote = n > 0 && units && from.t && to.t && from.id !== to.id && !(from.b === to.b && from.s === to.s) && previewAddr(to.b) && previewAddr(from.b)
+  const q = useQuote(canQuote ? { from: from.id, to: to.id, amount: units!, recipient: previewAddr(to.b)!, refundTo: previewAddr(from.b)!, outDecimals: to.d } : null, `${amt}|${from.id}|${to.id}`)
   const out = q.q ? q.q.amountOut : null
   const fmtOut = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: to.d === 9 ? 4 : 2 })
   const usdv = q.q ? q.q.amountInUsd : n * (from.p || 0)
   const limit = usdv > 0 ? limitCheck(cfg, usdv) : null
   const [sent, setSent] = useState<{ q: Quote; n: number; from: string; to: string } | null>(null)
   const busy = status !== 'idle'
+  const live = isSettlementEnabled()
+  const sizeKind = sizingKind(uiMode, live)
+  const { list: wl, active: activeWallet } = useManagedWallets()
+  const ownFor = (b: string) => pickSigner(wl.map(w => ({ id: w.id, chain: w.chain, address: w.address })), activeWallet, b) || undefined
+  const srcAcct = ownFor(from.b), dstAcct = ownFor(to.b)
+  const liveBlock = !live ? null : !exec ? 'Quote only · ORI cannot sign this deposit' : !srcAcct ? `Connect your ${from.c} wallet to swap` : !dstAcct ? `Connect your own ${to.c} wallet to receive` : null
+  // Example UI: mock-ranked tokens + labelled example MAX. Live/settlement: never mock or watch-only aggregates — only the active signer + chain + token.
+  const held = sizeKind === 'example' ? exampleHeld() : []
+  const assetKey = exec && from.t ? { sym: from.s, net: exec.net, decimals: from.d, kind: exec.kind, token: exec.token } as AssetDef : null
+  const sourceKey = sizeKind === 'example' ? `example|${from.b}|${from.s}` : spendSourceKey(srcAcct || null, assetKey)
+  const [spendRaw, setSpend] = useState<SpendState>(() => sizeKind === 'example' ? exampleSpendable(from.s, from.b) : unknownSpend('Connect the signing wallet for a fresh balance read'))
+  useEffect(() => {
+    if (sizeKind === 'example') { setSpend(exampleSpendable(from.s, from.b)); return }
+    if (!from.t || !assetKey) { setSpend(unknownSpend('Pick a send asset', sourceKey)); return }
+    if (!srcAcct) { setSpend(unknownSpend(`Connect your ${from.c} wallet · watch-only addresses are not a signing balance`, sourceKey)); return }
+    setSpend(unknownSpend('Reading signer balance…', sourceKey))
+    let dead = false
+    const probe = units && units > 0n ? units : 1n // self-probe approx; amt not in deps (no fee-estimate loops)
+    readSignerSpendable(assetKey, srcAcct, probe).then(st => { if (!dead) setSpend(st) })
+    return () => { dead = true }
+  }, [sizeKind, sourceKey, from.s, from.b, from.t, from.c]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Synchronous gate (like quoteVisible): never paint prior signer balance/MAX for a new sourceKey.
+  const spend = visibleSpend(spendRaw, sourceKey)
+  const balBlock = amountAllowed(spend, n, from.s, amt)
+  const overBal = !!(n > 0 && balBlock && /available/i.test(balBlock))
+  const [prep, setPrep] = useState('')
+  const reviewLive = async (r: DOMRect) => {
+    if (!q.q || !exec || !srcAcct || !dstAcct || !units || !from.t || !to.t) return
+    setPrep('Getting a binding quote…')
+    try {
+      const st = await createSettlementQuote({ from: from.id, to: to.id, amount: units, recipient: dstAcct, refundTo: srcAcct })
+      const mo = String(st.quote.minAmountOut ?? st.quote.amountOut)
+      const review: SwapReview = { originAsset: from.id, destinationAsset: to.id, units, recipient: dstAcct, refundTo: srcAcct, originNet: exec.net, account: srcAcct, minOutUnits: BigInt(mo) * 995n / 1000n }
+      const asset: AssetDef = { sym: from.s, net: exec.net, decimals: from.d, kind: exec.kind, token: exec.token }
+      const outN = +st.quote.amountOut / 10 ** to.d, minN = +mo / 10 ** to.d
+      const label = `${n} ${from.s} → ${fmtOut(outN)} ${to.s}`
+      const lines: [string, string][] = [['Route', `${from.s} · ${from.c} → ${to.s} · ${to.c} (NEAR Intents)`], ['From account', short(srcAcct)], ['Deposit to', short(st.quote.depositAddress)], ['Recipient (yours)', short(dstAcct)], ['Refund to', short(srcAcct)], ['Minimum received', `${fmtOut(minN)} ${to.s}`], ['Provider fees', st.quote.amountInUsd && st.quote.amountOutUsd ? usd(+st.quote.amountInUsd - +st.quote.amountOutUsd) : '—'], ['Quote expires', st.quote.deadline ? fmtT(st.quote.deadline) : 'unknown · cannot send'], ['Approvals', 'None · direct transfer to the deposit address']]
+      setPrep(''); nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s })
+      onConfirm(r, q.q.amountInUsd, label, q.q.fee, { review, asset, settlement: st, label, lines })
+    } catch (e) { setPrep(`No binding quote: ${(e as Error).message}`) }
+  }
   return <div className="split swap-split">
     <section className="pad-top sa">
       <Label>SWAP · ONE TAP {px && <span className="live-tag">LIVE PRICES</span>}</Label>
       <div className="swapbox">
         <span className="mono xs dim">SEND</span>
-        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><span>{from.s}<br /><span className="mono xs dim">{from.c}</span></span></div>
-        <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}</span>
-        <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label="Flip direction">⇅</motion.button>
+        <div className="swaprow"><input className="big2 amtin" value={amt} disabled={busy} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" /><TokenSearch value={from.id} cat={cat} onChange={setFromId} disabled={busy} label="Send asset" chainLabel={chainLabel} origin held={held} /></div>
+        {from.t && !exec && <span className="qo-chip mono xs" title="ORI cannot sign a deposit from this asset; you can see the quote but not swap.">QUOTE ONLY</span>}
+        <span className="mono xs dim">{from.p ? usd(n * from.p) : '—'}{` · ${spend.label}`}{spend.feeNote ? ` · ${spend.feeNote}` : ''}{overBal ? ' · over available' : ''}</span>
+        {canUseMax(spend) && <button type="button" className="ghost maxbtn" disabled={busy} title={spend.kind === 'example' ? 'Example MAX only · not a real spendable balance' : `MAX for signer ${spend.owner}`} onClick={() => setAmt(spend.maxStr!)}>{spend.kind === 'example' ? 'MAX · example' : 'MAX'}</button>}
+        <motion.button className="flip" whileTap={{ rotate: 180 }} transition={spring} disabled={busy} onClick={() => setFlip(!flip)} aria-label={`Swap direction: currently ${from.s} to ${to.s}`} title="Swap direction">⇅</motion.button>
       </div>
       <div className="swapbox">
         <span className="mono xs dim">RECEIVE</span>
-        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? fmtOut(out) : '—'}</span><span>{to.s}<br /><span className="mono xs dim">{to.c}</span></span></div>
+        <div className="swaprow"><span className={'big2' + (q.loading ? ' pulse' : '')}>{out !== null ? <PriceFlow className="" text={fmtOut(out)} /> : '—'}</span><TokenSearch value={to.id} cat={cat} onChange={setToId} disabled={busy} label="Receive asset" chainLabel={chainLabel} held={held} /></div>
         <span className="mono xs dim">{q.q ? usd(q.q.amountOutUsd) : ' '}{limit && <span className="limitnote"> · {limit}</span>}</span>
       </div>
     </section>
     <section className="sb">
       <Label>QUOTE <LiveTag q={q} /></Label>
-      <div className="row"><span className="grow">Rate</span><span className="num">{q.q && n ? `1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}` : '—'}</span></div>
-      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? `~${q.q.eta}s` : '—'}</span></div>
+      <div className="row"><span className="grow">Rate</span>{q.q && n ? <PriceFlow text={`1 ${from.s} = ${(q.q.amountOut / n).toLocaleString('en-US', { maximumFractionDigits: 4 })} ${to.s}`} /> : <span className="num">—</span>}</div>
+      <div className="row"><span className="grow">Settlement</span><span className="num">NEAR Intents · {q.q ? (etaLabel(q.q.eta) + (q.q.eta != null ? ` · quoted ${fmtT(q.q.at)}` : '')) : q.loading ? '…' : q.err ? TIME_UNAVAILABLE : '—'}</span></div>
       <div className="row"><span className="grow">Total fee</span><span className="num">{q.q ? usd(q.q.fee) : '—'}</span></div>
-      <div className="row"><span className="grow">Minimum received</span><span className="num">{q.q ? fmtOut(q.q.minOut) + ' ' + to.s : '—'}</span></div>
-      <QuoteMeta q={q} extra="Confirming runs a simulation with these live numbers. Nothing is signed or sent." />
+      <div className="row"><span className="grow">Minimum received</span>{q.q ? <PriceFlow text={fmtOut(q.q.minOut) + ' ' + to.s} /> : <span className="num">—</span>}</div>
+      <QuoteMeta q={q} extra={routeNote || 'Network fee is paid in your wallet; the total fee above is the provider spread/fees from the quote. ORI adds no app fee. ' + (live ? 'Review fetches a binding quote; your wallet signs one direct deposit. No token approvals.' : 'EXAMPLE mode: confirming simulates with these live numbers. Nothing is signed or sent.')} />
     </section>
     {status === 'sent' && sent
       ? <motion.div className="receipt sa2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-        <Label>SWAP RECEIPT <span className="example">SIMULATED</span></Label>
+        <Label>SWAP RECEIPT <span className="example">{live ? 'SEE HISTORY FOR STATUS' : 'EXAMPLE · SIMULATED'}</span></Label>
         <div className="money-r">{sent.n} {sent.from} <span className="dim">→ {fmtOut(sent.q.amountOut)} {sent.to}</span></div>
         <div className="row"><span className="grow">Value in</span><span className="num">{usd(sent.q.amountInUsd)}</span></div>
         <div className="row"><span className="grow">Quoted fee</span><span className="num">{usd(sent.q.fee)}</span></div>
-        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · simulated · ~{sent.q.eta}s</span></div>
-        <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)} · dry run</span></div>
+        <div className="row"><span className="grow">Settled via</span><span className="num">NEAR Intents · {live ? 'live' : 'simulated'} · {etaLabel(sent.q.eta)}</span></div>
+        <div className="row"><span className="grow">Quote time</span><span className="num">{fmtT(sent.q.at)}{live ? '' : ' · dry run'}</span></div>
       </motion.div>
-      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={!q.q ? (q.loading ? 'Waiting for a live quote' : q.err ? 'No live quote · cannot simulate' : 'Enter an amount') : null} limit={limit} status={status} busyLabel="Ori is swapping"
-        onGo={r => { if (!q.q) return; nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
+      : <ConfirmBtn label={`review swap ${n || ''} ${from.s} → ${to.s}`} need={false} blocked={balBlock && (spend.kind !== 'example' || !(n > 0) || overBal) ? balBlock : !canQuote ? (routeNote || 'No quote for this route') : q.err && !q.q ? 'Live quote unavailable' : !q.q ? (q.loading ? 'Waiting for a live quote' : 'No live quote yet · try again') : liveBlock || (prep && prep.startsWith('Getting') ? prep : null)} limit={limit} status={status} busyLabel="Ori is swapping"
+        onGo={r => { if (!q.q) return; if (live) { void reviewLive(r); return } nebulaThink(); setSent({ q: q.q, n, from: from.s, to: to.s }); onConfirm(r, q.q.amountInUsd, `${n} ${from.s} → ${fmtOut(q.q.amountOut)} ${to.s}`, q.q.fee) }} onLimit={(r, w) => onLimit(r, w, `Swap of ${n} ${from.s} (${usd(usdv)})`)} />}
+    {prep && !prep.startsWith('Getting') && <div className="mono xs err why">{prep}</div>}
   </div>
 }
 
@@ -395,20 +521,20 @@ function Earn() {
 }
 
 function Privacy({ hidden, setHidden }: { hidden: boolean; setHidden: (v: boolean) => void }) {
-  const [s, setS] = useState({ unlink: true, tee: true, stealth: true, analytics: false })
+  const [s, setS] = useState({ analytics: false })
   const items: [keyof typeof s, string, string][] = [
-    ['unlink', 'Unlinkable addresses', 'Each chain address is derived separately via Chain Signatures; no public link between them.'],
-    ['stealth', 'Fresh deposit address per payment', 'Incoming payments never reuse an address.'],
-    ['tee', 'Private AI (TEE)', 'Route + scam reasoning runs in NEAR AI Cloud confidential compute. Attestation verifiable.'],
     ['analytics', 'Share anonymous usage', 'Off by default.'],
   ]
   return <>
     <section className="pad-top">
-      <Label>PRIVACY · DEFAULT ON</Label>
+      <Label>PRIVACY</Label>
       <h2 className="big2">Your total is yours.<br /><span className="dim">Not the explorer’s.</span></h2>
       <div className="row"><span className="grow">Hide balance on screen</span><Toggle on={hidden} onChange={setHidden} /></div>
       {items.map(([k, t, d]) => <div className="row" key={k}><span className="grow">{t}<br /><span className="mono xs dim">{d}</span></span>
         <Toggle on={s[k]} onChange={v => setS({ ...s, [k]: v })} /></div>)}
+      <div className="row"><span className="grow">Separate address per chain (Chain Signatures)<br /><span className="mono xs dim">Not implemented yet, planned. Today ORI watches the addresses you add or connect; it does not derive addresses.</span></span><span className="mono xs dim">PLANNED</span></div>
+      <div className="row"><span className="grow">Fresh deposit address per payment<br /><span className="mono xs dim">Not implemented yet, planned. ORI does not generate per-payment deposit addresses today.</span></span><span className="mono xs dim">PLANNED</span></div>
+      <div className="row"><span className="grow">Private AI (NEAR AI Cloud)<br /><span className="mono xs dim">Not connected yet, planned. Ori’s chat currently runs a local rule-based assistant on this device; no AI model or TEE attestation is used.</span></span><span className="mono xs dim">PLANNED</span></div>
     </section>
     <section>
       <Label>WHAT THE PUBLIC SEES <Example /></Label>
@@ -425,16 +551,22 @@ export function useWide() {
 }
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms))
 type Msg = { who: 'me' | 'ori'; t: string; chips?: string[]; pending?: Act }
-const MORE: Screen[] = ['wallets', 'history', 'request', 'policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
+const MORE: Screen[] = ['receive', 'wallets', 'history', 'request', 'policy', 'scan', 'earn', 'privacy', 'profile', 'settings', 'security', 'help']
 export default function App() {
   const initial = (new URLSearchParams(location.search).get('screen') as Screen) || 'home'
   const [screen, setScreen] = useState<Screen>(initial)
   const [hidden, setHidden] = useState(false)
   const [extra, setExtra] = useState(0)
-  const [mode, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
+  const [modeReq, setModeS] = useState<Mode>(() => (new URLSearchParams(location.search).get('mode') as Mode) || (localStorage.getItem('mode') as Mode) || 'example')
   const [addrs, setAddrsS] = useState<string[]>(() => { const q = new URLSearchParams(location.search).get('addrs'); return q ? q.split(',') : JSON.parse(localStorage.getItem('addrs') || '[]') })
   const [live, setLive] = useState<LiveState>({ loading: false, holdings: [], errors: [], at: null })
-  const setMode = (m: Mode) => { setModeS(m); localStorage.setItem('mode', m) }
+  const setMode = (m: Mode) => {
+    if (m === 'example' && !canUseExample(kindRef.current)) { oriSay('Registered sessions use mainnet data only. Example data is for guests.'); return }
+    setModeS(m); localStorage.setItem('mode', m)
+    // Abort pending review/confirm when UI data mode changes; invalidate in-flight DEMO so it cannot log after cancel
+    demoPayGen.current += 1
+    sheetAction.current = 'cancel'; setSheet(null); setStatus('idle'); setSwapSt('idle'); setSettlement(null); paymentInFlight.current = false
+  }
   const setAddrs = (a: string[]) => { setAddrsS(a); localStorage.setItem('addrs', JSON.stringify(a)) }
   const lastTotal = useRef<number | null>(null)
   const [draft, setDraft] = useState<Draft>({ to: '@tolu', amt: '50', k: 0 })
@@ -442,10 +574,19 @@ export default function App() {
   const [settlement, setSettlement] = useState<LivePayment | null>(null)
   const [account, setAccount] = useState<Account | null>(() => { try { return JSON.parse(localStorage.getItem('ori-account') || 'null') } catch { return null } })
   const [accountOpen, setAccountOpen] = useState(false)
+  // Guest vs registered: a Gmail account or an ORI wallet on this device makes the session registered (mainnet only).
+  const nativeWallet = useNativeWallet()
+  const kind: SessionKind = sessionKind({ account, nativeWallet })
+  const kindRef = useRef(kind); kindRef.current = kind
+  const mode = effectiveMode(modeReq, kind)
+  useEffect(() => { if (kind !== 'registered') return; demoPayGen.current += 1; sheetAction.current = 'cancel'; setSheet(null); setStatus('idle'); setSwapSt('idle'); setExtra(0); paymentInFlight.current = false }, [kind])
   const [guestId] = useState(() => { const existing = sessionStorage.getItem('ori-guest'); if (existing) return existing; const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2); sessionStorage.setItem('ori-guest', id); return id })
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   useEffect(() => { if (status === 'done' || status === 'sent') nebulaDone(600) }, [status])
   const [chat, setChat] = useState(false)
+  const stopTalk = useRef<() => void>(() => {})
+  const [listenSt, setListenSt] = useState<'off' | 'listening' | 'unsupported' | 'denied' | 'error'>('off')
+  const [listenHint, setListenHint] = useState('')
   const [burst, setBurst] = useState<{ x: number; y: number } | null>(null)
   const [stage, skipIntro] = useIntro()
   const wide = useWide()
@@ -454,16 +595,14 @@ export default function App() {
   useEffect(() => { if (account) localStorage.setItem('ori-chat', JSON.stringify(msgs.slice(-60).map(m => ({ ...m, pending: undefined })))) }, [msgs, account])
   const [thinking, setThinking] = useState(false)
   const [cfg, setCfg] = useSettings()
+  const [sendPreset, setSendPreset] = useState<{ sym: string; net: string } | null>(null)
   setFmt(cfg.fmt)
   const [swapSt, setSwapSt] = useState<'idle' | 'running' | 'done' | 'sent'>('idle')
   const [swapPre, setSwapPre] = useState({ amt: '1', flip: false, k: 0 })
   const msgsEnd = useRef<HTMLDivElement>(null)
   useEffect(() => { msgsEnd.current?.scrollIntoView({ block: 'end' }) }, [msgs.length, thinking, chat])
   const [input, setInput] = useState('')
-  const [mic, setMic] = useState<'off' | 'requesting' | 'listening' | 'unsupported' | 'denied'>('off')
-  const [heard, setHeard] = useState<string | null>(null)
   const ori = useRef<OriApi>(null)
-  const stopMic = useRef<() => void>(() => { })
   const reduced = cfg.reduce || (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
   useEffect(() => { if (reduced) return; const l = new Lenis({ lerp: 0.12 }); let r = 0; const f = (t: number) => { l.raf(t); r = requestAnimationFrame(f) }; r = requestAnimationFrame(f); return () => { cancelAnimationFrame(r); l.destroy() } }, [reduced])
   useEffect(() => { document.title = APP_NAME }, [])
@@ -494,7 +633,7 @@ export default function App() {
     return () => clearTimeout(t)
   }, [account])
   const rows = mode === 'live' ? live.holdings.map(h => ({ sym: h.sym, chain: h.chain, amt: h.amt, usd: h.usd })) : assets.map((a, i) => ({ sym: a.sym, chain: a.chain, amt: a.amt, usd: a.usd + (i === 0 ? extra : 0) }))
-  const goTo = (k: Screen) => { setScreen(k); setMenu(false); if (k === 'pay' && status === 'sent') setStatus('idle'); if (k === 'swap' && swapSt === 'sent') setSwapSt('idle'); scrollTo(0, 0) }
+  const goTo = (k: Screen) => { if (isHiddenScreen(k)) k = 'home'; setScreen(k); setMenu(false); if (k === 'pay' && status === 'sent') setStatus('idle'); if (k === 'swap' && swapSt === 'sent') setSwapSt('idle'); scrollTo(0, 0) }
   const doAct = (a: Act) => {
     if (a.k === 'pay') { setStatus('idle'); setDraft({ to: a.to, amt: a.amt, k: Date.now() }); goTo('pay'); setChat(false) }
     else if (a.k === 'swap') { setSwapSt('idle'); setSwapPre({ amt: a.amt, flip: a.flip, k: Date.now() }); goTo('swap'); setChat(false) }
@@ -519,56 +658,134 @@ export default function App() {
   const openChat = () => { setChat(true); askIn.current?.focus({ preventScroll: true }) }
   useEffect(() => { if (!chat) askIn.current?.blur() }, [chat])
   const ask = (q?: string) => { openChat(); if (q) command(q) }
-  const wake = (src: string) => { if (!cfg.wake) return; ori.current?.listen(); setHeard(src === 'simulated' ? '“Hey Ori” · simulated' : '“Hey Ori”'); oriSay('Hey! What do you need?', true) }
-  // single entry for speech results (real mic and the demo simulation both call this)
-  const heardCb = { onWake: wake, onCommand: (t: string, src: string) => { setHeard(`“${t}”${src === 'simulated' ? ' · simulated' : ''}`); command(t, src) }, onState: (s: string) => setMic(s as any) }
-  useEffect(() => { (window as any).__ori = { hear: (t: string) => handleHeard(t, heardCb, 'simulated') } })
-  const toggleMic = async () => { if (!cfg.wake) { oriSay('The “Hey Ori” wake word is off. Turn it on in Settings, or click me to type.'); return } if (mic === 'listening') { stopMic.current(); return } if (!speechSupported()) { setMic('unsupported'); oriSay('Voice isn’t supported in this browser. Tap me to talk instead.'); return } setMic('requesting'); const access = await requestMicrophoneAccess(); if (access === 'unsupported') { setMic('unsupported'); oriSay('This browser does not provide microphone access. Tap Ori to type instead.'); return } if (access === 'denied') { setMic('denied'); oriSay('Microphone access is blocked. Allow Microphone for this site in your browser permissions, then tap the mic again.'); return } stopMic.current = startListening(heardCb) }
+  const haltTalk = () => { try { stopTalk.current() } catch { } ; stopTalk.current = () => {} }
+  const beginTalk = () => {
+    haltTalk()
+    if (!speechSupported()) {
+      setListenSt('unsupported')
+      setListenHint('Voice input isn’t available in this browser. Type below instead. Support varies, especially on iOS Safari.')
+      return
+    }
+    stopTalk.current = startTapToTalk({
+      onListening: () => { setListenSt('listening'); setListenHint('Listening… tap Hey ORI or Stop when you’re done.') },
+      onInterim: t => setInput(t),
+      onFinal: t => { setInput(t); setListenHint('Review what I heard, then send or clear. ORI will not sign or spend from a voice command alone.') },
+      onError: (k, m) => { setListenSt(k); setListenHint(m) },
+      onEnd: () => { setListenSt(st => st === 'listening' ? 'off' : st); stopTalk.current = () => {} },
+    })
+  }
+  const heyOri = () => { openChat(); listenSt === 'listening' ? (haltTalk(), setListenSt('off'), setListenHint('Stopped. You can type or tap Hey ORI again.')) : beginTalk() }
+  useEffect(() => { if (!chat) { haltTalk(); setListenSt(st => st === 'off' ? st : 'off') } }, [chat])
+  useEffect(() => { haltTalk() }, [screen])
+  useEffect(() => () => { haltTalk() }, [])
   const celebrate = async (r: DOMRect, set: (v: 'idle' | 'running' | 'done' | 'sent') => void) => { set('running'); await ori.current?.run(r); set('done'); await wait(reduced ? 200 : 650); setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); await wait(reduced ? 0 : 700); set('sent'); setTimeout(() => setBurst(null), reduced ? 300 : 900); ori.current?.mood('happy') }
   const [sheet, setSheet] = useState<(SheetData & { run?: () => void }) | null>(null)
   const sheetAction = useRef<'idle' | 'confirm' | 'cancel'>('idle')
   const paymentInFlight = useRef(false)
-  const confirm = (r: DOMRect, amt: number, to: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, run: () => doPay(r, amt, to) }) }
-  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: 'Your ORI wallet', amount: detail, usdv: v, chain: /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, run: () => doSwap(r, v, detail) }) }
-  const doPay = async (r: DOMRect, amt: number, to: string) => {
-    if (paymentInFlight.current) return
-    paymentInFlight.current = true
-    if (!isSettlementEnabled()) { await celebrate(r, setStatus); addSpent(amt); setExtra(e => e - amt); oriSay(`Delivered ${usd(amt)} to ${to}. Simulated, nothing was signed. Receipt’s on the card.`); paymentInFlight.current = false; return }
-    let recipient = to.trim()
-    if (kindOf(recipient) !== 'sol') {
-      try { recipient = (await resolveHandle(recipient)).address }
-      catch (e) { oriSay(`${(e as Error).message} No transaction was submitted.`); paymentInFlight.current = false; return }
+  const demoPayGen = useRef(0)
+  const confirm = async (r: DOMRect, amt: number, to: string, fee: number | null, demo = false) => {
+    sheetAction.current = 'idle'
+    // Guest → DEMO only. Registered → mainnet only; never a simulated success (blocked instead).
+    const route = payRoute({ kind, exampleHandle: demo || isExampleHandle(to), settlementEnabled: isSettlementEnabled() })
+    if (route.route === 'blocked') { oriSay(route.reason); return }
+    if (route.route === 'demo') {
+      const demoLines: [string, string][] = [['Mode', 'DEMO · simulated'], ['Recipient', to.trim()], ['Route', 'Base USDC → Solana USDC (quoted dry · not deposited)'], ['Signing', 'None · demo does not open a wallet'], ['History', 'Logged as DEMO · separate from real spending']]
+      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: 'Base → Solana', fee, blocked: null, live: false, lines: demoLines, run: () => doPay(r, amt, to, undefined, true) })
+      return
     }
-    setStatus('running')
-    let broadcastHash: string | null = null
-    try {
-      const wallet = await connectBaseWallet()
-      saveWallet({ address: wallet, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
-      if (kindOf(recipient) === 'evm') {
-        const txHash = await sendBaseUSDC(wallet, recipient, BigInt(Math.round(amt * 1e6)))
-        broadcastHash = txHash
-        setSettlement({ kind: 'direct', wallet, txHash, state: 'SUCCESS', destination: recipient, network: 'Base', amount: amt })
-        logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'Base', to: recipient, txHash })
-        addSpent(amt); setExtra(e => e - amt); setStatus('sent'); oriSay(`Sent ${usd(amt)} USDC to ${short(recipient)} on Base. The wallet transaction was submitted.`); return
-      }
-      const settlementQuote = await createSettlementQuote({ from: ASSET.baseUSDC, to: ASSET.solUSDC, amount: BigInt(Math.round(amt * 1e6)), recipient, refundTo: wallet })
-      const txHash = await depositBaseUSDC(wallet, settlementQuote)
-      broadcastHash = txHash
-      setSettlement({ kind: 'settlement', quote: settlementQuote, wallet, txHash, state: 'BROADCAST', destination: recipient, network: 'Solana', amount: amt })
-      const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to, txHash, note: 'Deposit submitted to 1Click for settlement', explorer: `https://basescan.org/tx/${txHash}` })
-      addSpent(amt); setExtra(e => e - amt); setStatus('sent')
-      oriSay(`Deposit signed in your wallet. I’m watching 1Click for settlement. Transaction ${short(txHash)}.`)
-      for (let i = 0; i < 30; i++) {
-        await wait(4000)
-        const s = await settlementStatus(settlementQuote.quote.depositAddress, settlementQuote.quote.depositMemo)
-        setSettlement(p => p ? { ...p, state: s.status } : p)
-        const terminal = ['SUCCESS', 'REFUNDED', 'FAILED'].includes(s.status)
-        updateTransaction(tx.id, { status: s.status === 'SUCCESS' ? 'completed' : s.status === 'FAILED' ? 'failed' : 'pending', note: terminal ? `1Click settlement ${s.status.toLowerCase()}` : `1Click settlement · ${s.status.toLowerCase()}` })
-        if (terminal) { oriSay(s.status === 'SUCCESS' ? `Delivered ${usd(amt)} to ${to}. Settlement complete.` : `Settlement ended ${s.status.toLowerCase()}. Check the receipt for details.`); break }
-      }
-    } catch (e) { const error = (e as Error).message; setSettlement(p => p ? { ...p, state: 'ERROR', error } : p); if (broadcastHash) { setStatus('sent'); oriSay(`${error} Your wallet transaction ${short(broadcastHash)} was already submitted; I could not confirm settlement yet.`) } else { setStatus('idle'); oriSay(`${error} No transaction was submitted.`) } } finally { paymentInFlight.current = false }
+    try { // live verified only: build the exact plan the wallet will sign
+      const plan = await preparePay(amt, to, { resolve: async h => { const r = await resolveHandle(h); if (r.example) throw new Error(`${h} is an example handle only. Use DEMO review for example handles, or set ORI_HANDLE_DIRECTORY with a verified Solana address for live pay.`); return r.address }, connect: connectBaseWallet, quote: createSettlementQuote })
+      saveWallet({ address: plan.account, chain: 'evm', network: 'Base', provider: 'EIP-1193 wallet' }, 'EVM wallet')
+      const lines: [string, string][] = plan.kind === 'direct'
+        ? [['Route', 'Direct USDC transfer on Base (no NEAR Intents)'], ['From account', short(plan.account)], ['Recipient address', short(plan.to)], ['Approvals', 'None']]
+        : [['Route', 'USDC Base → USDC Solana (NEAR Intents)'], ['From account', short(plan.account)], ['Deposit to', short(plan.settlement.quote.depositAddress)], ['Recipient address', short(plan.review.recipient)], ['Refund to', short(plan.account)], ['Minimum received', `${(Number(plan.review.minOutUnits) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 })} USDC`], ['Quote expires', fmtT(plan.settlement.quote.deadline!)], ['Approvals', 'None · direct transfer to the deposit address']]
+      setSheet({ kind: 'pay', to, amount: `${usd(amt)} USDC`, usdv: amt, chain: plan.kind === 'direct' ? 'Base' : 'Base → Solana', fee, blocked: null, live: true, lines, run: () => doPay(r, amt, to, plan, false) })
+    } catch (e) { oriSay(`${(e as Error).message} No transaction was submitted.`) }
   }
-  const doSwap = async (r: DOMRect, v: number, detail: string) => { await celebrate(r, setSwapSt); addSpent(v); oriSay(`Swapped ${detail}, simulated at the live quote. Nothing was signed.`) }
+  const confirmSwap = (r: DOMRect, v: number, detail: string, fee: number | null, plan?: SwapPlan) => { sheetAction.current = 'idle'; setSheet({ kind: 'swap', to: plan ? short(plan.review.recipient) + ' (yours)' : 'Your ORI wallet', amount: detail, usdv: v, chain: plan ? plan.lines[0][1] : /SOL →/.test(detail) ? 'Solana → Base' : 'Base → Solana', fee, blocked: null, live: !!plan, lines: plan?.lines, run: () => doSwap(r, v, detail, plan) }) }
+  const doPay = async (r: DOMRect, amt: number, to: string, plan?: PayPlan, demo = false) => {
+    if (paymentInFlight.current) return
+    { const why = limitCheck(cfg, amt); if (why) { overLimit(r, why, `Payment of ${usd(amt)} to ${to}`); return } } // re-check at the signing boundary, not only on the card
+    // DEMO / non-settlement simulation: honest receipt + demo ledger. No wallet, no dry:false, no fake txHash/explorer.
+    if (demo || !plan) {
+      if (kind === 'registered') { oriSay(demo ? EXAMPLE_REGISTERED : 'No reviewed live plan for this payment, so nothing was sent.'); return }
+      if (isSettlementEnabled() && !demo && !isExampleHandle(to)) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
+      if (paymentInFlight.current) return
+      paymentInFlight.current = true
+      const gen = demoPayGen.current
+      try {
+        // Gated status updates: mode-change bumps demoPayGen and must not leave a late celebrate writing 'sent'
+        await celebrate(r, v => { if (gen === demoPayGen.current) setStatus(v) })
+        if (gen !== demoPayGen.current || sheetAction.current === 'cancel') return // stale / cancelled — do not log
+        setSettlement(null)
+        logTransaction({ kind: 'send', status: 'completed', amount: `-${amt}`, asset: 'USDC', network: 'Base → Solana', to: to.trim(), note: 'DEMO · simulated delivery · nothing signed or broadcast', demo: true })
+        setExtra(e => e - amt) // UI-only example balance nudge; not real spending
+        oriSay(`DEMO: simulated ${usd(amt)} to ${to}. Nothing was signed, deposited, or spent for real.`)
+      } finally { paymentInFlight.current = false }
+      return
+    }
+    if (!plan || plan.usd !== amt) { oriSay('No reviewed live plan for this payment, so nothing was sent.'); return }
+    paymentInFlight.current = true; setStatus('running')
+    const dest = plan.kind === 'direct' ? plan.to : plan.review.recipient
+    const tx = logTransaction({ kind: 'send', status: 'submitted', amount: `-${amt}`, asset: 'USDC', network: plan.kind === 'direct' ? 'Base' : 'Base → Solana', to: dest, note: 'Waiting for your wallet signature' })
+    let broadcast = false
+    const stMap = { complete: 'SUCCESS', refunded: 'REFUNDED', failed: 'FAILED', pending: 'PROCESSING' } as const
+    try {
+      const res = await executePay(plan, tx.id, {
+        provider: (window as unknown as { ethereum?: EvmProvider }).ethereum ?? null,
+        limit: () => limitCheck(cfg, amt), status: dep => settlementStatus(dep), reserve: reserveSpend, release: releaseSpend,
+        onUpdate: (st, i) => {
+          if (st === 'deposited') { broadcast = true; setSettlement({ kind: 'settlement', quote: plan.kind === 'intents' ? plan.settlement : undefined, wallet: plan.account, txHash: i.tx || '', state: 'BROADCAST', destination: dest, network: 'Solana', amount: amt }); updateTransaction(tx.id, { status: 'pending', txHash: i.tx, explorer: `https://basescan.org/tx/${i.tx}`, note: 'Deposit confirmed on Base; waiting for 1Click settlement' }); return }
+          broadcast = broadcast || !!i.tx
+          setSettlement(p => ({ ...(p || { kind: plan.kind === 'direct' ? 'direct' : 'settlement', wallet: plan.account, destination: dest, network: plan.kind === 'direct' ? 'Base' : 'Solana', amount: amt }), txHash: i.tx || p?.txHash || '', state: stMap[st] }))
+          updateTransaction(tx.id, { status: st === 'complete' ? 'completed' : st, txHash: i.tx, note: st === 'complete' ? (plan.kind === 'direct' ? 'Confirmed on Base' : '1Click reported SUCCESS') : st === 'refunded' ? 'Refunded to your wallet; daily spend released' : st === 'failed' ? 'Failed; daily spend released' : 'Not confirmed yet; check history later' })
+        },
+      })
+      if (res.state === 'complete' || res.state === 'pending') setExtra(e => e - amt)
+      setStatus(res.state === 'complete' ? 'sent' : 'idle')
+      oriSay(res.state === 'complete' ? `Delivered ${usd(amt)} to ${short(dest)}. Verified.` : res.state === 'refunded' ? 'The payment was refunded to your wallet.' : res.state === 'failed' ? 'The payment failed. Nothing was delivered.' : 'Submitted but not confirmed yet. I will not mark it delivered until it is.')
+    } catch (e) {
+      const error = (e as Error).message
+      if (!broadcast) updateTransaction(tx.id, { status: 'cancelled', note: 'Not sent: ' + error })
+      setStatus('idle'); oriSay(`${error} ${broadcast ? 'Your deposit was already submitted; I could not confirm settlement yet.' : 'No transaction was submitted.'}`)
+    } finally { paymentInFlight.current = false }
+  }
+  const swapInFlight = useRef(false)
+  const doSwap = async (r: DOMRect, v: number, detail: string, plan?: SwapPlan) => {
+    { const why = limitCheck(cfg, v); if (why) { overLimit(r, why, `Swap of ${usd(v)}`); return } }
+    if (!plan) {
+      if (isSettlementEnabled()) { oriSay('No binding quote was reviewed, so nothing was sent.'); return } // live mode never falls back to a fake success
+      await celebrate(r, setSwapSt); addSpent(v); oriSay(`EXAMPLE: swapped ${detail}, simulated at the live quote. Nothing was signed.`); return
+    }
+    if (swapInFlight.current) return; swapInFlight.current = true
+    const w = window as unknown as { ethereum?: EvmProvider & { selectedAddress?: string }; solana?: SolProvider }
+    const tx = logTransaction({ kind: 'swap', status: 'submitted', amount: `-${detail}`, asset: plan.asset.sym, network: plan.lines[0][1], to: plan.review.recipient, note: 'Waiting for your wallet to sign the deposit' })
+    setSwapSt('running')
+    try {
+      const res = await executeSwap(plan.review, plan.asset, {
+        quote: async () => plan.settlement,
+        limit: () => limitCheck(cfg, v),
+        currentAccount: () => plan.asset.net === 'Solana' ? w.solana?.publicKey?.toString() ?? null : plan.review.account, // EVM account is re-verified inside sendEvm
+        deposit: async (a, to, u) => {
+          const fee = await estimateFee(a, plan.review.account, to, u)
+          const bal = await balanceOf(a, plan.review.account)
+          const why = preSignCheck({ a, units: u, fee, bal, usd: v, caps: cfg, spent: spentToday(), recipientError: null })
+          if (why) throw new Error(why)
+          if (a.net === 'Solana') {
+            if (!w.solana) throw new Error('No Solana wallet found.')
+            return a.kind === 'spl' ? sendSpl(w.solana, a, plan.review.account, to, u) : sendSol(w.solana, plan.review.account, to, u)
+          }
+          if (!w.ethereum) throw new Error('No EVM wallet found.')
+          return sendEvm(w.ethereum, a, plan.review.account, to, u)
+        },
+        status: dep => settlementStatus(dep),
+        onUpdate: (st, i) => { if (st === 'deposited') reserveSpend(tx.id, v); else if (st === 'refunded' || st === 'failed') releaseSpend(tx.id); updateTransaction(tx.id, st === 'deposited' ? { status: 'pending', txHash: i.tx, note: `Deposit sent to ${short(i.depositAddress || '')}; waiting for NEAR Intents` } : { status: st === 'complete' ? 'completed' : st, note: st === 'complete' ? 'Provider reported SUCCESS' : st === 'refunded' ? 'Provider refunded the deposit to your wallet' : st === 'failed' ? 'Provider or chain reported failure' : 'Still processing; check history later' }) },
+      })
+      setSwapSt(res.state === 'complete' ? 'sent' : 'idle')
+      oriSay(res.state === 'complete' ? `Swap complete: ${detail}. Verified by the provider.` : res.state === 'refunded' ? 'The swap was refunded to your wallet.' : res.state === 'failed' ? 'The swap failed. Check history.' : 'Deposit sent; settlement still pending. I will not mark it complete until the provider confirms.')
+    } catch (e) { updateTransaction(tx.id, { status: 'cancelled', note: 'Not sent: ' + ((e as Error).message || 'wallet refused') }); setSwapSt('idle'); oriSay(((e as Error).message || 'The wallet did not sign.') + ' Nothing was sent.') }
+    finally { swapInFlight.current = false }
+  }
   const overLimit = (r: DOMRect, why: string, what: string) => { logBlocked(what, why); { const m = what.match(/^(Payment|Swap) of (.+?)(?: to (.+))?$/); setSheet({ kind: m?.[1] === 'Swap' ? 'swap' : 'pay', to: m?.[3] || 'Your ORI wallet', amount: m?.[2] || what, usdv: +(what.match(/\$([\d,.]+)/)?.[1] || '0').replace(/,/g, ''), chain: m?.[1] === 'Swap' ? 'Solana ⇄ Base' : 'Base → Solana', fee: null, blocked: why }) } ori.current?.block(r); ori.current?.mood('worried'); oriSay(`I stopped that. ${why} You can change your limits in Policy.`, false, ['Open policy', 'What are my limits?']); setTimeout(() => ori.current?.block(null), 3200) }
 
 
@@ -578,40 +795,41 @@ export default function App() {
     {wide && <aside className="side">
       <div className="side-logo">{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}</div>
       <div className="side-nav">
-        {([['home', 'Home'], ['pay', 'Pay'], ['swap', 'Swap'], ['request', 'Request'], ['wallets', 'Wallets'], ['history', 'History'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).map(([k, label], i) => <Fragment key={k}>
-          {i === 3 && <p className="mono xs dim side-sep">MORE</p>}
+        {([['home', 'Home'], ['pay', 'Pay'], ['receive', 'Receive'], ['swap', 'Swap'], ['request', 'Request'], ['wallets', 'Wallets'], ['history', 'History'], ['policy', 'Policy & limits'], ['scan', 'Scanner'], ['earn', 'Earn'], ['privacy', 'Privacy'], ['profile', 'Profile'], ['settings', 'Settings'], ['security', 'Security'], ['help', 'Help']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label], i) => <Fragment key={k}>
+          {i === 4 && <p className="mono xs dim side-sep">MORE</p>}
           <button className={'side-item' + (screen === k ? ' on' : '') + ''} onClick={() => goTo(k as Screen)}>
             {label}{screen === k && <motion.i layoutId="sidenav" transition={spring} />}</button></Fragment>)}
       </div>
       <button className="side-account" onClick={() => setAccountOpen(true)}><span className="account-dot" />{account ? `@${account.username}` : 'Sign in / Login'}<span className="mono xs dim">{account ? 'ACCOUNT' : 'GUEST'}</span></button>
       <button className="side-ask" onClick={() => ask()}><span className="dot" />Ask Ori anything<span className="mono xs dim">CLICK</span></button>
-      <p className="mono xs dim side-foot">Preview · {mode === 'live' ? 'live watch-only' : 'example data'} · nothing is signed</p>
+      <p className="mono xs dim side-foot">{kind === 'registered' ? 'Registered · mainnet data only · your wallet signs every send' : `Guest · ${mode === 'live' ? 'live watch-only' : 'example data'} · payments are DEMO only`}</p>
     </aside>}
-    {wide && <button className={'mic top-mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
-        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{!cfg.wake ? 'WAKE OFF' : mic === 'listening' ? 'HEY ORI · ON' : mic === 'requesting' ? 'MIC ACCESS…' : mic === 'unsupported' ? 'CLICK ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>}
+    {wide && <button className="mic top-mic" onClick={heyOri} aria-label={listenSt === 'listening' ? 'Stop listening' : 'Open chat and talk to Ori'} title={listenSt === 'listening' ? 'Listening — click to stop' : 'Click to talk to Ori. Not always listening.'} aria-pressed={listenSt === 'listening'}>
+        <span className="dot" aria-hidden />
+        <span className="mono xs">{listenSt === 'listening' ? 'HEY ORI · LISTENING' : listenSt === 'denied' ? 'HEY ORI · MIC BLOCKED' : listenSt === 'unsupported' ? 'HEY ORI · TYPE' : 'HEY ORI · CLICK'}</span></button>}
     {!wide && <header>{stage === 'land' || stage === 'done' ? <motion.span layoutId="wordmark" className="logo" transition={{ type: 'spring', stiffness: 170, damping: 24 }}><LogoH h={wide ? 30 : 22} /></motion.span> : <span className="logo" style={{ opacity: 0 }}><LogoH h={wide ? 30 : 22} /></span>}
-      <button className={'mic ' + mic} onClick={() => { openChat(); toggleMic() }} aria-pressed={mic === 'listening'} title="Listen for “Hey Ori”">
-        <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>
-        <span className="mono xs">{mic === 'listening' ? 'HEY ORI · ON' : mic === 'requesting' ? 'MIC ACCESS…' : mic === 'unsupported' ? 'TAP ORI' : mic === 'denied' ? 'MIC BLOCKED' : 'HEY ORI'}</span></button>
+      <button className="mic" onClick={heyOri} aria-label={listenSt === 'listening' ? 'Stop listening' : 'Open chat and talk to Ori'} title={listenSt === 'listening' ? 'Listening — tap to stop' : 'Tap to talk to Ori. Not always listening.'} aria-pressed={listenSt === 'listening'}>
+        <span className="dot" aria-hidden />
+        <span className="mono xs">{listenSt === 'listening' ? 'HEY ORI · LISTENING' : listenSt === 'denied' ? 'HEY ORI · MIC BLOCKED' : listenSt === 'unsupported' ? 'HEY ORI · TYPE' : 'HEY ORI · TAP'}</span></button>
       {screen === 'home' && <button className="gear" aria-label="Settings" onClick={() => goTo('settings')}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></button>}</header>}
-    <AnimatePresence>{heard && <motion.div className="heard mono xs" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} onAnimationComplete={() => setTimeout(() => setHeard(null), 3500)}>HEARD {heard}</motion.div>}</AnimatePresence>
     <AnimatePresence mode="wait">
       <motion.main key={screen} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={spring}>
-        {screen === 'home' && <Home hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
-        {screen === 'pay' && <Pay draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
-        {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'home' && <Home kind={kind} profile={<ProfileChip account={account} onAccount={() => setAccountOpen(true)} onProfile={() => goTo('profile')} onLogout={() => { signOut(); setAccount(null); oriSay('Logged out. Your wallets and history stay on this device.') }} />} hidden={hidden} setHidden={setHidden} extra={extra} mode={mode} setMode={setMode} live={live} addrs={addrs} setAddrs={setAddrs} refresh={refresh} onTransaction={setSelectedTransaction} wide={wide} go={(s, to, amt) => { if (s === 'send') setSendPreset(to ? { sym: to.split('|')[0], net: to.split('|')[1] } : null); if (s === 'pay' && to !== undefined) { setStatus('idle'); setDraft({ to, amt: amt || '0', k: Date.now() }) } setScreen(s); scrollTo(0, 0) }} />}
+        {screen === 'pay' && <Pay guest={kind === 'guest'} draft={draft} status={status} settlement={settlement} cfg={cfg} onLimit={overLimit} onConfirm={confirm} onRisk={(r, why) => { ori.current?.block(r); if (r && why) { ori.current?.mood('worried'); ori.current?.say('Stop. ' + why, 4000) } }} onEvent={t => ori.current?.say(t)} refundTo={refundEvm} />}
+        {screen === 'swap' && <Swap refundEvm={refundEvm} preset={swapPre} status={swapSt} cfg={cfg} uiMode={mode} onConfirm={confirmSwap} onLimit={overLimit} />}
+        {screen === 'send' && <SendScreen key={sendPreset ? sendPreset.sym + sendPreset.net : 'send'} cfg={cfg} preset={sendPreset} openWallets={() => goTo('wallets')} />}
+        {screen === 'receive' && <ReceiveScreen watched={addrs} cfg={cfg} setCfg={setCfg} openWallets={() => goTo('wallets')} onAddWatch={a => { const t = a.trim(); if (!t || addrs.some(x => x.toLowerCase() === t.toLowerCase())) return; setAddrs([...addrs, t]) }} />}
         {screen === 'request' && <RequestScreen defaultAddress={addrs.find(a => kindOf(a) !== null) || ''} />}
-        {screen === 'history' && <HistoryScreen onSelect={setSelectedTransaction} />}
+        {screen === 'history' && <HistoryScreen kind={kind} onSelect={setSelectedTransaction} />}
         {screen === 'wallets' && <WalletsScreen />}
-        {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} speechOk={speechSupported()} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
+        {screen === 'settings' && <SettingsScreen s={cfg} set={setCfg} mode={mode} setMode={setMode} modeLocked={!canUseExample(kind)} watch={<Watch addrs={addrs} setAddrs={setAddrs} live={live} refresh={refresh} />} />}
         {screen === 'security' && <SecurityScreen s={cfg} set={setCfg} />}
         {screen === 'policy' && <PolicyScreen s={cfg} set={setCfg} />}
-        {screen === 'scan' && <ScanScreen />}
+        {screen === 'scan' && !isHiddenScreen('scan') && <ScanScreen />}
         {screen === 'help' && <HelpScreen ask={ask} />}
-        {screen === 'profile' && <Profile sum={total + extra} hide={hidden} />}
-        {screen === 'earn' && <Earn />}
-        {screen === 'privacy' && <Privacy hidden={hidden} setHidden={setHidden} />}
+        {screen === 'profile' && <Profile sum={kind === 'registered' ? live.holdings.reduce((a, h) => a + h.usd, 0) : total + extra} hide={hidden} registered={kind === 'registered'} addrs={addrs} native={nativeWallet ? { near: nativeWallet.nearAccountId, evm: nativeWallet.evm?.address ?? null, sol: nativeWallet.sol?.address ?? null } : null} />}
+        {screen === 'earn' && !isHiddenScreen('earn') && <Earn />}
+        {screen === 'privacy' && !isHiddenScreen('privacy') && <Privacy hidden={hidden} setHidden={setHidden} />}
       </motion.main>
     </AnimatePresence>
     {!wide && <nav>{(['home', 'pay', 'swap'] as Screen[]).map((t) => <button key={t} onClick={() => goTo(t)} className={screen === t && !menu ? 'on' : ''}>
@@ -626,8 +844,7 @@ export default function App() {
         <div className="grab" />
         <p className="mono xs dim">MORE</p>
         <button className="drow account-menu" onClick={() => setAccountOpen(true)}><span className="dl">{account ? `@${account.username}` : 'Sign in / Login'}<small>{account ? 'Gmail account · saved conversations on' : 'Guest session · save conversations and memory'}</small></span><span className="arr">→</span></button>
-        <NearAuthMenu />
-        {([['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['request', 'Request', 'Ask someone to pay you'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).map(([k, label, sub], i) =>
+        {([['receive', 'Receive', 'Copy addresses on Base, Ethereum, Solana and NEAR'], ['wallets', 'Wallets', 'Connect and switch external wallets'], ['history', 'History', 'Every transaction, status, and detail'], ['request', 'Request', 'Ask someone to pay you'], ['policy', 'Policy & limits', 'Caps, approval threshold, allowlist'], ['scan', 'Scanner', 'Risky tokens and approvals'], ['earn', 'Earn', 'Safe, capped yield on stablecoins'], ['privacy', 'Privacy', 'Hidden balances, private routes'], ['profile', 'Profile', 'Your chain addresses, one balance'], ['settings', 'Settings', 'Addresses, data mode, voice'], ['security', 'Security', 'Scam checks, spending limits'], ['help', 'Help', 'How ORI works']] as const).filter(([k]) => !isHiddenScreen(k)).map(([k, label, sub], i) =>
           <motion.button key={k} className="drow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay: 0.04 * i }}
             onClick={() => goTo(k)}>
             <span className="dl">{label}<small>{sub}</small></span><span className="arr" aria-hidden>→</span></motion.button>)}
@@ -642,8 +859,14 @@ export default function App() {
           {m.who === 'ori' && m.chips && i === msgs.length - 1 && !thinking && <div className="chips">{m.chips.map(c => <button key={c} className="mono xs" onClick={() => command(c)}>{c}</button>)}</div>}
         </motion.div> })}
           {thinking && <div className="msg bot thinking"><Dots size={5} label="Ori is thinking" /></div>}<div ref={msgsEnd} /></div>
+        {(listenSt !== 'off' || listenHint) && <div className="mono xs dim why" role="status">
+          {listenSt === 'listening' && <span className="vbars" aria-hidden><i /><i /><i /><i /><i /></span>}{listenHint || (listenSt === 'listening' ? 'Listening…' : '')}
+          {listenSt === 'listening' && <button type="button" className="ghost" onClick={() => { haltTalk(); setListenSt('off'); setListenHint('Stopped. You can type or tap Hey ORI again.') }}>Stop</button>}
+          {input.trim() && <button type="button" className="ghost" onClick={() => setInput('')}>Clear</button>}
+        </div>}
         <form onSubmit={e => { e.preventDefault(); if (input.trim() && !thinking) { command(input); setInput('') } }} className="ask">
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" ref={askIn} enterKeyHint="send" tabIndex={chat ? 0 : -1} /><button className="mono xs" disabled={thinking}>SEND</button></form>
+          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask Ori: balance, prices, “pay tolu 20”…" aria-label="Message Ori (local rule-based assistant)" aria-describedby="composer-note" ref={askIn} enterKeyHint="send" tabIndex={chat ? 0 : -1} /><button className={'mono xs send-btn' + (input.trim() ? ' ready' : '')} disabled={thinking || !input.trim()} aria-label="Send message">SEND</button></form>
+          <div id="composer-note" className="mono xs dim composer-note">Local rule-based assistant · not an AI model · it never signs anything</div>
       </motion.div>
     <div className={'ori-wrap' + (menu ? ' aside' : '') + (stage !== 'done' ? ' pre' : '')}><Ori ref={ori} hidden={hidden} reduced={reduced} screen={screen} onTap={() => { if (chat) setChat(false); else openChat() }} balance={hidden ? null : rows.reduce((a, r) => a + r.usd, 0)} chat={chat && wide} /></div>
     <AnimatePresence>{burst && <motion.div className="ripple" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .25 }} aria-hidden>
@@ -666,7 +889,7 @@ const REQUEST_KEY = 'ori-payment-requests'
 function loadRequests(): PaymentRequest[] { try { const v = JSON.parse(localStorage.getItem(REQUEST_KEY) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
 function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
   const [amount, setAmount] = useState('20'), [asset, setAsset] = useState('USDC'), [network, setNetwork] = useState('Base')
-  const [target, setTarget] = useState(defaultAddress), [requests, setRequests] = useState<PaymentRequest[]>(loadRequests), [selected, setSelected] = useState<PaymentRequest | null>(null), [copied, setCopied] = useState(false), [error, setError] = useState('')
+  const [target, setTarget] = useState(defaultAddress), [requests, setRequests] = useState<PaymentRequest[]>(loadRequests), [selected, setSelected] = useState<PaymentRequest | null>(null), [error, setError] = useState('')
   const valid = !!(+amount > 0) && !!target.trim() && (target.trim().startsWith('@') || !!kindOf(target.trim()))
   const create = (e: React.FormEvent) => {
     e.preventDefault(); setError(''); const who = target.trim()
@@ -676,8 +899,7 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
     const next: PaymentRequest = { id, amount, asset, network, target: who, createdAt: Date.now(), status: 'open', link }
     const all = [next, ...requests].slice(0, 20); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(next)
   }
-  const copy = (text: string) => { navigator.clipboard?.writeText(text).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1400) }
-  const cancel = (id: string) => { const all = requests.map(r => r.id === id ? { ...r, status: 'cancelled' as const } : r); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(null) }
+    const cancel = (id: string) => { const all = requests.map(r => r.id === id ? { ...r, status: 'cancelled' as const } : r); localStorage.setItem(REQUEST_KEY, JSON.stringify(all)); setRequests(all); setSelected(null) }
   return <div className="pg">
     <section className="pad-top"><Label>REQUEST · ASK FOR FUNDS</Label><h2 className="big2">Get paid<br /><span className="dim">without a username first.</span></h2><div className="mono xs dim">Create a shareable request for a handle or real wallet address. This preview stores requests on this device; it does not notify or settle payments yet.</div></section>
     <section><Label>NEW PAYMENT REQUEST</Label><form onSubmit={create}>
@@ -687,22 +909,40 @@ function RequestScreen({ defaultAddress }: { defaultAddress: string }) {
       <label className="account-label">REQUEST FROM · HANDLE OR ADDRESS<input className="field" value={target} onChange={e => setTarget(e.target.value)} placeholder="@bamio or 0x…" spellCheck={false} /></label>
       {error && <div className="mono xs err why">{error}</div>}<button className="cta" disabled={!valid}>Create request</button>
     </form></section>
-    {selected && <section><Label>SHARE REQUEST · {selected.status.toUpperCase()}</Label><div className="row"><span className="grow"><b>{selected.amount} {selected.asset}</b><br /><span className="mono xs dim">{selected.network} · from {selected.target}</span></span><button className="ghost" onClick={() => copy(selected.link)}>{copied ? 'COPIED' : 'COPY LINK'}</button></div><div className="pqr"><QR text={selected.link} /><span className="mono xs dim">Scan to open this request · local preview link</span></div><button className="ghost danger" onClick={() => cancel(selected.id)}>Cancel request</button></section>}
+    {selected && <section><Label>SHARE REQUEST · {selected.status.toUpperCase()}</Label><div className="row"><span className="grow"><b>{selected.amount} {selected.asset}</b><br /><span className="mono xs dim">{selected.network} · from {selected.target}</span></span><CopyButton text={selected.link} label="COPY LINK" aria="Copy request link" /></div><div className="pqr"><QR text={selected.link} /><span className="mono xs dim">Scan to open this request · local preview link</span></div><button className="ghost danger" onClick={() => cancel(selected.id)}>Cancel request</button></section>}
     <section><Label>REQUESTS ON THIS DEVICE · {requests.length}</Label>{requests.length ? requests.map(r => <button className="tx-row" key={r.id} onClick={() => setSelected(r)}><span className="tx-icon">↓</span><span className="grow"><b>{r.amount} {r.asset}</b><span className="sub">{r.network} · from {r.target}</span></span><span className="tx-right"><small>{r.status}</small></span></button>) : <div className="mono xs dim">No requests yet.</div>}</section>
   </div>
 }
-function Profile({ sum, hide }: { sum: number; hide: boolean }) {
-  const [qr, setQr] = useState<string | null>(null), [cp, setCp] = useState<string | null>(null)
+function Profile({ sum, hide, registered = false, addrs = [], native = null }: { sum: number; hide: boolean; registered?: boolean; addrs?: string[]; native?: { near: string; evm: string | null; sol: string | null } | null }) {
+  const [qr, setQr] = useState<string | null>(null)
   const bal = (c: string) => chains.find(x => x.name === c)?.usd || 0
   const scale = sum / (total || 1)
+  if (registered) {
+    // Registered: real public addresses only (ORI wallet + addresses you added). No demo rows, no demo funds.
+    const rows: { chain: string; addr: string; src: string }[] = []
+    if (native) { rows.push({ chain: 'NEAR', addr: native.near, src: 'ORI wallet · receive-only' }); if (native.evm) rows.push({ chain: 'Base', addr: native.evm, src: 'ORI wallet · receive-only' }); if (native.sol) rows.push({ chain: 'Solana', addr: native.sol, src: 'ORI wallet · receive-only' }) }
+    for (const a of addrs) { const k = kindOf(a); if (k && !rows.some(r => r.addr.toLowerCase() === a.toLowerCase())) rows.push({ chain: k === 'evm' ? 'Base' : k === 'sol' ? 'Solana' : 'NEAR', addr: a, src: 'Watch-only address' }) }
+    return <div className="pg profile">
+      <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">Registered · mainnet only</div></div></section>
+      <section><Label>MAINNET ADDRESSES</Label>
+        {rows.map(r => <div className="prow" key={r.chain + r.addr}>
+          <ChainMark chain={r.chain} />
+          <span className="grow"><b>{r.chain === 'Base' ? 'Base / Ethereum · EVM' : r.chain}</b><span className="sub mono">{r.addr.length > 20 ? short(r.addr) : r.addr} · {r.src}</span></span>
+          <CopyButton text={r.addr} label="" className="picon" aria={'Copy ' + r.chain + ' address'} />
+        </div>)}
+        {!rows.length && <div className="mono xs dim">No mainnet address yet. Create your ORI wallet in Receive, or add an address in Settings.</div>}
+        <div className="ptotal"><span className="grow">Verified balance · watched addresses</span><span className={'num' + (hide ? ' blurred' : '')}><Money v={sum} cls="sm" /></span></div>
+        <div className="mono xs dim">Only balances read from mainnet are shown. Demo funds are excluded. ORI wallets are receive-only until a NEAR signing relayer is set up.</div></section>
+    </div>
+  }
   return <div className="pg profile">
-    <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">One account · four chains <Example /></div></div></section>
+    <section className="pad-top prof-head"><img src="/ori-mark.svg" alt="" className="prof-av" /><div><h2 className="big2">Your ORI</h2><div className="mono xs dim">Guest preview · one account · four chains <Example /></div></div></section>
     <section><Label>CHAIN ADDRESSES · DEMO</Label>
       {DEMO_ADDRS.map(a => <div className="prow" key={a.chain}>
-        <span className="pchip" style={{ background: chainCol(a.chain) }}>{a.chain[0]}</span>
+        <ChainMark chain={a.chain} />
         <span className="grow"><b>{a.chain === 'Base' ? 'Base · EVM' : a.chain}</b><span className="sub mono">{a.addr.length > 20 ? short(a.addr) : a.addr}</span></span>
         <span className={'num' + (hide ? ' blurred' : '')}><Money v={bal(a.chain) * scale} cls="sm" /></span>
-        <button className="picon" aria-label={'Copy ' + a.chain + ' address'} onClick={() => { navigator.clipboard?.writeText(a.addr).catch(() => {}); setCp(a.chain); setTimeout(() => setCp(null), 1400) }}>{cp === a.chain ? '✓' : <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></svg>}</button>
+        <CopyButton text={a.addr} label="" className="picon" aria={'Copy ' + a.chain + ' address'} />
         <button className="picon" aria-label={'Show ' + a.chain + ' QR'} onClick={() => setQr(qr === a.chain ? null : a.chain)}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" /></svg></button>
         <AnimatePresence>{qr === a.chain && <motion.div className="pqr" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring}><QR text={a.addr} /><span className="mono xs dim">Demo address · don’t send real funds</span></motion.div>}</AnimatePresence>
       </div>)}

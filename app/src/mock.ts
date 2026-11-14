@@ -2,9 +2,9 @@
 export const EXAMPLE = true
 export type Chain = 'Ethereum' | 'Solana' | 'Base' | 'NEAR'
 export const chains: { name: Chain; usd: number; addr: string }[] = [
-  { name: 'Base', usd: 1184.2, addr: '0x7a3…e91 (derived)' },
-  { name: 'Solana', usd: 862.55, addr: '9xQe…4kP (derived)' },
-  { name: 'Ethereum', usd: 540.1, addr: '0x51c…0d2 (derived)' },
+  { name: 'Base', usd: 1184.2, addr: '0x7a3…e91 (example)' },
+  { name: 'Solana', usd: 862.55, addr: '9xQe…4kP (example)' },
+  { name: 'Ethereum', usd: 540.1, addr: '0x51c…0d2 (example)' },
   { name: 'NEAR', usd: 260.4, addr: 'example.near' },
 ]
 export const assets = [
