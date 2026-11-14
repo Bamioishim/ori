@@ -1,11 +1,10 @@
 use near_sdk::{
-    env, near, require, AccountId, Gas, NearToken, PanicOnDefault, Promise,
+    env, near, require, AccountId, NearToken, PanicOnDefault, Promise,
 };
 use std::collections::HashSet;
 
 const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 const DAY_MS: u64 = 86_400_000;
-const TRANSFER_GAS: Gas = Gas::from_tgas(5);
 
 #[near(serializers = [json])]
 #[derive(Clone)]
@@ -103,7 +102,6 @@ impl OriPolicyVault {
 
         self.spent_today = next_spend;
         Promise::new(recipient).transfer(NearToken::from_yoctonear(amount))
-            .with_static_gas(TRANSFER_GAS)
     }
 
     pub fn get_policy(&self) -> Policy {
