@@ -9,7 +9,7 @@ ORI is a hackathon prototype built around a simple idea: people should be able t
 
 ## Try the demo
 
-**Open ORI:** https://ori.vercel.app/
+**Open ORI:** https://ori-bamioishim.vercel.app/
 
 For judges:
 1. Open the app and continue as a **Guest**.
