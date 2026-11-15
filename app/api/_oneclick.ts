@@ -36,7 +36,7 @@ export async function oneClick(path: string, init: RequestInit = {}) {
   headers.set('content-type', 'application/json')
   headers.set('x-api-key', jwt)
   const response = await fetch(ONECLICK + path, { ...init, headers, signal: AbortSignal.timeout(15000) })
-  const body = await response.json().catch(() => ({ message: 'Invalid response from 1Click.' }))
+  const body: any = await response.json().catch(() => ({ message: 'Invalid response from 1Click.' }))
   if (!response.ok) return json({ error: body.message || `1Click returned ${response.status}.` }, response.status >= 500 ? 502 : response.status)
   return json(body)
 }

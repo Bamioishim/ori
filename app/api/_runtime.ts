@@ -1,4 +1,7 @@
 // Minimal Node ↔ Web Request/Response adapter for Vercel.
+// Vercel's API route type-checker does not inherit the frontend Node type set.
+type Buffer = any
+declare const Buffer: any
 // Handlers are written as (Request) => Response; the deployed Node runtime calls (req, res).
 // Scope: shared wrapper for compatible JSON endpoints (resolve / quote / status / auth).
 

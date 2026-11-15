@@ -164,6 +164,16 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
   }
   for (const [re, a, chips] of KB) if (re.test(t)) return { text: a, chips }
   for (const [re, a] of TALK) if (re.test(t)) return { text: pick(a), mood: 'happy' }
+  // General questions may use NEAR AI Cloud, but only return a response after the server
+  // verifies both the deployment attestation and the exact provider-TEE response signature.
+  // No wallet state, balances, addresses, or transaction history are sent to the model.
+  try {
+    const r = await fetch('/api/near-ai', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: raw }) })
+    const j = await r.json().catch(() => ({}))
+    if (r.ok && j.proof?.verified === true && j.proof?.signatureKind === 'provider_tee' && typeof j.answer === 'string') {
+      return { text: j.answer + '\n\nVerified by NEAR AI Cloud · model TEE', mood: 'think' }
+    }
+  } catch { /* local assistant remains available when private AI is not configured */ }
   return { text: 'I didn’t catch that. I’m a local assistant, not a chatbot, so I know your balances, prices, quotes, payments, swaps, limits and how ORI works. Try:', chips: DEFAULT_CHIPS }
 }
 export { DEFAULT_CHIPS }
