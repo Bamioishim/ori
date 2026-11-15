@@ -171,7 +171,7 @@ export async function answer(raw: string, ctx: Ctx): Promise<Reply> {
     const r = await fetch('/api/near-ai', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: raw }) })
     const j = await r.json().catch(() => ({}))
     if (r.ok && j.proof?.verified === true && j.proof?.signatureKind === 'provider_tee' && typeof j.answer === 'string') {
-      return { text: j.answer + '\\n\\nVerified by NEAR AI Cloud · model TEE', mood: 'think' }
+      return { text: j.answer + '\n\nVerified by NEAR AI Cloud · model TEE', mood: 'think' }
     }
   } catch { /* local assistant remains available when private AI is not configured */ }
   return { text: 'I didn’t catch that. I’m a local assistant, not a chatbot, so I know your balances, prices, quotes, payments, swaps, limits and how ORI works. Try:', chips: DEFAULT_CHIPS }
