@@ -7,7 +7,7 @@ export type SessionKind = 'guest' | 'registered'
 
 export function sessionKind(_o: { account: unknown; nativeWallet: unknown }): SessionKind {
   // Production preview is intentionally guest-only until account and wallet flows are ready.
-  return GUEST_ONLY ? 'guest' : 'guest'
+  return 'guest'
 }
 /** Registered sessions are locked to live data; guests keep whatever they picked. */
 export function effectiveMode(requested: UiMode, kind: SessionKind): UiMode {
