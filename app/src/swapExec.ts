@@ -4,6 +4,7 @@
 // -> poll 1Click status. History is "complete" only when the provider reports SUCCESS.
 import type { SettlementQuote, SettlementStatus } from './live.ts'
 import type { AssetDef, SendResult } from './transfers.ts'
+import { GUEST_ONLY } from './sessionMode.ts'
 
 export type SwapReview = {
   originAsset: string; destinationAsset: string; units: bigint; recipient: string; refundTo: string
@@ -38,6 +39,7 @@ export type SwapDeps = {
   sleep?: (ms: number) => Promise<void>; polls?: number; pollMs?: number; now?: () => number
 }
 export async function executeSwap(r: SwapReview, asset: AssetDef, d: SwapDeps): Promise<{ state: SwapState; depositAddress: string; tx: string }> {
+  if (GUEST_ONLY) throw new Error('ORI is in guest-only preview mode. Real swaps are disabled; nothing was signed or sent.')
   const s = await d.quote()
   const bad = checkSwapQuote(s, r, d.now?.() ?? Date.now()); if (bad) throw new Error(bad)
   const why = d.limit(); if (why) throw new Error(why)
