@@ -3,6 +3,7 @@ import { readPortfolio, short, type Holding } from './live'
 import { connectWallet, removeWallet, setActiveWallet, useManagedWallets } from './wallets'
 import { Dots } from './Loaders'
 import { NativeWalletCard } from './NativeWallet'
+import { GUEST_ONLY } from './sessionMode'
 
 const total = (h: Holding[]) => h.reduce((n, x) => n + x.usd, 0)
 export default function WalletsScreen() {
@@ -11,6 +12,7 @@ export default function WalletsScreen() {
   useEffect(() => { let dead = false; setHoldings([]); setReadError(''); if (!selected) return; readPortfolio([selected.address]).then(r => { if (!dead) { setHoldings(r.holdings); setReadError(r.errors.join(' · ')) } }).catch(e => { if (!dead) setReadError((e as Error).message) }); return () => { dead = true } }, [selected?.id, selected?.address])
   const byChain = useMemo(() => holdings.filter(h => h.amt > 0), [holdings])
   const connect = async (kind: 'evm' | 'sol') => { setBusy(kind); setError(''); try { await connectWallet(kind) } catch (e) { setError((e as Error).message) } finally { setBusy(null) } }
+  if (GUEST_ONLY) return <div className="pg wallets-page"><section className="pad-top"><div className="label">WALLETS · GUEST PREVIEW</div><h2 className="big2">Wallet connections<br /><span className="dim">are temporarily disabled.</span></h2><p className="account-copy">This public ORI preview is guest-only. You can explore watch-only balances without connecting a wallet. No signing or real transfers are enabled.</p></section></div>
   return <div className="pg wallets-page"><section className="pad-top"><div className="label">WALLETS · NON-CUSTODIAL</div><h2 className="big2">Your wallets,<br /><span className="dim">your keys.</span></h2><p className="account-copy">Connect external wallets without giving ORI private keys or recovery phrases. ORI stores only public addresses and provider metadata on this device.</p>
     <div className="wallet-connect"><button className="cta compact" disabled={!!busy} onClick={() => connect('evm')}>{busy === 'evm' ? <Dots size={5} label="Connecting" /> : 'Connect MetaMask / Coinbase'}</button><button className="ghost" disabled={!!busy} onClick={() => connect('sol')}>{busy === 'sol' ? <Dots size={5} label="Connecting" /> : 'Connect Phantom'}</button></div>{error && <div className="mono xs err why">{error}</div>}</section>
     <section><div className="sechead"><div className="label">CONNECTED WALLETS</div><span className="mono xs dim">{list.length} wallet{list.length === 1 ? '' : 's'}</span></div>{list.length ? list.map(w => <div className={'wallet-card ' + (w.id === (active || list[0]?.id) ? 'selected' : '')} key={w.id}>
