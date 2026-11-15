@@ -1,11 +1,13 @@
 // Guest demo vs registered mainnet separation (from the Nov 8 fix/guest-mainnet-auth-transfer work), kept pure for tests.
 // Guest: example data and DEMO-only payments; nothing is signed. Registered (Gmail account or an ORI wallet on this device):
 // live data only, demo activity hidden, and payments never fall back to a simulated "success".
+export const GUEST_ONLY = true
 export type UiMode = 'example' | 'live'
 export type SessionKind = 'guest' | 'registered'
 
-export function sessionKind(o: { account: unknown; nativeWallet: unknown }): SessionKind {
-  return o.account || o.nativeWallet ? 'registered' : 'guest'
+export function sessionKind(_o: { account: unknown; nativeWallet: unknown }): SessionKind {
+  // Production preview is intentionally guest-only until account and wallet flows are ready.
+  return GUEST_ONLY ? 'guest' : 'guest'
 }
 /** Registered sessions are locked to live data; guests keep whatever they picked. */
 export function effectiveMode(requested: UiMode, kind: SessionKind): UiMode {
