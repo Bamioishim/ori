@@ -6,6 +6,7 @@ import { logTransaction, updateTransaction } from './transactions'
 import { addSpent, spentToday, type Settings } from './settings'
 import { price as priceOf, short, tokens } from './live'
 import { NativeNearSend, useNativeWallet } from './NativeWallet'
+import { GUEST_ONLY } from './sessionMode'
 
 type Stage = 'edit' | 'review' | 'signing' | 'done'
 export function SendScreen({ cfg, preset, openWallets }: { cfg: Settings; preset?: { sym: string; net: string } | null; openWallets: () => void }) {
@@ -48,6 +49,7 @@ export function SendScreen({ cfg, preset, openWallets }: { cfg: Settings; preset
       setRes(r); setStage('done')
     } catch (e) { if (txId) updateTransaction(txId, { status: 'cancelled', note: 'Not sent: wallet rejected or the transfer failed before broadcast' }); setErr((e as Error).message || 'The wallet did not sign. Nothing was sent.'); setStage('review') }
   }
+  if (GUEST_ONLY) return <div className="pg"><section className="pad-top"><h2 className="big2">Guest preview<br /><span className="dim">sending is disabled.</span></h2><p className="mono xs dim">ORI is running in guest-only mode. No wallet connections, signatures, or real transfers are available in this public preview.</p></section></div>
   const options = ASSETS.map(x => `${x.sym}|${x.net}`)
   return <div className="pg">
     <section className="pad-top"><h2 className="big2">Send<br /><span className="dim">to any wallet address.</span></h2>
