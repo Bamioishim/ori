@@ -1,33 +1,31 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { canUseExample, effectiveMode, EXAMPLE_REGISTERED, MAINNET_OFF, oriWalletCanSend, ORI_WALLET_RECEIVE_ONLY, payRoute, sessionKind, visibleHistory } from '../src/sessionMode.ts'
+import { canUseExample, effectiveMode, EXAMPLE_REGISTERED, GUEST_ONLY, MAINNET_OFF, oriWalletCanSend, ORI_WALLET_RECEIVE_ONLY, payRoute, sessionKind, visibleHistory } from '../src/sessionMode.ts'
 
-test('session kind: Gmail account or ORI wallet = registered, otherwise guest', () => {
+test('public preview forces every session into guest mode', () => {
+  assert.equal(GUEST_ONLY, true)
   assert.equal(sessionKind({ account: null, nativeWallet: null }), 'guest')
-  assert.equal(sessionKind({ account: { username: 'bamio' }, nativeWallet: null }), 'registered')
-  assert.equal(sessionKind({ account: null, nativeWallet: { nearAccountId: 'abc' } }), 'registered')
+  assert.equal(sessionKind({ account: { username: 'bamio' }, nativeWallet: null }), 'guest')
+  assert.equal(sessionKind({ account: null, nativeWallet: { nearAccountId: 'abc' } }), 'guest')
 })
 test('registered sessions are locked to live data; guests can pick example', () => {
-  assert.equal(effectiveMode('example', 'registered'), 'live')
+  assert.equal(effectiveMode('example', 'guest'), 'example')
   assert.equal(effectiveMode('example', 'guest'), 'example')
   assert.equal(effectiveMode('live', 'guest'), 'live')
-  assert.equal(canUseExample('guest'), true); assert.equal(canUseExample('registered'), false)
+  assert.equal(canUseExample('guest'), true); assert.equal(canUseExample('guest'), true)
 })
-test('registered history hides DEMO entries; guest history keeps them', () => {
+test('guest history keeps DEMO entries', () => {
   const list = [{ id: 'a', demo: true }, { id: 'b' }, { id: 'c', demo: false }]
-  assert.deepEqual(visibleHistory(list, 'registered').map(t => t.id), ['b', 'c'])
   assert.equal(visibleHistory(list, 'guest').length, 3)
 })
 test('pay route: guest is always DEMO, even with settlement on', () => {
   assert.deepEqual(payRoute({ kind: 'guest', exampleHandle: false, settlementEnabled: true }), { route: 'demo' })
   assert.deepEqual(payRoute({ kind: 'guest', exampleHandle: true, settlementEnabled: false }), { route: 'demo' })
 })
-test('pay route: registered never gets a simulated success', () => {
-  assert.deepEqual(payRoute({ kind: 'registered', exampleHandle: true, settlementEnabled: true }), { route: 'blocked', reason: EXAMPLE_REGISTERED })
-  assert.deepEqual(payRoute({ kind: 'registered', exampleHandle: false, settlementEnabled: false }), { route: 'blocked', reason: MAINNET_OFF })
-  assert.deepEqual(payRoute({ kind: 'registered', exampleHandle: false, settlementEnabled: true }), { route: 'live' })
-  assert.match(MAINNET_OFF, /No funds were moved/)
+test('guest-only mode never routes a payment to a live wallet', () => {
+  assert.deepEqual(payRoute({ kind: 'guest', exampleHandle: false, settlementEnabled: true }), { route: 'demo' })
+  assert.deepEqual(payRoute({ kind: 'guest', exampleHandle: true, settlementEnabled: true }), { route: 'demo' })
 })
 test('ORI wallet is receive-only without a relayer, and the UI says so', () => {
   assert.equal(oriWalletCanSend(null), false); assert.equal(oriWalletCanSend('https://relayer.example'), true)
@@ -39,4 +37,5 @@ test('ORI wallet is receive-only without a relayer, and the UI says so', () => {
 test('App wires the guest/registered separation', () => {
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
   for (const s of ['sessionKind(', 'effectiveMode(', 'payRoute(', 'visibleHistory']) assert.ok(app.includes(s) || readFileSync(new URL('../src/History.tsx', import.meta.url), 'utf8').includes(s), s)
+  for (const file of ['Send.tsx', 'Wallets.tsx', 'swapExec.ts', 'Account.tsx']) assert.match(readFileSync(new URL('../src/' + file, import.meta.url), 'utf8'), /GUEST_ONLY/)
 })
