@@ -35,7 +35,11 @@ Guest demo actions never submit a blockchain transaction. A guest balance is ill
 - **NEAR AI Cloud / private inference:** optional server-side integration code is included on this branch. It requires `NEARAI_API_KEY` and a supported TEE-attested model; it has not yet been verified end to end in production.
 - **Privacy:** no privacy guarantee or private-AI claim is made. Public blockchain addresses and activity remain public.
 
-## NEAR AI Cloud (optional)\n\nORI can route general assistant questions to NEAR AI Cloud when `NEARAI_API_KEY` is configured on the server. The server uses the official `@nearai/inference-sdk` Node client, requires model attestation, enables field-level E2EE, verifies the exact completion receipt, and only returns answers with a `provider_tee` signature. If attestation or signature verification fails, ORI discards the answer. No wallet balances, addresses, transaction history, or signing material are sent to this model endpoint. The local rule-based assistant remains the fallback when the key is absent.\n\nThis integration is not a substitute for transaction approval, wallet signing, or spending-policy enforcement.\n\n## NEAR components
+## NEAR AI Cloud (optional)
+
+ORI can route general assistant questions to NEAR AI Cloud when `NEARAI_API_KEY` is configured on the server. The server uses the official `@nearai/inference-sdk` Node client, requires model attestation, enables field-level E2EE, verifies the exact completion receipt, and only returns answers with a `provider_tee` signature. If attestation or signature verification fails, ORI discards the answer. No wallet balances, addresses, transaction history, or signing material are sent to this model endpoint. The local rule-based assistant remains the fallback when the key is absent.\n\nThis integration is not a substitute for transaction approval, wallet signing, or spending-policy enforcement.
+
+## NEAR components
 
 | Component | Current status |
 |---|---|
