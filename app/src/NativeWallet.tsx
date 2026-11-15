@@ -9,7 +9,7 @@ import { logTransaction, updateTransaction } from './transactions'
 import { price as priceOf, tokens } from './live'
 import { nearBalance, nearFee, nearSendCheck, spendable, validateNearRecipient, YOCTO } from './oriWallet'
 import { prepareNearTransfer, sendPreparedNear, type PreparedNear } from './nearAuth'
-import { ORI_WALLET_RECEIVE_ONLY, oriWalletCanSend } from './sessionMode'
+import { GUEST_ONLY, ORI_WALLET_RECEIVE_ONLY, oriWalletCanSend } from './sessionMode'
 
 export function useNativeWallet() {
   const [wallet, setWallet] = useState<NativeWallet | null>(() => loadNativeWallet())
@@ -46,6 +46,7 @@ export function NativeWalletCard({ compact = false }: { compact?: boolean }) {
   const signOut = async () => { setBusy('logout'); try { await logout() } catch { /* session ends locally anyway */ } finally { setSession(false); setBusy('') } }
 
   const stateLine = !wallet ? null : session ? 'Signed in with NEAR Auth' : 'Signed out · addresses saved on this device (public only)'
+  if (GUEST_ONLY) return <section className="native-wallet"><div className="label">ORI WALLET · GUEST PREVIEW</div><p className="mono xs dim">Native wallet creation and NEAR Auth sign-in are temporarily disabled in this public guest-only preview.</p></section>
   return <section className="native-wallet">
     <div className="label">ORI WALLET · NEAR AUTH{!oriWalletCanSend(relayerUrl()) && <span className="example" style={{ marginLeft: 8 }}>RECEIVE-ONLY</span>}</div>
     {!wallet ? <>
