@@ -32,7 +32,7 @@ Guest demo actions never submit a blockchain transaction. A guest balance is ill
 - **NEAR Intents settlement:** no real end-to-end payment or cross-chain settlement has been verified by the team. The deployment keeps settlement in preview mode.
 - **Email login:** the separate Gmail-code profile flow is device-local; email delivery may be restricted by the current sender configuration.
 - **On-chain spending policies:** current limits are browser-side UX controls, not smart-contract or backend enforcement.
-- **NEAR AI Cloud / private inference:** not integrated. ORI does not currently use TEE-backed inference or verify AI attestations.
+- **NEAR AI Cloud / private inference:** optional server-side integration code is included on this branch. It requires `NEARAI_API_KEY` and a supported TEE-attested model; it has not yet been verified end to end in production.
 - **Privacy:** no privacy guarantee or private-AI claim is made. Public blockchain addresses and activity remain public.
 
 ## NEAR AI Cloud (optional)\n\nORI can route general assistant questions to NEAR AI Cloud when `NEARAI_API_KEY` is configured on the server. The server uses the official `@nearai/inference-sdk` Node client, requires model attestation, enables field-level E2EE, verifies the exact completion receipt, and only returns answers with a `provider_tee` signature. If attestation or signature verification fails, ORI discards the answer. No wallet balances, addresses, transaction history, or signing material are sent to this model endpoint. The local rule-based assistant remains the fallback when the key is absent.\n\nThis integration is not a substitute for transaction approval, wallet signing, or spending-policy enforcement.\n\n## NEAR components
@@ -43,7 +43,7 @@ Guest demo actions never submit a blockchain transaction. A guest balance is ill
 | NEAR Chain Signatures | Mainnet derived-address views for NEAR, EVM and Solana; no built-in-wallet send path |
 | NEAR RPC | Read-only native NEAR and supported NEAR USDC balance checks |
 | NEAR Intents 1Click | Token catalogue and quote integration; settlement not verified end to end |
-| NEAR AI Cloud | Not integrated |
+| NEAR AI Cloud | Optional TEE-verified inference code; requires a server key and production verification |
 | On-chain spending policy | Not implemented |
 
 ## Architecture at a glance
