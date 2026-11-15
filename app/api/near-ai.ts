@@ -45,7 +45,7 @@ async function webHandler(request: Request) {
       return json({ error: 'The response was not signed by the attested model TEE. ORI discarded it.' }, 502)
     }
     const content = completion.choices?.[0]?.message?.content
-    const answer = typeof content === 'string' ? content : Array.isArray(content) ? content.map((p: any) => p?.text || '').join('') : ''
+    const answer = typeof content === 'string' ? content : ''
     if (!answer.trim()) return json({ error: 'NEAR AI returned an empty response.' }, 502)
     return json({
       answer,
